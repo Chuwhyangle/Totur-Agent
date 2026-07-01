@@ -1,0 +1,23 @@
+# Environment variables and secrets
+.env
+.env.*
+
+# Keep examples
+!.env.example
+
+# Python virtual environments
+.venv/
+venv/
+env/
+
+# Python cache files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# vscode 
+.vscode/
+
+# Logs
+*.log
+logs/
