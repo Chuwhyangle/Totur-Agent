@@ -34,7 +34,6 @@ def load_config():
     if not model_name:
         raise RuntimeError("没有选择model")
 
-    # TODO 4: Return api_key, base_url, model.
     return api_key, base_url, model_name
     
 
@@ -42,27 +41,41 @@ def load_config():
 def create_client(api_key, base_url):
     """Create and return an OpenAI-compatible client."""
     # TODO: Return OpenAI(api_key=..., base_url=...).
-    raise NotImplementedError("TODO: implement create_client")
+    client = OpenAI(
+        api_key=api_key,
+        base_url=base_url,
+    )
+    return client
 
 
 def ask_model(client, model, question):
     """Send one question to the model and return the reply text."""
-    # TODO 1: Call client.chat.completions.create(...).
-    # TODO 2: Pass model=model.
-    # TODO 3: Pass messages with one system message and one user message.
-    # TODO 4: Return response.choices[0].message.content.
-    raise NotImplementedError("TODO: implement ask_model")
+    response = client.chat.completions.create(
+        model=model,
+        messages=[
+            {
+                "role": "system",
+                "content": "You are a helpful tutor. Answer clearly in Chinese.",
+            },
+            {
+                "role": "user",
+                "content": question,
+            },
+        ],
+    )
+
+    return response.choices[0].message.content
 
 
 def main():
     question = "Explain what an SDK is in Chinese for a beginner."
-
-    # TODO 1: Call load_config() and receive api_key, base_url, model.
     api_key, base_url, model_name = load_config()
-    # TODO 2: Call create_client(...).
+    client = create_client(api_key, base_url)
     # TODO 3: Call ask_model(...).
+    message = ask_model(client,model_name,question)
     # TODO 4: Print the reply.
-    raise NotImplementedError("TODO: connect the steps in main")
+    print(message)
+    
 
 
 if __name__ == "__main__":
