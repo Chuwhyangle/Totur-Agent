@@ -78,6 +78,30 @@ reply_json  TEXT NOT NULL
 created_at  DATETIME NOT NULL
 ```
 
+### 5.1 session_summaries 表
+
+核心表名：`session_summaries`
+
+用途：保存某个会话的滚动摘要。长对话时，后续阶段可以只把“摘要 + 最近几条消息”放进模型上下文，而不是把全部历史都塞进去。
+
+字段设计：
+
+```text
+id                    INTEGER PRIMARY KEY
+session_id            INTEGER NOT NULL UNIQUE
+summary_text          TEXT NOT NULL
+last_conversation_id  INTEGER NOT NULL
+created_at            TEXT NOT NULL
+updated_at            TEXT NOT NULL
+```
+
+当前规则：
+
+- 一个 `session_id` 最多只有一条摘要记录。
+- `summary_text` 保存已经压缩过的上下文主线。
+- `last_conversation_id` 表示这份摘要已经覆盖到哪一条 `conversations.id`。
+- 当前阶段只建表和 repository，不把摘要接入 `/chat`。
+
 ## 6. 字段说明
 
 ### id
@@ -241,6 +265,7 @@ FastAPI 的路由是什么？
 ```text
 app/repositories/conversation_repository.py
 app/repositories/session_repository.py
+app/repositories/summary_repository.py
 ```
 
 Repository 负责：
@@ -248,6 +273,8 @@ Repository 负责：
 - 创建和查询会话
 - 保存对话记录
 - 按 `user_id` 或 `user_id + session_id` 查询最近历史
+- 保存和查询某个会话的滚动摘要
+- 统计某个会话还没有进入摘要的新消息
 - 隐藏数据库操作细节
 
 Service 不应该到处直接写 SQL 或数据库调用。

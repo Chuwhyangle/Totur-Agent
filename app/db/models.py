@@ -5,6 +5,7 @@ from dataclasses import dataclass
 
 CONVERSATIONS_TABLE = "conversations"
 CHAT_SESSIONS_TABLE = "chat_sessions"
+SESSION_SUMMARIES_TABLE = "session_summaries"
 DEFAULT_SESSION_TITLE = "默认会话"
 
 
@@ -29,3 +30,15 @@ class ConversationRecord:
     message: str
     reply_json: str
     created_at: str
+
+
+@dataclass
+class SessionSummaryRecord:
+    """session_summaries 表中的一行摘要记录。"""
+
+    id: int
+    session_id: int
+    summary_text: str
+    last_conversation_id: int
+    created_at: str
+    updated_at: str

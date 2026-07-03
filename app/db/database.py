@@ -7,6 +7,7 @@ from app.db.models import (
     CHAT_SESSIONS_TABLE,
     CONVERSATIONS_TABLE,
     DEFAULT_SESSION_TITLE,
+    SESSION_SUMMARIES_TABLE,
 )
 
 
@@ -49,6 +50,17 @@ def initialize_database() -> None:
         created_at TEXT NOT NULL
     );
     """
+    create_session_summaries_table_sql = f"""
+    CREATE TABLE IF NOT EXISTS {SESSION_SUMMARIES_TABLE} (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id INTEGER NOT NULL UNIQUE
+            REFERENCES {CHAT_SESSIONS_TABLE}(id) ON DELETE CASCADE,
+        summary_text TEXT NOT NULL,
+        last_conversation_id INTEGER NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    );
+    """
     create_sessions_index_sql = f"""
     CREATE INDEX IF NOT EXISTS idx_chat_sessions_user_updated
     ON {CHAT_SESSIONS_TABLE} (user_id, updated_at DESC, id DESC);
@@ -61,11 +73,17 @@ def initialize_database() -> None:
     CREATE INDEX IF NOT EXISTS idx_conversations_user_id
     ON {CONVERSATIONS_TABLE} (user_id, id DESC);
     """
+    create_session_summaries_last_conversation_index_sql = f"""
+    CREATE INDEX IF NOT EXISTS idx_session_summaries_last_conversation
+    ON {SESSION_SUMMARIES_TABLE} (last_conversation_id);
+    """
 
     connection = get_connection()
     try:
         connection.execute(create_sessions_table_sql)
         connection.execute(create_conversations_table_sql)
+        # 每个会话只保留一条滚动摘要，后续由 repository 负责更新它。
+        connection.execute(create_session_summaries_table_sql)
         # 旧版 conversations 表没有 session_id，这里会自动补上。
         _ensure_conversations_session_id_column(connection)
         # 把旧数据按 user_id 归入一个“默认会话”。
@@ -73,6 +91,7 @@ def initialize_database() -> None:
         connection.execute(create_sessions_index_sql)
         connection.execute(create_conversations_session_index_sql)
         connection.execute(create_conversations_user_index_sql)
+        connection.execute(create_session_summaries_last_conversation_index_sql)
         connection.commit()
     finally:
         connection.close()

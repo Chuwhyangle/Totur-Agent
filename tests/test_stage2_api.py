@@ -25,6 +25,12 @@ from app.repositories.session_repository import (
     list_sessions,
     make_title_from_message,
 )
+from app.repositories.summary_repository import (
+    count_unsummarized_conversations,
+    get_summary,
+    list_conversations_after,
+    upsert_summary,
+)
 from app.services.tutor_agent_service import RECENT_HISTORY_LIMIT
 
 
@@ -175,6 +181,134 @@ def test_list_recent_conversations_can_filter_by_session(monkeypatch, tmp_path):
 
     assert [record.message for record in fastapi_history] == ["FastAPI question"]
     assert [record.message for record in sqlite_history] == ["SQLite question"]
+
+
+def test_get_summary_returns_none_when_session_has_no_summary(monkeypatch, tmp_path):
+    use_temp_database(monkeypatch, tmp_path)
+
+    session = create_session("alice", "Summary base")
+
+    assert get_summary(session.id) is None
+
+
+def test_upsert_summary_creates_and_updates_one_summary(monkeypatch, tmp_path):
+    use_temp_database(monkeypatch, tmp_path)
+
+    reply_json = """
+    {
+      "answer": "Summary answer",
+      "next_task": "Task",
+      "exercise": "Exercise",
+      "checkpoints": ["Checkpoint"]
+    }
+    """
+    session = create_session("alice", "Summary update")
+    first_id = save_conversation(
+        "alice",
+        "first message",
+        reply_json,
+        session_id=session.id,
+    )
+
+    summary_id = upsert_summary(
+        session_id=session.id,
+        summary_text="Already summarized the first message.",
+        last_conversation_id=first_id,
+    )
+    created_summary = get_summary(session.id)
+    assert created_summary is not None
+    assert created_summary.id == summary_id
+    assert created_summary.session_id == session.id
+    assert created_summary.summary_text == "Already summarized the first message."
+    assert created_summary.last_conversation_id == first_id
+
+    second_id = save_conversation(
+        "alice",
+        "second message",
+        reply_json,
+        session_id=session.id,
+    )
+    updated_id = upsert_summary(
+        session_id=session.id,
+        summary_text="Now summarized the first two messages.",
+        last_conversation_id=second_id,
+    )
+    updated_summary = get_summary(session.id)
+
+    assert updated_summary is not None
+    assert updated_id == summary_id
+    assert updated_summary.id == summary_id
+    assert updated_summary.summary_text == "Now summarized the first two messages."
+    assert updated_summary.last_conversation_id == second_id
+    assert updated_summary.created_at <= updated_summary.updated_at
+
+
+def test_summary_repository_counts_and_lists_unsummarized_messages(
+    monkeypatch,
+    tmp_path,
+):
+    use_temp_database(monkeypatch, tmp_path)
+
+    reply_json = """
+    {
+      "answer": "History answer",
+      "next_task": "Task",
+      "exercise": "Exercise",
+      "checkpoints": ["Checkpoint"]
+    }
+    """
+    target_session = create_session("alice", "Target summary")
+    other_session = create_session("alice", "Other summary")
+    first_id = save_conversation(
+        "alice",
+        "target first",
+        reply_json,
+        session_id=target_session.id,
+    )
+    save_conversation(
+        "alice",
+        "other session message",
+        reply_json,
+        session_id=other_session.id,
+    )
+    save_conversation(
+        "alice",
+        "target second",
+        reply_json,
+        session_id=target_session.id,
+    )
+    save_conversation(
+        "alice",
+        "target third",
+        reply_json,
+        session_id=target_session.id,
+    )
+
+    upsert_summary(
+        session_id=target_session.id,
+        summary_text="Already summarized target first.",
+        last_conversation_id=first_id,
+    )
+
+    assert count_unsummarized_conversations(target_session.id, first_id) == 2
+    assert count_unsummarized_conversations(other_session.id, first_id) == 1
+
+    records = list_conversations_after(
+        session_id=target_session.id,
+        after_id=first_id,
+        limit=10,
+    )
+    limited_records = list_conversations_after(
+        session_id=target_session.id,
+        after_id=first_id,
+        limit=1,
+    )
+
+    assert [record.message for record in records] == [
+        "target second",
+        "target third",
+    ]
+    assert [record.message for record in limited_records] == ["target second"]
 
 
 def test_make_title_from_message_uses_first_message_and_truncates():

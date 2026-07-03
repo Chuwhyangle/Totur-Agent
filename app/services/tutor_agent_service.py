@@ -27,6 +27,8 @@ from app.schemas.chat import ChatRequest, ChatResponse, TutorReply
 
 # 只加载最近几轮历史，避免 prompt 无限变长。
 RECENT_HISTORY_LIMIT = 6
+# 某个会话未总结的新消息达到这个数量后，后续阶段再触发滚动摘要。
+SUMMARY_TRIGGER_COUNT = 8
 
 
 class ChatSessionNotFoundError(Exception):
