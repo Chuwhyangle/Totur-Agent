@@ -31,7 +31,8 @@ from app.repositories.summary_repository import (
     list_conversations_after,
     upsert_summary,
 )
-from app.services.tutor_agent_service import RECENT_HISTORY_LIMIT
+from app.services.memory_settings import RECENT_HISTORY_LIMIT, SUMMARY_TRIGGER_COUNT
+from app.services.summary_service import SummaryService
 
 
 client = TestClient(app)
@@ -309,6 +310,145 @@ def test_summary_repository_counts_and_lists_unsummarized_messages(
         "target third",
     ]
     assert [record.message for record in limited_records] == ["target second"]
+
+
+def _summary_reply_json(index: int) -> str:
+    return f"""
+    {{
+      "answer": "History answer {index}",
+      "next_task": "Task {index}",
+      "exercise": "Exercise {index}",
+      "checkpoints": ["Checkpoint {index}"]
+    }}
+    """
+
+
+def test_summary_service_skips_when_old_messages_are_not_enough(
+    monkeypatch,
+    tmp_path,
+):
+    use_temp_database(monkeypatch, tmp_path)
+
+    session = create_session("alice", "Skip summary")
+    total_messages = SUMMARY_TRIGGER_COUNT + RECENT_HISTORY_LIMIT - 1
+
+    for index in range(1, total_messages + 1):
+        save_conversation(
+            "alice",
+            f"question {index}",
+            _summary_reply_json(index),
+            session_id=session.id,
+        )
+
+    service = SummaryService()
+
+    def fail_if_called(messages):
+        raise AssertionError("消息数量不够时不应该调用摘要模型")
+
+    monkeypatch.setattr(service, "_call_model", fail_if_called)
+
+    assert service.update_summary_if_needed(session.id) is False
+    assert get_summary(session.id) is None
+
+
+def test_summary_service_creates_summary_for_old_messages_only(
+    monkeypatch,
+    tmp_path,
+):
+    use_temp_database(monkeypatch, tmp_path)
+
+    session = create_session("alice", "Create summary")
+    total_messages = SUMMARY_TRIGGER_COUNT + RECENT_HISTORY_LIMIT
+    conversation_ids = []
+
+    for index in range(1, total_messages + 1):
+        conversation_ids.append(
+            save_conversation(
+                "alice",
+                f"question {index}",
+                _summary_reply_json(index),
+                session_id=session.id,
+            )
+        )
+
+    service = SummaryService()
+    captured_messages = []
+
+    def fake_call_model(messages):
+        captured_messages.extend(messages)
+        return "Summary for the first eight messages."
+
+    monkeypatch.setattr(service, "_call_model", fake_call_model)
+
+    assert service.update_summary_if_needed(session.id) is True
+
+    summary = get_summary(session.id)
+    prompt_text = "\n".join(str(message["content"]) for message in captured_messages)
+
+    assert summary is not None
+    assert summary.summary_text == "Summary for the first eight messages."
+    assert summary.last_conversation_id == conversation_ids[SUMMARY_TRIGGER_COUNT - 1]
+    assert "question 1" in prompt_text
+    assert "History answer 1" in prompt_text
+    assert f"question {SUMMARY_TRIGGER_COUNT}" in prompt_text
+    assert f"History answer {SUMMARY_TRIGGER_COUNT}" in prompt_text
+    assert f"question {SUMMARY_TRIGGER_COUNT + 1}" not in prompt_text
+    assert f"question {total_messages}" not in prompt_text
+
+
+def test_summary_service_updates_existing_summary_with_new_old_messages(
+    monkeypatch,
+    tmp_path,
+):
+    use_temp_database(monkeypatch, tmp_path)
+
+    session = create_session("alice", "Update summary")
+    first_id = save_conversation(
+        "alice",
+        "already summarized question",
+        _summary_reply_json(1),
+        session_id=session.id,
+    )
+    summary_id = upsert_summary(
+        session_id=session.id,
+        summary_text="Existing summary text.",
+        last_conversation_id=first_id,
+    )
+    new_ids = []
+    total_new_messages = SUMMARY_TRIGGER_COUNT + RECENT_HISTORY_LIMIT
+
+    for index in range(1, total_new_messages + 1):
+        new_ids.append(
+            save_conversation(
+                "alice",
+                f"new question {index}",
+                _summary_reply_json(index),
+                session_id=session.id,
+            )
+        )
+
+    service = SummaryService()
+    captured_messages = []
+
+    def fake_call_model(messages):
+        captured_messages.extend(messages)
+        return "Updated summary text."
+
+    monkeypatch.setattr(service, "_call_model", fake_call_model)
+
+    assert service.update_summary_if_needed(session.id) is True
+
+    updated_summary = get_summary(session.id)
+    prompt_text = "\n".join(str(message["content"]) for message in captured_messages)
+
+    assert updated_summary is not None
+    assert updated_summary.id == summary_id
+    assert updated_summary.summary_text == "Updated summary text."
+    assert updated_summary.last_conversation_id == new_ids[SUMMARY_TRIGGER_COUNT - 1]
+    assert "Existing summary text." in prompt_text
+    assert "new question 1" in prompt_text
+    assert f"new question {SUMMARY_TRIGGER_COUNT}" in prompt_text
+    assert f"new question {SUMMARY_TRIGGER_COUNT + 1}" not in prompt_text
 
 
 def test_make_title_from_message_uses_first_message_and_truncates():
@@ -838,6 +978,150 @@ def test_chat_adds_history_user_and_assistant_messages(monkeypatch, tmp_path):
         ("assistant", "Previous answer"),
         ("user", "Continue from before."),
     ]
+
+
+def test_chat_adds_existing_summary_to_prompt(monkeypatch, tmp_path):
+    use_temp_database(monkeypatch, tmp_path)
+
+    session = create_session("alice", "Summary prompt")
+    upsert_summary(
+        session_id=session.id,
+        summary_text="Earlier summary: Alice has learned FastAPI route basics.",
+        last_conversation_id=0,
+    )
+    raw_model_reply = """
+    {
+      "answer": "Summary-aware answer",
+      "next_task": "Summary-aware task",
+      "exercise": "Summary-aware exercise",
+      "checkpoints": ["Summary-aware checkpoint"]
+    }
+    """
+    captured_messages = []
+
+    def fake_call_model(messages):
+        captured_messages.extend(messages)
+        return raw_model_reply
+
+    monkeypatch.setattr(
+        chat_route.tutor_agent_service,
+        "_call_model",
+        fake_call_model,
+    )
+
+    response = client.post(
+        "/chat",
+        json={
+            "user_id": "alice",
+            "session_id": session.id,
+            "message": "Continue from the summary.",
+        },
+    )
+
+    assert response.status_code == 200
+
+    prompt_text = "\n".join(str(message["content"]) for message in captured_messages)
+    assert "Earlier summary: Alice has learned FastAPI route basics." in prompt_text
+    assert prompt_text.index("Earlier summary") < prompt_text.index(
+        "Continue from the summary."
+    )
+
+
+def test_chat_updates_summary_after_saving_current_conversation(
+    monkeypatch,
+    tmp_path,
+):
+    use_temp_database(monkeypatch, tmp_path)
+
+    session = create_session("alice", "Summary update hook")
+    raw_model_reply = """
+    {
+      "answer": "Hook answer",
+      "next_task": "Hook task",
+      "exercise": "Hook exercise",
+      "checkpoints": ["Hook checkpoint"]
+    }
+    """
+    updated_session_ids = []
+
+    def fake_update_summary(session_id):
+        records = list_recent_conversations(
+            user_id="alice",
+            session_id=session_id,
+            limit=1,
+        )
+        assert records[0].message == "Trigger summary update after save."
+        updated_session_ids.append(session_id)
+        return False
+
+    monkeypatch.setattr(
+        chat_route.tutor_agent_service,
+        "_call_model",
+        lambda messages: raw_model_reply,
+    )
+    monkeypatch.setattr(
+        chat_route.tutor_agent_service.summary_service,
+        "update_summary_if_needed",
+        fake_update_summary,
+    )
+
+    response = client.post(
+        "/chat",
+        json={
+            "user_id": "alice",
+            "session_id": session.id,
+            "message": "Trigger summary update after save.",
+        },
+    )
+
+    assert response.status_code == 200
+    assert updated_session_ids == [session.id]
+
+
+def test_chat_continues_when_summary_update_fails(monkeypatch, tmp_path):
+    use_temp_database(monkeypatch, tmp_path)
+
+    session = create_session("alice", "Summary failure")
+    raw_model_reply = """
+    {
+      "answer": "Chat still works",
+      "next_task": "Keep going",
+      "exercise": "Retry later",
+      "checkpoints": ["Chat response returned"]
+    }
+    """
+
+    def fail_summary_update(session_id):
+        raise RuntimeError("summary update failed")
+
+    monkeypatch.setattr(
+        chat_route.tutor_agent_service,
+        "_call_model",
+        lambda messages: raw_model_reply,
+    )
+    monkeypatch.setattr(
+        chat_route.tutor_agent_service.summary_service,
+        "update_summary_if_needed",
+        fail_summary_update,
+    )
+
+    response = client.post(
+        "/chat",
+        json={
+            "user_id": "alice",
+            "session_id": session.id,
+            "message": "Chat should still return.",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["reply"]["answer"] == "Chat still works"
+    records = list_recent_conversations(
+        user_id="alice",
+        session_id=session.id,
+        limit=1,
+    )
+    assert records[0].message == "Chat should still return."
 
 
 def test_chat_history_prompt_ignores_other_users(monkeypatch, tmp_path):

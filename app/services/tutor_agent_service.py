@@ -20,15 +20,12 @@ from app.repositories.session_repository import (
     make_title_from_message,
     update_session_title,
 )
+from app.repositories.summary_repository import get_summary
 from app.clients.llm_client import create_llm_client
 from app.config import LLMConfig, load_llm_config
 from app.schemas.chat import ChatRequest, ChatResponse, TutorReply
-
-
-# 只加载最近几轮历史，避免 prompt 无限变长。
-RECENT_HISTORY_LIMIT = 6
-# 某个会话未总结的新消息达到这个数量后，后续阶段再触发滚动摘要。
-SUMMARY_TRIGGER_COUNT = 8
+from app.services.memory_settings import RECENT_HISTORY_LIMIT
+from app.services.summary_service import SummaryService
 
 
 class ChatSessionNotFoundError(Exception):
@@ -42,11 +39,16 @@ class TutorAgentService:
         self,
         config: LLMConfig | None = None,
         client: OpenAI | None = None,
+        summary_service: SummaryService | None = None,
     ) -> None:
         """Initialize configuration and model client."""
 
         self.config = config or load_llm_config()
         self.client = client or create_llm_client(self.config)
+        self.summary_service = summary_service or SummaryService(
+            config=self.config,
+            client=self.client,
+        )
 
     def chat(self, request: ChatRequest) -> ChatResponse:
         """处理一次聊天请求。"""
@@ -61,6 +63,7 @@ class TutorAgentService:
             session_id=session.id,
             limit=RECENT_HISTORY_LIMIT,
         )
+        summary = get_summary(session.id)
         if not recent_history and session.title == DEFAULT_SESSION_TITLE:
             # 新会话第一条消息发出后，用这条消息生成一个更自然的会话标题。
             update_session_title(session.id, make_title_from_message(message))
@@ -68,6 +71,7 @@ class TutorAgentService:
         messages = self._build_messages(
             message=message,
             history=recent_history,
+            summary_text=summary.summary_text if summary else None,
         )
         raw_reply = self._call_model(messages)
         reply = self._parse_model_reply(raw_reply)
@@ -83,6 +87,11 @@ class TutorAgentService:
             reply_json=reply_json,
             session_id=session.id,
         )
+        try:
+            # 摘要是辅助记忆能力，失败时不影响本轮聊天结果。
+            self.summary_service.update_summary_if_needed(session.id)
+        except Exception:
+            pass
 
         return ChatResponse(
             user_id=user_id,
@@ -108,6 +117,7 @@ class TutorAgentService:
         self,
         message: str,
         history: list[ConversationRecord],
+        summary_text: str | None = None,
     ) -> list[ChatCompletionMessageParam]:
         system_msg: ChatCompletionSystemMessageParam = {
             "role": "system",
@@ -121,6 +131,17 @@ class TutorAgentService:
         messages: list[ChatCompletionMessageParam] = [system_msg]
 
         # 数据库历史是最新在前，发给模型时要改成旧到新。
+        if summary_text and summary_text.strip():
+            summary_msg: ChatCompletionSystemMessageParam = {
+                "role": "system",
+                "content": (
+                    "以下是这个会话较早历史的摘要。它用于帮助你理解上下文，"
+                    "但本轮回答仍然要优先回答用户最后的问题。\n"
+                    f"{summary_text.strip()}"
+                ),
+            }
+            messages.append(summary_msg)
+
         for record in reversed(history):
             history_user_msg: ChatCompletionUserMessageParam = {
                 "role": "user",
