@@ -1,46 +1,11 @@
 import { useEffect, useState } from 'react'
 
-import { getHealth, postChat } from './api/tutorApi.js'
+import { getConversations, getHealth, postChat } from './api/tutorApi.js'
 import ApiStatus from './components/ApiStatus.jsx'
 import ChatInput from './components/ChatInput.jsx'
 import ChatMessage from './components/ChatMessage.jsx'
+import ConversationHistory from './components/ConversationHistory.jsx'
 import UserIdInput from './components/UserIdInput.jsx'
-
-const demoReply = {
-  answer: '前端页面可以先理解成运行在浏览器里的程序。',
-  next_task: '先分清 index.html、main.jsx 和 App.jsx 各自负责什么。',
-  exercise: '打开这三个文件，说出每个文件在页面启动流程里的作用。',
-  checkpoints: ['知道浏览器先拿到 HTML', '知道 main.jsx 负责启动 React', '知道 App.jsx 负责页面结构'],
-}
-
-const demoDebug = {
-  request: {
-    user_id: 'demo-user',
-    message: '我想借这个项目学前端基础。',
-  },
-  response: {
-    reply: demoReply,
-  },
-}
-
-const initialMessages = [
-  {
-    id: 'message-welcome',
-    role: 'assistant',
-    text: '今天想学点什么？',
-  },
-  {
-    id: 'message-demo-user',
-    role: 'user',
-    text: '我想借这个项目学前端基础。',
-  },
-  {
-    id: 'message-demo-assistant',
-    role: 'assistant',
-    reply: demoReply,
-    debug: demoDebug,
-  },
-]
 
 function createErrorReply() {
   return {
@@ -56,21 +21,78 @@ function App() {
   const [apiStatus, setApiStatus] = useState('checking')
   const [userId, setUserId] = useState('demo-user')
   const [draftMessage, setDraftMessage] = useState('')
-  const [messages, setMessages] = useState(initialMessages)
+  // 聊天消息从空数组开始，页面启动时不再显示固定示例回复。
+  const [messages, setMessages] = useState([])
   const [isSending, setIsSending] = useState(false)
+  const [historyItems, setHistoryItems] = useState([])
+  const [historyStatus, setHistoryStatus] = useState('idle')
+  const [historyLimit, setHistoryLimit] = useState(5)
+  const [historyDebug, setHistoryDebug] = useState(null)
 
-  const canSend = draftMessage.trim().length > 0 && !isSending
+  const canSend = draftMessage.trim().length > 0 && userId.trim().length > 0 && !isSending
+
+  function handleUserIdChange(nextUserId) {
+    // 切换用户时清空页面本地状态，避免把不同 user_id 的对话混在一起看。
+    setUserId(nextUserId)
+    setMessages([])
+    setHistoryItems([])
+    setHistoryStatus('idle')
+    setHistoryDebug(null)
+  }
+
+  function handleHistoryLimitChange(nextLimit) {
+    const numberLimit = Number(nextLimit)
+
+    if (Number.isNaN(numberLimit)) {
+      return
+    }
+
+    setHistoryLimit(Math.min(100, Math.max(1, numberLimit)))
+  }
+
+  async function loadConversationHistory({ silent = false } = {}) {
+    const trimmedUserId = userId.trim()
+
+    if (!trimmedUserId) {
+      setHistoryItems([])
+      setHistoryStatus('error')
+      setHistoryDebug({
+        error: 'user_id 不能为空',
+      })
+      return
+    }
+
+    if (!silent) {
+      setHistoryStatus('loading')
+    }
+
+    try {
+      const { data, debug } = await getConversations(trimmedUserId, historyLimit)
+
+      setHistoryItems(Array.isArray(data?.items) ? data.items : [])
+      setHistoryDebug(debug)
+      setHistoryStatus('success')
+      setApiStatus('online')
+    } catch (error) {
+      setHistoryItems([])
+      setHistoryDebug(error.debug ?? { error: error.message })
+      setHistoryStatus('error')
+      setApiStatus('offline')
+    }
+  }
 
   async function handleSendMessage(event) {
     event.preventDefault()
 
     const trimmedMessage = draftMessage.trim()
-    if (!trimmedMessage || isSending) {
+    const trimmedUserId = userId.trim()
+    if (!trimmedMessage || !trimmedUserId || isSending) {
       return
     }
 
     const requestBody = {
-      user_id: userId,
+      // 后端第一阶段短期记忆按 user_id 查询历史，所以这里发送去空格后的值。
+      user_id: trimmedUserId,
       message: trimmedMessage,
     }
     const userMessage = {
@@ -94,6 +116,9 @@ function App() {
 
       setMessages((currentMessages) => [...currentMessages, assistantMessage])
       setApiStatus('online')
+
+      // 每次成功发送后刷新历史，方便立刻验证本轮对话已经保存。
+      void loadConversationHistory({ silent: true })
     } catch (error) {
       const errorMessage = {
         id: `message-error-${Date.now()}`,
@@ -148,31 +173,43 @@ function App() {
           >
             刷新
           </button>
-          <UserIdInput userId={userId} onUserIdChange={setUserId} />
+          <UserIdInput userId={userId} onUserIdChange={handleUserIdChange} />
         </div>
       </header>
 
-      {/* 聊天区域：发送消息后，用户消息和真实后端回复都会加入 messages。 */}
-      <section className="chat-surface" aria-label="聊天工作区">
-        <div className="thread-preview">
-          {messages.map((message) => (
-            <ChatMessage
-              key={message.id}
-              role={message.role}
-              text={message.text}
-              reply={message.reply}
-              debug={message.debug}
-            />
-          ))}
-        </div>
-        <ChatInput
-          message={draftMessage}
-          onMessageChange={setDraftMessage}
-          onSubmit={handleSendMessage}
-          disabled={!canSend}
-          isSending={isSending}
+      <div className="workspace-layout">
+        <ConversationHistory
+          userId={userId}
+          items={historyItems}
+          status={historyStatus}
+          limit={historyLimit}
+          onLimitChange={handleHistoryLimitChange}
+          onRefresh={loadConversationHistory}
+          debug={historyDebug}
         />
-      </section>
+
+        {/* 聊天区域：发送消息后，用户消息和真实后端回复都会加入 messages。 */}
+        <section className="chat-surface" aria-label="聊天工作区">
+          <div className="thread-preview">
+            {messages.map((message) => (
+              <ChatMessage
+                key={message.id}
+                role={message.role}
+                text={message.text}
+                reply={message.reply}
+                debug={message.debug}
+              />
+            ))}
+          </div>
+          <ChatInput
+            message={draftMessage}
+            onMessageChange={setDraftMessage}
+            onSubmit={handleSendMessage}
+            disabled={!canSend}
+            isSending={isSending}
+          />
+        </section>
+      </div>
     </main>
   )
 }

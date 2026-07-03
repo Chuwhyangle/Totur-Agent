@@ -37,8 +37,8 @@
 - 技术栈：React + Vite。
 - 项目位置：`frontend/`。
 - 后端位置：继续使用当前 `app/` FastAPI 后端。
-- 第一版重点：`GET /health` 和 `POST /chat`。
-- 历史记录：后端接口已可用，前端留到阶段 7 扩展。
+- 第一版重点：`GET /health`、`POST /chat` 和 `GET /conversations/{user_id}`。
+- 历史记录：阶段 7 已接入，当前可以按 `user_id` 查看最近几条对话。
 
 ---
 
@@ -109,10 +109,12 @@
 
 后端已经提供历史查询接口。
 
-前端路线处理方式：
+前端用途：
 
-- 第一版主线先完成 `/health` 和 `/chat` 联调。
-- 历史列表留到阶段 7 扩展，避免打乱聊天工作台主线。
+- 在左侧历史面板里按当前 `user_id` 查询。
+- 支持调整 `limit`，控制要读取的历史条数。
+- 展示用户问题、AI 主回答、记录 id 和创建时间。
+- 默认折叠“历史调试详情”，用于查看请求 URL、状态码和响应体。
 
 ---
 
@@ -125,7 +127,8 @@
 - [x] 阶段 4：React 状态管理与本地消息流
 - [ ] 阶段 5：连接后端 `/health` 与 CORS
 - [x] 阶段 6：连接后端 `/chat` 与结构化 Tutor 回复
-- [ ] 阶段 7：对话历史预留、最终验收与复盘
+- [x] 阶段 7：查看用户历史记录
+- [ ] 阶段 8：最终验收与复盘
 
 ---
 
@@ -149,6 +152,7 @@ frontend/
       ChatMessage.jsx
       ChatInput.jsx
       DebugDetails.jsx
+      ConversationHistory.jsx
     styles/
       app.css
 ```
@@ -166,15 +170,8 @@ frontend/
 - `frontend/src/components/ChatMessage.jsx`：单条聊天消息组件。
 - `frontend/src/components/ChatInput.jsx`：底部输入框组件。
 - `frontend/src/components/DebugDetails.jsx`：默认折叠的请求/响应调试详情组件。
+- `frontend/src/components/ConversationHistory.jsx`：当前用户的历史记录面板。
 - `frontend/src/styles/app.css`：页面样式文件。
-
-未来可选文件：
-
-```text
-frontend/src/components/ConversationHistory.jsx
-```
-
-这个文件留到阶段 7 接入 `GET /conversations/{user_id}` 时再创建。
 
 ---
 
@@ -808,90 +805,116 @@ data.reply.answer
 
 ---
 
-## 阶段 7：对话历史预留、最终验收与复盘
+## 阶段 7：查看用户历史记录
 
-阶段目标：为未来历史记录功能留好位置，并完成第一版前端验收。
+阶段目标：把后端已经保存的对话历史显示到前端页面里。
 
-这一阶段分成两部分：当前可以完成的第一版收尾，以及后端完成历史接口后再做的扩展任务。
+这一阶段开始接入第三个真实接口：`GET /conversations/{user_id}`。它和 `/chat` 不一样，`/chat` 是发送一条新消息，历史查询是按当前 `user_id` 把数据库里已经保存过的记录读出来。
 
 ### 你要学习
 
-- [ ] 什么是功能预留
-- [ ] 为什么不能让前端依赖还没实现的接口
-- [ ] 什么是最终验收清单
-- [ ] 为什么项目完成后要复盘
-- [ ] 如何向 AI 明确“不要提前实现未来功能”
+- [x] 什么是 GET 查询接口
+- [x] 什么是路径参数 `user_id`
+- [x] 什么是查询参数 `limit`
+- [x] 为什么历史记录适合单独拆成组件
+- [x] 前端如何显示 idle、loading、success、error 状态
+- [x] 为什么历史查询也需要调试详情
 
 ### 当前主线任务
 
-- [ ] 在文档或代码注释里记录未来历史接口
-- [ ] 确认第一版前端不调用 `/conversations/{user_id}`
-- [ ] 确认 `user_id` 输入框已经为未来历史查询做好准备
-- [ ] 做一次完整联调：启动后端、启动前端、发送问题、查看回复
-- [ ] 做一次错误联调：停止后端、发送问题、查看错误提示
-- [ ] 做一次调试检查：展开调试详情，看请求和响应
-- [ ] 运行一次后端测试
-- [ ] 整理第一版前端还没做的功能
+- [x] 创建 `ConversationHistory.jsx`
+- [x] 在 `tutorApi.js` 中添加 `getConversations(userId, limit)`
+- [x] 根据顶部 `user_id` 查询最近几条历史
+- [x] 支持输入 `limit`，控制查询条数
+- [x] 在左侧历史区域展示对话记录
+- [x] 显示历史记录 id、创建时间、用户问题和 AI 主回答
+- [x] 历史查询成功时显示列表
+- [x] 历史查询为空时显示空状态
+- [x] 历史查询失败时显示错误状态
+- [x] 历史调试详情展示请求 URL、方法、状态码、响应体和耗时
+- [x] 用浏览器验证 `demo-user` 可以读取保存过的历史记录
 
-### 后端完成后再做的任务
+### 关键代码提示
 
-这些任务等后端实现 `GET /conversations/{user_id}` 后再开始。
-
-- [ ] 创建 `ConversationHistory.jsx`
-- [ ] 在 `tutorApi.js` 中添加 `getConversations(userId)`
-- [ ] 根据顶部 `user_id` 查询最近 20 条历史
-- [ ] 在侧边栏或历史区域展示对话记录
-- [ ] 切换 `user_id` 后重新加载对应历史
-- [ ] 验证不同 `user_id` 的历史不会混在一起
-
-### 未来代码提示
-
-历史查询函数未来大致会像这样：
+历史查询函数大致长这样：
 
 ```js
-export async function getConversations(userId) {
-  const response = await fetch(`${API_BASE_URL}/conversations/${userId}`)
+export async function getConversations(userId, limit = 20) {
+  const response = await fetch(
+    `${API_BASE_URL}/conversations/${userId}?limit=${limit}`,
+  )
+
   return response.json()
 }
 ```
 
-当前阶段不要急着实现它，因为后端接口还没完成。
+真实代码里还额外做了两件事：
+
+- 用 `encodeURIComponent(userId)` 处理用户输入，避免特殊字符破坏 URL。
+- 保存 `debug`，让你能展开历史调试详情看请求和响应。
+
+### 交付物
+
+- [x] `frontend/src/components/ConversationHistory.jsx`
+- [x] `getConversations(userId, limit)`
+- [x] 左侧历史记录面板
+- [x] 历史记录条数输入框
+- [x] “查看历史”按钮
+- [x] 历史调试详情
+- [x] 阶段复盘记录
+
+### 验收标准
+
+- [x] 页面能显示历史记录区域
+- [x] 点击“查看历史”会请求 `GET /conversations/{user_id}`
+- [x] 请求会带上当前输入框里的 `user_id`
+- [x] 请求会带上当前设置的 `limit`
+- [x] 有历史时能显示问题和回答
+- [x] 展开历史调试详情能看到请求 URL 和状态码
+- [x] 你能解释历史查询和发送聊天的区别
+
+---
+
+## 阶段 8：最终验收与复盘
+
+阶段目标：把第一版前端做一次最终收口，确认能运行、能联调、能解释。
 
 ### 第一版最终验收清单
 
-- [ ] 前端项目位于 `frontend/`
-- [ ] 后端可以通过 PowerShell 启动
-- [ ] 前端可以通过 PowerShell 启动
-- [ ] 页面顶部有 `user_id` 输入框
-- [ ] 页面顶部有 API 状态
-- [ ] 页面打开会自动检测 `/health`
-- [ ] 用户可以输入问题
-- [ ] 用户可以发送问题到 `/chat`
-- [ ] 页面能显示 AI 的 `answer`
-- [ ] 页面能显示下一步任务
-- [ ] 页面能显示小练习
-- [ ] 页面能显示检查点
-- [ ] 调试详情默认折叠
-- [ ] 调试详情展开后能看到请求和响应
+- [x] 前端项目位于 `frontend/`
+- [x] 后端可以通过 PowerShell 启动
+- [x] 前端可以通过 PowerShell 启动
+- [x] 页面顶部有 `user_id` 输入框
+- [x] 页面顶部有 API 状态
+- [x] 页面打开会自动检测 `/health`
+- [x] 用户可以输入问题
+- [x] 用户可以发送问题到 `/chat`
+- [x] 页面能显示 AI 的 `answer`
+- [x] 页面能显示下一步任务
+- [x] 页面能显示小练习
+- [x] 页面能显示检查点
+- [x] 调试详情默认折叠
+- [x] 调试详情展开后能看到请求和响应
+- [x] 页面可以查看当前用户历史记录
 - [ ] 后端停止时页面有友好错误
 - [ ] 你能解释前端到后端的一次完整请求流程
 
 ### 交付物
 
-- [ ] 可运行的 React + Vite 前端
-- [ ] 可联调的 FastAPI 后端
-- [ ] 完整的 ChatGPT 式 Tutor Agent 测试界面
-- [ ] 隐藏式调试详情
-- [ ] 历史记录扩展计划
-- [ ] 阶段复盘记录
+- [x] 可运行的 React + Vite 前端
+- [x] 可联调的 FastAPI 后端
+- [x] 完整的 ChatGPT 式 Tutor Agent 测试界面
+- [x] 隐藏式调试详情
+- [x] 用户历史记录面板
+- [ ] 最终阶段复盘记录
 
 ### 验收标准
 
 - [ ] 你能从零启动后端和前端
-- [ ] 你能用浏览器完成一轮真实对话
-- [ ] 你能解释 `GET /health` 的作用
-- [ ] 你能解释 `POST /chat` 的请求和响应
-- [ ] 你能解释为什么历史记录留到聊天主线完成后再做
+- [x] 你能用浏览器完成一轮真实对话
+- [x] 你能解释 `GET /health` 的作用
+- [x] 你能解释 `POST /chat` 的请求和响应
+- [x] 你能解释 `GET /conversations/{user_id}` 的请求和响应
 - [ ] 你能告诉 AI 下一阶段应该只改哪些文件
 
 ### 阶段复盘
@@ -899,9 +922,9 @@ export async function getConversations(userId) {
 复盘记录：
 
 ```text
-1.
-2.
-3.
+1. 阶段 7 把历史记录从“未来扩展”变成了真实前端功能。
+2. ConversationHistory.jsx 负责显示历史区域，App.jsx 负责保存历史状态和触发查询。
+3. getConversations(userId, limit) 使用 GET 请求读取后端保存的数据，和 POST /chat 的“新增对话”不是一回事。
 ```
 
 ---

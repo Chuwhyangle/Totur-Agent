@@ -4,14 +4,23 @@ import json
 
 from openai import OpenAI
 from openai.types.chat import (
+    ChatCompletionAssistantMessageParam,
     ChatCompletionMessageParam,
     ChatCompletionSystemMessageParam,
     ChatCompletionUserMessageParam,
 )
-from app.repositories.conversation_repository import save_conversation
+from app.db.models import ConversationRecord
+from app.repositories.conversation_repository import (
+    list_recent_conversations,
+    save_conversation,
+)
 from app.clients.llm_client import create_llm_client
 from app.config import LLMConfig, load_llm_config
 from app.schemas.chat import ChatRequest, ChatResponse, TutorReply
+
+
+# 只加载最近几轮历史，避免 prompt 无限变长。
+RECENT_HISTORY_LIMIT = 6
 
 
 class TutorAgentService:
@@ -33,7 +42,16 @@ class TutorAgentService:
         user_id = request.user_id
         message = request.message
 
-        messages = self._build_messages(message)
+        # 短期记忆第一步：先加载当前用户最近几轮对话。
+        recent_history = list_recent_conversations(
+            user_id=user_id,
+            limit=RECENT_HISTORY_LIMIT,
+        )
+
+        messages = self._build_messages(
+            message=message,
+            history=recent_history,
+        )
         raw_reply = self._call_model(messages)
         reply = self._parse_model_reply(raw_reply)
 
@@ -54,7 +72,11 @@ class TutorAgentService:
             reply=reply,
         )
 
-    def _build_messages(self, message: str) -> list[ChatCompletionMessageParam]:
+    def _build_messages(
+        self,
+        message: str,
+        history: list[ConversationRecord],
+    ) -> list[ChatCompletionMessageParam]:
         system_msg: ChatCompletionSystemMessageParam = {
             "role": "system",
             "content": "你是一个新手友好的后端开发导师。"
@@ -64,11 +86,47 @@ class TutorAgentService:
             "exercise: 字符串，一个小练习"
             "checkpoints: 字符串数组，3 个检查点",
         }
+        messages: list[ChatCompletionMessageParam] = [system_msg]
+
+        # 数据库历史是最新在前，发给模型时要改成旧到新。
+        for record in reversed(history):
+            history_user_msg: ChatCompletionUserMessageParam = {
+                "role": "user",
+                "content": record.message,
+            }
+            messages.append(history_user_msg)
+
+            history_answer = self._parse_history_answer(record.reply_json)
+            if history_answer:
+                # 只放上一轮导师 answer，让历史上下文更简洁。
+                history_assistant_msg: ChatCompletionAssistantMessageParam = {
+                    "role": "assistant",
+                    "content": history_answer,
+                }
+                messages.append(history_assistant_msg)
+
         user_msg: ChatCompletionUserMessageParam = {
             "role": "user",
             "content": message,
         }
-        return [system_msg, user_msg]
+        # 当前问题必须放在最后，模型才会把它当成这次要回答的问题。
+        messages.append(user_msg)
+
+        return messages
+
+    def _parse_history_answer(self, reply_json: str) -> str | None:
+        """Return the saved tutor answer that should become history context."""
+
+        try:
+            reply_data = json.loads(reply_json)
+        except (json.JSONDecodeError, TypeError):
+            return None
+
+        answer = reply_data.get("answer")
+        if not isinstance(answer, str) or not answer.strip():
+            return None
+
+        return answer
 
     def _call_model(self, messages: list[ChatCompletionMessageParam]) -> str:
         """Send messages to the model and return the raw text reply."""

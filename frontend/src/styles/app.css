@@ -33,7 +33,7 @@ textarea {
 
 /* 页面外壳：控制整体宽度、留白和最小高度。 */
 .app-shell {
-  width: min(1120px, 100%);
+  width: min(1240px, 100%);
   min-height: 100vh;
   margin: 0 auto;
   padding: 32px clamp(16px, 4vw, 48px);
@@ -153,6 +153,160 @@ h1 {
 .user-id-field input:focus {
   border-color: #14746f;
   outline: 3px solid rgba(20, 116, 111, 0.16);
+}
+
+.workspace-layout {
+  display: grid;
+  grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+
+/* 历史记录区：按当前 user_id 查询后端保存过的对话。 */
+.history-panel {
+  display: grid;
+  gap: 16px;
+  min-height: 520px;
+  border: 1px solid #d7e0ea;
+  border-radius: 8px;
+  padding: 18px;
+  background: #ffffff;
+  box-shadow: 0 18px 45px rgba(39, 55, 77, 0.08);
+}
+
+.history-header {
+  display: grid;
+  gap: 10px;
+}
+
+.history-kicker {
+  margin: 0 0 5px;
+  color: #14746f;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0;
+}
+
+.history-header h2 {
+  margin: 0;
+  color: #18212f;
+  font-size: 22px;
+  line-height: 1.2;
+  letter-spacing: 0;
+}
+
+.history-user {
+  margin: 0;
+  color: #526173;
+  font-size: 13px;
+  word-break: break-word;
+}
+
+.history-controls {
+  display: grid;
+  grid-template-columns: 84px 1fr;
+  gap: 10px;
+  align-items: end;
+}
+
+.history-limit-field {
+  display: grid;
+  gap: 5px;
+  color: #526173;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.history-limit-field input {
+  height: 36px;
+  border: 1px solid #cbd6e2;
+  border-radius: 8px;
+  padding: 0 10px;
+  color: #18212f;
+  background: #ffffff;
+}
+
+.history-limit-field input:focus {
+  border-color: #14746f;
+  outline: 3px solid rgba(20, 116, 111, 0.16);
+}
+
+.history-refresh-button {
+  height: 36px;
+  border: 1px solid #14746f;
+  border-radius: 8px;
+  color: #ffffff;
+  background: #14746f;
+  font-size: 14px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.history-refresh-button:disabled {
+  border-color: #9db0bf;
+  background: #9db0bf;
+  cursor: not-allowed;
+}
+
+.history-empty,
+.history-error {
+  margin: 0;
+  color: #526173;
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.history-error {
+  color: #b42318;
+}
+
+.history-list {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.history-item {
+  display: grid;
+  gap: 8px;
+  border: 1px solid #dce4ec;
+  border-radius: 8px;
+  padding: 12px;
+  background: #f9fbfd;
+}
+
+.history-item-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: #6b7585;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.history-question,
+.history-answer {
+  display: -webkit-box;
+  overflow: hidden;
+  margin: 0;
+  line-height: 1.5;
+  -webkit-box-orient: vertical;
+}
+
+.history-question {
+  color: #18212f;
+  font-size: 14px;
+  font-weight: 800;
+  -webkit-line-clamp: 2;
+}
+
+.history-answer {
+  color: #526173;
+  font-size: 13px;
+  -webkit-line-clamp: 3;
 }
 
 /* 聊天工作区：后续消息列表和输入区会放在这里。 */
@@ -331,6 +485,14 @@ h1 {
   .header-controls {
     align-items: flex-start;
     justify-content: flex-start;
+  }
+
+  .workspace-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .history-panel {
+    min-height: auto;
   }
 
   .chat-surface {
