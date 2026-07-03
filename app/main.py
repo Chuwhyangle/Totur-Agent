@@ -1,98 +1,43 @@
-from pydantic import BaseModel, Field
-from fastapi import FastAPI
+"""FastAPI 后端应用入口。
 
+这个文件负责：
+1. 创建整个后端应用对象 app = FastAPI(...)。
+2. 注册各个路由模块，比如 chat_router、health_router。
+3. 放全局配置，例如项目名称、版本号、中间件等。
+
+这个文件不适合写太多具体业务逻辑。
+例如：
+- 聊天接口逻辑应该放到 app/api/routes/chat.py。
+- 健康检查接口应该放到 app/api/routes/health.py。
+- 请求体和响应体格式应该放到 app/schemas/。
+- 复杂业务处理后续应该放到 app/services/。
+
+阶段 3 之后的结构目标：
+app/main.py 只装配应用；
+app/api/routes/ 只管理接口；
+app/services/ 处理业务逻辑。
+"""
+
+from fastapi import FastAPI
+from app.api.routes.chat import router as chat_router
+from app.api.routes.conversations import router as conversations_router
+from app.api.routes.health import router as health_router
 
 # FastAPI 是后端应用对象。
 # 你可以把 app 理解为整个 API 服务的入口。
 # 后续阶段会把路由拆到 app/api/routes/ 目录里。
+
 app = FastAPI(
     title="Tutor Agent API",
     version="0.1.0",
 )
 
+# 把各个“路由模块”注册到主应用里。
+# 你可以把 include_router(...) 理解为：
+# “把这个接口文件挂到整个网站里，让外部可以访问到它”。
+app.include_router(chat_router)
+app.include_router(conversations_router)
+app.include_router(health_router)
 
-class ChatRequest(BaseModel):
-    """POST /chat 的请求体。
-
-    BaseModel 来自 Pydantic。
-    FastAPI 会用它自动校验前端传进来的 JSON。
-    """
-
-    # user_id 是轻量多用户雏形，第一版先不做登录。
-    user_id: str = Field(..., min_length=1)
-    # message 是用户发给学习辅导 Agent 的问题。
-    message: str = Field(..., min_length=1)
-
-
-class TutorReply(BaseModel):
-    """学习导师的结构化回复。
-
-    阶段 2 先返回固定内容。
-    阶段 4 会把它升级成真实模型的结构化输出。
-    """
-
-    answer: str
-    next_task: str
-    exercise: str
-    checkpoints: list[str]
-
-
-class ChatResponse(BaseModel):
-    """POST /chat 的响应体。"""
-
-    user_id: str
-    message: str
-    reply: TutorReply
-
-
-@app.get("/health")
-def health_check() -> dict[str, str]:
-    """健康检查接口。
-
-    用途：
-    1. 确认 FastAPI 服务已经启动。
-    2. 给你练习第一个 GET 接口。
-    3. 后续部署时也可以用它判断服务是否活着。
-    """
-
-    return {
-        "status": "ok",
-        "service": "tutor-agent-api",
-    }
-
-
-@app.post("/chat", response_model=ChatResponse)
-def chat(request: ChatRequest) -> ChatResponse:
-    """学习对话接口的阶段 2 占位版本。
-
-    当前阶段只练习：
-    1. 接收 JSON 请求体。
-    2. 读取 user_id 和 message。
-    3. 返回结构化 JSON 响应。
-
-    这里暂时不调用真实模型。
-    阶段 3 会把业务逻辑拆到 service。
-    阶段 4 会接入结构化导师回复。
-    """
-
-    return ChatResponse(
-        user_id=request.user_id,
-        message=request.message,
-        reply=TutorReply(
-            answer="这是阶段 2 的固定占位回复。",
-            next_task="下一步会把这里接入阶段 1 的模型调用逻辑。",
-            exercise="请用 Swagger 的 /docs 页面调用一次 POST /chat。",
-            checkpoints=[
-                "你能解释什么是 POST 请求",
-                "你能说明请求体和响应体的区别",
-                "你能在 /docs 页面测试接口",
-            ],
-        ),
-    )
-
-
-# TODO(阶段 2): 手动启动服务并访问 http://127.0.0.1:8000/docs。
-# TODO(阶段 2): 用 Swagger 页面测试 GET /health 和 POST /chat。
-# TODO(阶段 3): 把路由从 main.py 拆分到 app/api/routes/。
-# TODO(阶段 3): 把 ChatRequest、TutorReply、ChatResponse 拆分到 app/schemas/。
-# TODO(阶段 3): 新增 TutorAgentService，让 /chat 不直接写业务逻辑。
+# TODO(阶段 3): TutorAgentService 框架已创建。
+# 下一步：把 /chat 里的固定回复逻辑迁移到 app/services/tutor_agent_service.py。

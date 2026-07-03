@@ -21,3 +21,6 @@ __pycache__/
 # Logs
 *.log
 logs/
+
+# Local SQLite database
+tutor_agent.db

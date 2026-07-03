@@ -29,7 +29,7 @@
 - [ ] 阶段 1：跑通模型调用脚本
 - [ ] 阶段 2：FastAPI 基础接口
 - [ ] 阶段 3：项目分层与可替换 LLMClient
-- [ ] 阶段 4：结构化导师回复
+- [x] 阶段 4：结构化导师回复
 - [ ] 阶段 5：SQLite 保存对话历史
 - [ ] 阶段 6：错误处理与测试
 - [ ] 阶段 7：复盘与下一版本规划
@@ -160,50 +160,50 @@
 
 ### 你要学习
 
-- [ ] HTTP 是什么
-- [ ] GET 和 POST 的区别
-- [ ] JSON 是什么
-- [ ] 路由是什么
-- [ ] 请求体是什么
-- [ ] 响应体是什么
-- [ ] FastAPI 如何启动服务
-- [ ] Swagger / OpenAPI 文档页面是什么
+- [x] HTTP 是什么
+- [x] GET 和 POST 的区别
+- [x] JSON 是什么
+- [x] 路由是什么
+- [x] 请求体是什么
+- [x] 响应体是什么
+- [x] FastAPI 如何启动服务
+- [x] Swagger / OpenAPI 文档页面是什么
 
 ### 主线任务
 
-- [ ] 安装 FastAPI
-- [ ] 安装 Uvicorn
-- [ ] 创建 `app/` 目录
-- [ ] 创建 `app/main.py`
-- [ ] 编写 `GET /health`
-- [ ] 启动 FastAPI 服务
-- [ ] 打开 `/docs`
-- [ ] 在 `/docs` 中测试 `GET /health`
-- [ ] 编写初版 `POST /chat`
-- [ ] 让 `/chat` 接收 `user_id` 和 `message`
-- [ ] 让 `/chat` 暂时返回固定回复
-- [ ] 用 Swagger 或 curl 测试 `/chat`
+- [x] 安装 FastAPI
+- [x] 安装 Uvicorn
+- [x] 创建 `app/` 目录
+- [x] 创建 `app/main.py`
+- [x] 编写 `GET /health`
+- [x] 启动 FastAPI 服务
+- [x] 打开 `/docs`
+- [x] 在 `/docs` 中测试 `GET /health`
+- [x] 编写初版 `POST /chat`
+- [x] 让 `/chat` 接收 `user_id` 和 `message`
+- [x] 让 `/chat` 暂时返回固定回复
+- [x] 用 Swagger 或 curl 测试 `/chat`
 
 ### 交付物
 
-- [ ] `app/main.py`
-- [ ] `GET /health`
-- [ ] `POST /chat`
-- [ ] 本地可以打开 `/docs`
+- [x] `app/main.py`
+- [x] `GET /health`
+- [x] `POST /chat`
+- [x] 本地可以打开 `/docs`
 
 ### 验收标准
 
-- [ ] 你能解释什么是 API
-- [ ] 你能解释什么是路由
-- [ ] 你能说清楚 GET 和 POST 的区别
-- [ ] 你能说明 `/chat` 的请求字段和响应字段
-- [ ] 你能通过 Swagger 手动测试接口
+- [x] 你能解释什么是 API
+- [x] 你能解释什么是路由
+- [x] 你能说清楚 GET 和 POST 的区别
+- [x] 你能说明 `/chat` 的请求字段和响应字段
+- [x] 你能通过 Swagger 手动测试接口
 
 ### 阶段复盘
 
-- [ ] 我画出了从用户请求到后端响应的流程
-- [ ] 我写下了 GET 和 POST 的区别
-- [ ] 我能解释为什么 `/health` 是第一个接口
+- [x] 我画出了从用户请求到后端响应的流程
+- [x] 我写下了 GET 和 POST 的区别
+- [x] 我能解释为什么 `/health` 是第一个接口
 
 复盘记录：
 
@@ -223,52 +223,52 @@
 
 ### 你要学习
 
-- [ ] route、service、client 的职责区别
-- [ ] 什么是项目分层
-- [ ] 什么是接口封装
-- [ ] 为什么模型调用需要单独封装
-- [ ] 为什么要做可替换 LLMClient
-- [ ] AI 辅助开发时，为什么清晰文件边界很重要
+- [x] route、service、client 的职责区别
+- [x] 什么是项目分层
+- [x] 什么是接口封装
+- [x] 为什么模型调用需要单独封装
+- [x] 为什么要做可替换 LLMClient
+- [x] AI 辅助开发时，为什么清晰文件边界很重要
 
 ### 主线任务
 
-- [ ] 创建 `app/api/routes/`
-- [ ] 创建 `app/services/`
-- [ ] 创建 `app/core/`
-- [ ] 创建 `app/schemas/`
-- [ ] 把 `/health` 移到独立路由文件
-- [ ] 把 `/chat` 移到独立路由文件
-- [ ] 创建配置模块 `app/core/config.py`
-- [ ] 创建请求和响应 schema
-- [ ] 创建 `LLMClient` 抽象接口
-- [ ] 创建 `OpenAICompatibleClient` 实现
-- [ ] 创建 `TutorAgentService`
-- [ ] 让 `/chat` 通过 `TutorAgentService` 调用模型
-- [ ] 让模型名称、base URL、API key 都来自配置
+- [x] 创建 `app/api/routes/`
+- [x] 创建 `app/services/`
+- [x] 创建 `app/core/`
+- [x] 创建 `app/schemas/`
+- [x] 把 `/health` 移到独立路由文件
+- [x] 把 `/chat` 移到独立路由文件
+- [x] 创建配置模块 `app/core/config.py`
+- [x] 创建请求和响应 schema
+- [x] 创建 `LLMClient` 抽象接口
+- [x] 创建 `OpenAICompatibleClient` 实现
+- [x] 创建 `TutorAgentService`
+- [x] 让 `/chat` 通过 `TutorAgentService` 调用模型
+- [x] 让模型名称、base URL、API key 都来自配置
 
 ### 交付物
 
-- [ ] `app/core/config.py`
-- [ ] `app/api/routes/health.py`
-- [ ] `app/api/routes/chat.py`
-- [ ] `app/schemas/chat.py`
-- [ ] `app/services/llm_client.py`
-- [ ] `app/services/tutor_agent.py`
-- [ ] `/chat` 使用真实 LLMClient 返回回复
+- [x] `app/core/config.py`
+- [x] `app/api/routes/health.py`
+- [x] `app/api/routes/chat.py`
+- [x] `app/schemas/chat.py`
+- [x] `app/services/llm_client.py`
+- [x] `app/services/tutor_agent.py`
+- [x] `/chat` 使用真实 LLMClient 返回回复
 
 ### 验收标准
 
-- [ ] 你能说清楚 route 负责什么
-- [ ] 你能说清楚 service 负责什么
-- [ ] 你能说清楚 LLMClient 负责什么
-- [ ] 你能指出以后换模型主要改哪里
-- [ ] 你能让 AI 只修改某个模块，而不是全项目一起改
+- [x] 你能说清楚 route 负责什么
+- [x] 你能说清楚 service 负责什么
+- [x] 你能说清楚 LLMClient 负责什么
+- [x] 你能指出以后换模型主要改哪里
+- [x] 你能让 AI 只修改某个模块，而不是全项目一起改
 
 ### 阶段复盘
 
-- [ ] 我写下了 route、service、client 的区别
-- [ ] 我写下了为什么要封装 LLMClient
-- [ ] 我能解释项目分层如何降低复杂度
+- [x] 我写下了 route、service、client 的区别
+- [x] 我写下了为什么要封装 LLMClient
+- [x] 我能解释项目分层如何降低复杂度
 
 复盘记录：
 
@@ -288,55 +288,55 @@
 
 ### 你要学习
 
-- [ ] 什么是 response schema
-- [ ] 什么是结构化输出
-- [ ] 为什么产品里不能只返回一大段文本
-- [ ] Pydantic 模型是什么
-- [ ] 如何让模型尽量按 JSON 返回
-- [ ] 模型返回不规范时如何兜底
+- [x] 什么是 response schema
+- [x] 什么是结构化输出
+- [x] 为什么产品里不能只返回一大段文本
+- [x] Pydantic 模型是什么
+- [x] 如何让模型尽量按 JSON 返回
+- [x] 模型返回不规范时如何兜底
 
 ### 主线任务
 
-- [ ] 设计导师回复结构
-- [ ] 创建 `TutorReply` schema
-- [ ] 要求模型返回 `answer`
-- [ ] 要求模型返回 `next_task`
-- [ ] 要求模型返回 `exercise`
-- [ ] 要求模型返回 `checkpoints`
-- [ ] 在 prompt 中说明回复格式
-- [ ] 解析模型返回的 JSON
-- [ ] 给模型返回不规范的情况做 fallback
-- [ ] 更新 `/chat` 响应格式
-- [ ] 手动测试至少 3 个学习问题
+- [x] 设计导师回复结构
+- [x] 创建 `TutorReply` schema
+- [x] 要求模型返回 `answer`
+- [x] 要求模型返回 `next_task`
+- [x] 要求模型返回 `exercise`
+- [x] 要求模型返回 `checkpoints`
+- [x] 在 prompt 中说明回复格式
+- [x] 解析模型返回的 JSON
+- [x] 给模型返回不规范的情况做 fallback
+- [x] 更新 `/chat` 响应格式
+- [x] 手动测试至少 3 个学习问题
 
 ### 交付物
 
-- [ ] `/chat` 返回结构化 JSON
-- [ ] 响应中包含 `answer`
-- [ ] 响应中包含 `next_task`
-- [ ] 响应中包含 `exercise`
-- [ ] 响应中包含 `checkpoints`
-- [ ] 模型返回不规范时系统不会直接崩溃
+- [x] `/chat` 返回结构化 JSON
+- [x] 响应中包含 `answer`
+- [x] 响应中包含 `next_task`
+- [x] 响应中包含 `exercise`
+- [x] 响应中包含 `checkpoints`
+- [x] 模型返回不规范时系统不会直接崩溃
 
 ### 验收标准
 
-- [ ] 你能解释为什么结构化回复适合学习产品
-- [ ] 你能看懂 Pydantic schema
-- [ ] 你能说明 fallback 的作用
-- [ ] 你能检查 `/chat` 响应里是否有固定字段
+- [x] 你能解释为什么结构化回复适合学习产品
+- [x] 你能看懂 Pydantic schema
+- [x] 你能说明 fallback 的作用
+- [x] 你能检查 `/chat` 响应里是否有固定字段
 
 ### 阶段复盘
 
-- [ ] 我写下了结构化输出的好处
-- [ ] 我写下了模型不听格式要求时可能发生什么
-- [ ] 我能解释 fallback 为什么重要
+- [x] 我写下了结构化输出的好处
+- [x] 我写下了模型不听格式要求时可能发生什么
+- [x] 我能解释 fallback 为什么重要
 
 复盘记录：
 
 ```text
-1.
-2.
-3.
+1. 结构化输出能让 `/chat` 的回复稳定包含 answer、next_task、exercise、checkpoints，后端和未来前端都更容易处理。
+2. 如果模型不听格式要求，可能返回普通文本、Markdown 代码块、缺字段 JSON 或字段类型不对的 JSON。
+3. fallback 的作用是在模型输出不规范时兜底，保证接口不会直接崩溃，并且仍然返回固定结构。
 ```
 
 ---
@@ -360,30 +360,30 @@
 
 ### 主线任务
 
-- [ ] 创建 `app/db/`
-- [ ] 创建 `app/db/database.py`
-- [ ] 创建 `app/db/models.py`
-- [ ] 设计 `conversations` 表
-- [ ] 字段包含 `id`
-- [ ] 字段包含 `user_id`
-- [ ] 字段包含 `message`
-- [ ] 字段包含 `reply_json`
-- [ ] 字段包含 `created_at`
-- [ ] 创建 `app/repositories/`
-- [ ] 创建 `conversation_repository.py`
-- [ ] 实现保存对话记录
-- [ ] 在 `/chat` 成功后保存记录
-- [ ] 实现按 `user_id` 查询最近 20 条历史
-- [ ] 创建 `GET /conversations/{user_id}`
-- [ ] 测试不同 `user_id` 的历史互相隔离
+- [x] 创建 `app/db/`
+- [x] 创建 `app/db/database.py`
+- [x] 创建 `app/db/models.py`
+- [x] 设计 `conversations` 表
+- [x] 字段包含 `id`
+- [x] 字段包含 `user_id`
+- [x] 字段包含 `message`
+- [x] 字段包含 `reply_json`
+- [x] 字段包含 `created_at`
+- [x] 创建 `app/repositories/`
+- [x] 创建 `conversation_repository.py`
+- [x] 实现保存对话记录
+- [x] 在 `/chat` 成功后保存记录
+- [x] 实现按 `user_id` 查询最近 20 条历史
+- [x] 创建 `GET /conversations/{user_id}`
+- [x] 测试不同 `user_id` 的历史互相隔离
 
 ### 交付物
 
 - [ ] SQLite 数据库文件可以生成
 - [ ] `conversations` 表可以保存数据
 - [ ] `/chat` 会保存每次对话
-- [ ] `GET /conversations/{user_id}` 可以查询历史
-- [ ] 不同用户的历史不会混在一起
+- [x] `GET /conversations/{user_id}` 可以查询历史
+- [x] 不同用户的历史不会混在一起
 
 ### 验收标准
 

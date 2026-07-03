@@ -1,14 +1,17 @@
-"""
-Stage 1 practice script.
+"""阶段 1 的大模型 SDK 练习脚本。
 
-Goal:
-1. Read model config from .env.
-2. Create an OpenAI-compatible SDK client.
-3. Send one learning question.
-4. Print the model reply.
+这个文件负责：
+1. 从 .env 读取模型配置。
+2. 创建 OpenAI-compatible SDK 客户端。
+3. 向模型发送一个学习问题。
+4. 打印模型回复。
 
-Fill one TODO section at a time, then run:
-    python scripts/test_SDK.py
+新手理解：
+这是“阶段 1：先用脚本跑通模型调用”的练习文件。
+它不是 FastAPI 接口，也不是前端页面。
+
+运行方式：
+python scripts/test_SDK.py
 """
 
 import os
