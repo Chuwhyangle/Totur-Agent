@@ -1,20 +1,7 @@
-"""学习辅导 Agent 的业务服务。
+"""Tutor Agent business service."""
 
-这个文件负责：
-1. 承接 /chat 路由传进来的 ChatRequest。
-2. 组织导师回复的业务流程。
-3. 后续在这里调用大模型、整合上下文、生成结构化回复。
-
-这个文件不负责：
-1. 定义 HTTP 路径，例如 /chat。
-2. 创建 FastAPI 应用。
-3. 直接处理前端页面。
-
-学习重点：
-当路由文件里的函数越来越长时，就把“怎么处理业务”拆进 service。
-这样 route 更像入口，service 更像大脑。
-"""
 import json
+
 from openai import OpenAI
 from openai.types.chat import (
     ChatCompletionMessageParam,
@@ -28,49 +15,28 @@ from app.schemas.chat import ChatRequest, ChatResponse, TutorReply
 
 
 class TutorAgentService:
-    """学习辅导 Agent 的业务服务类。
-
-    阶段 4 里，你会把“调用模型”这件事放进来。
-    """
+    """Build prompts, call the model, parse replies, and save history."""
 
     def __init__(
         self,
         config: LLMConfig | None = None,
         client: OpenAI | None = None,
     ) -> None:
-        """初始化服务对象。
-
-        当前阶段的设计思路：
-        1. config 负责保存模型配置。
-        2. client 负责真正和模型服务通信。
-        3. 如果外部没有传进来，就在这里用默认方式创建。
-
-        这样后面你既可以直接运行项目，
-        也可以在测试里手动注入假的 client。
-        """
+        """Initialize configuration and model client."""
 
         self.config = config or load_llm_config()
         self.client = client or create_llm_client(self.config)
 
     def chat(self, request: ChatRequest) -> ChatResponse:
-        """处理一次聊天请求，并返回聊天响应。
-
-        阶段 4 的建议拆法：
-        1. 先整理 prompt 或消息输入。
-        2. 再调用模型客户端。
-        3. 最后把模型输出整理成 TutorReply。
-        4. 再包装成 ChatResponse 返回。
-        """
+        """Handle one chat request."""
 
         user_id = request.user_id
         message = request.message
 
-        # 一步一步处理信息 接收，调用，返回
         messages = self._build_messages(message)
         raw_reply = self._call_model(messages)
         reply = self._parse_model_reply(raw_reply)
 
-        # 解析化回复，然后保存到表中
         reply_json = json.dumps(
             reply.model_dump(),
             ensure_ascii=False,
@@ -105,11 +71,7 @@ class TutorAgentService:
         return [system_msg, user_msg]
 
     def _call_model(self, messages: list[ChatCompletionMessageParam]) -> str:
-        """把消息发送给模型，并返回原始回复文本。
-
-        TODO(阶段 4 - 占位任务 2):
-        这里后面会调用 self.client.chat.completions.create(...)。
-        """
+        """Send messages to the model and return the raw text reply."""
 
         completion = self.client.chat.completions.create(
             model=self.config.model,
@@ -123,8 +85,7 @@ class TutorAgentService:
         return raw_reply
 
     def _parse_model_reply(self, raw_reply: str) -> TutorReply:
-        """把模型原始回复解析成 TutorReply。
-        """
+        """解析消息，回复消息."""
 
         cleaned_reply = raw_reply.strip()
         if not cleaned_reply:

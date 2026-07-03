@@ -1,0 +1,347 @@
+:root {
+  /* 全局基础样式：字体、文字颜色和页面背景。 */
+  font-family:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI',
+    sans-serif;
+  color: #18212f;
+  background: #f5f7fa;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  min-width: 320px;
+  min-height: 100vh;
+  margin: 0;
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+/* 页面外壳：控制整体宽度、留白和最小高度。 */
+.app-shell {
+  width: min(1120px, 100%);
+  min-height: 100vh;
+  margin: 0 auto;
+  padding: 32px clamp(16px, 4vw, 48px);
+}
+
+/* 顶部栏：左侧标题，右侧放状态和用户标识。 */
+.app-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 8px 0 28px;
+}
+
+.app-kicker {
+  margin: 0 0 8px;
+  color: #14746f;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+h1 {
+  margin: 0;
+  color: #18212f;
+  font-size: 32px;
+  font-weight: 760;
+  line-height: 1.16;
+  letter-spacing: 0;
+}
+
+.header-controls {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.api-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 7px 12px;
+  border: 1px solid #cbd6e2;
+  border-radius: 8px;
+  color: #405064;
+  background: #ffffff;
+  font-size: 14px;
+  white-space: nowrap;
+}
+
+/* 状态小圆点：后面接后端 /health 后会根据状态变色。 */
+.status-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  background: #c8781e;
+}
+
+.api-status-checking .status-dot {
+  background: #c8781e;
+}
+
+.api-status-online .status-dot {
+  background: #14746f;
+}
+
+.api-status-offline .status-dot {
+  background: #b42318;
+}
+
+/* 刷新按钮：阶段 5 会用它手动重新检查后端健康状态。 */
+.refresh-button {
+  min-width: 70px;
+  height: 36px;
+  border: 1px solid #cbd6e2;
+  border-radius: 8px;
+  padding: 0 12px;
+  color: #405064;
+  background: #ffffff;
+  font-size: 14px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.refresh-button:disabled {
+  color: #7a8898;
+  background: #eef3f7;
+  cursor: not-allowed;
+}
+
+/* user_id 输入框：第一版先用来手动区分不同用户。 */
+.user-id-field {
+  display: grid;
+  gap: 5px;
+  color: #526173;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.user-id-field span {
+  line-height: 1;
+}
+
+.user-id-field input {
+  width: 180px;
+  height: 36px;
+  border: 1px solid #cbd6e2;
+  border-radius: 8px;
+  padding: 0 10px;
+  color: #18212f;
+  background: #ffffff;
+}
+
+.user-id-field input:focus {
+  border-color: #14746f;
+  outline: 3px solid rgba(20, 116, 111, 0.16);
+}
+
+/* 聊天工作区：后续消息列表和输入区会放在这里。 */
+.chat-surface {
+  display: grid;
+  grid-template-rows: 1fr auto;
+  min-height: 520px;
+  border: 1px solid #d7e0ea;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 18px 45px rgba(39, 55, 77, 0.08);
+}
+
+.thread-preview {
+  display: grid;
+  gap: 18px;
+  max-width: 760px;
+  margin: 0 auto;
+  padding: clamp(24px, 5vw, 56px);
+}
+
+/* 单条消息的通用样式，左右消息只改对齐和强调色。 */
+.message {
+  width: min(560px, 100%);
+  padding: 16px 18px;
+  border: 1px solid #dce4ec;
+  border-radius: 8px;
+  line-height: 1.55;
+}
+
+.message-author {
+  display: block;
+  margin-bottom: 6px;
+  color: #6b7585;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.message p {
+  margin: 0;
+}
+
+.structured-reply {
+  display: grid;
+  gap: 14px;
+}
+
+.reply-section {
+  display: grid;
+  gap: 6px;
+  padding-top: 12px;
+  border-top: 1px solid #dce4ec;
+}
+
+.reply-label {
+  color: #14746f;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.checkpoint-list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding-left: 20px;
+}
+
+.checkpoint-list li {
+  padding-left: 2px;
+}
+
+/* 调试详情：默认折叠，展开后显示请求和响应的 JSON。 */
+.debug-details {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid #dce4ec;
+}
+
+.debug-details summary {
+  width: fit-content;
+  color: #526173;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.debug-details pre {
+  overflow-x: auto;
+  margin: 12px 0 0;
+  border: 1px solid #dce4ec;
+  border-radius: 8px;
+  padding: 12px;
+  color: #263445;
+  background: #ffffff;
+  font-family: ui-monospace, SFMono-Regular, Consolas, 'Liberation Mono',
+    monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.assistant-message {
+  justify-self: start;
+  background: #f7fbfa;
+  border-left: 4px solid #14746f;
+}
+
+.user-message {
+  justify-self: end;
+  background: #fff8ef;
+  border-right: 4px solid #c8781e;
+}
+
+/* 底部输入区：阶段 4 开始接入输入状态和发送事件。 */
+.chat-input-form {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 12px;
+  padding: 16px;
+  border-top: 1px solid #d7e0ea;
+  background: #f9fbfd;
+}
+
+.chat-input {
+  min-height: 48px;
+  max-height: 140px;
+  resize: vertical;
+  border: 1px solid #cbd6e2;
+  border-radius: 8px;
+  padding: 12px 14px;
+  color: #18212f;
+  background: #ffffff;
+  line-height: 1.45;
+}
+
+.chat-input:focus {
+  border-color: #14746f;
+  outline: 3px solid rgba(20, 116, 111, 0.16);
+}
+
+.send-button {
+  align-self: end;
+  min-width: 78px;
+  height: 48px;
+  border: 1px solid #14746f;
+  border-radius: 8px;
+  color: #ffffff;
+  background: #14746f;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.send-button:disabled {
+  border-color: #9db0bf;
+  background: #9db0bf;
+  cursor: not-allowed;
+}
+
+/* 小屏幕时改成纵向布局，避免顶部内容挤在一起。 */
+@media (max-width: 680px) {
+  .app-shell {
+    padding: 20px 12px;
+  }
+
+  .app-header {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  .api-status {
+    width: fit-content;
+  }
+
+  .header-controls {
+    align-items: flex-start;
+    justify-content: flex-start;
+  }
+
+  .chat-surface {
+    min-height: 440px;
+  }
+
+  .chat-input-form {
+    grid-template-columns: 1fr;
+  }
+
+  .send-button {
+    width: 100%;
+  }
+}

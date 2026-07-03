@@ -72,6 +72,30 @@ def test_chat_returns_structured_reply(monkeypatch, tmp_path):
     assert len(reply["checkpoints"]) == 3
 
 
+def test_chat_rejects_empty_message():
+    response = client.post(
+        "/chat",
+        json={
+            "user_id": "default",
+            "message": "",
+        },
+    )
+
+    assert response.status_code == 422
+
+
+def test_chat_rejects_empty_user_id():
+    response = client.post(
+        "/chat",
+        json={
+            "user_id": "",
+            "message": "What is FastAPI?",
+        },
+    )
+
+    assert response.status_code == 422
+
+
 def test_chat_falls_back_when_model_reply_is_not_json(monkeypatch, tmp_path):
     use_temp_database(monkeypatch, tmp_path)
 
@@ -144,3 +168,36 @@ def test_get_conversations_returns_recent_history_for_user(monkeypatch, tmp_path
     assert body["items"][0]["reply"]["answer"] == "Second answer"
     assert body["items"][1]["message"] == "first question"
     assert all(item["message"] != "bob question" for item in body["items"])
+
+
+def test_get_conversations_respects_custom_limit(monkeypatch, tmp_path):
+    use_temp_database(monkeypatch, tmp_path)
+
+    reply_json = """
+    {
+      "answer": "Answer",
+      "next_task": "Task",
+      "exercise": "Exercise",
+      "checkpoints": ["Checkpoint"]
+    }
+    """
+
+    save_conversation("alice", "first question", reply_json)
+    save_conversation("alice", "second question", reply_json)
+    third_id = save_conversation("alice", "third question", reply_json)
+
+    response = client.get("/conversations/alice?limit=2")
+
+    assert response.status_code == 200
+    body = response.json()
+
+    assert len(body["items"]) == 2
+    assert body["items"][0]["id"] == third_id
+    assert body["items"][0]["message"] == "third question"
+    assert body["items"][1]["message"] == "second question"
+
+
+def test_get_conversations_rejects_invalid_limit():
+    response = client.get("/conversations/alice?limit=0")
+
+    assert response.status_code == 422

@@ -2,7 +2,7 @@
 
 import json
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 
 from app.repositories.conversation_repository import list_recent_conversations
 from app.schemas.chat import TutorReply
@@ -13,10 +13,13 @@ router = APIRouter(tags=["conversations"])
 
 
 @router.get("/conversations/{user_id}", response_model=ConversationListResponse)
-def get_conversations(user_id: str) -> ConversationListResponse:
+def get_conversations(
+    user_id: str,
+    limit: int = Query(default=20, ge=1, le=100),
+) -> ConversationListResponse:
     """查询某个用户最近的对话历史。"""
 
-    records = list_recent_conversations(user_id=user_id, limit=20)
+    records = list_recent_conversations(user_id=user_id, limit=limit)
     items: list[ConversationItem] = []
 
     for record in records:
