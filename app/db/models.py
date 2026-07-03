@@ -1,4 +1,4 @@
-"""Database model helpers."""
+"""数据库表名和记录模型。"""
 
 from dataclasses import dataclass
 
@@ -10,7 +10,7 @@ DEFAULT_SESSION_TITLE = "默认会话"
 
 @dataclass
 class ChatSessionRecord:
-    """One row from the chat_sessions table."""
+    """chat_sessions 表中的一行记录。"""
 
     id: int
     user_id: str
@@ -21,7 +21,7 @@ class ChatSessionRecord:
 
 @dataclass
 class ConversationRecord:
-    """One row from the conversations table."""
+    """conversations 表中的一行记录。"""
 
     id: int
     session_id: int | None

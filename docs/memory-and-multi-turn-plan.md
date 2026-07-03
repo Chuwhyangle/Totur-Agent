@@ -321,10 +321,10 @@ WHERE user_id = ? AND session_id = ?
 - [x] 修改 `save_conversation`，保存 `session_id`
 - [x] 修改 `list_recent_conversations`，支持按 `user_id + session_id` 查询
 - [x] 更新测试
-- [ ] 新增 Sessions API：创建会话、查询会话列表、查询某个会话消息
-- [ ] 给 `ChatRequest` 增加可选 `session_id`
-- [ ] 给 `ChatResponse` 返回 `session_id`
-- [ ] 修改 `TutorAgentService.chat`，使用 `session_id` 查询历史
+- [x] 新增 Sessions API：创建会话、查询会话列表、查询某个会话消息
+- [x] 给 `ChatRequest` 增加可选 `session_id`
+- [x] 给 `ChatResponse` 返回 `session_id`
+- [x] 修改 `TutorAgentService.chat`，使用 `session_id` 查询历史
 - [ ] 更新 `/conversations/{user_id}` 是否需要支持按 `session_id` 过滤
 
 ### 5.6 第二阶段测试任务
@@ -333,9 +333,10 @@ WHERE user_id = ? AND session_id = ?
 - [x] `save_conversation` 不传 `session_id` 时默认进入“默认会话”
 - [x] `list_recent_conversations` 可以按 `session_id` 过滤
 - [x] 老测试仍然通过
-- [ ] 同一个 `user_id`、同一个 `session_id` 能接上历史
-- [ ] 同一个 `user_id`、不同 `session_id` 不会混历史
-- [ ] 不同 `user_id`、不同 `session_id` 不会混历史
+- [x] API 可以创建会话、查询会话列表、查询某个会话的消息
+- [x] 同一个 `user_id`、同一个 `session_id` 能接上历史
+- [x] 同一个 `user_id`、不同 `session_id` 不会混历史
+- [x] 不同 `user_id`、不同 `session_id` 不会混历史
 
 ### 5.7 第二阶段验收标准
 

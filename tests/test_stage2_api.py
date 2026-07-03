@@ -182,6 +182,142 @@ def test_make_title_from_message_uses_first_message_and_truncates():
     assert make_title_from_message("x" * 40) == f"{'x' * 30}..."
 
 
+def test_post_sessions_creates_chat_session(monkeypatch, tmp_path):
+    use_temp_database(monkeypatch, tmp_path)
+
+    response = client.post(
+        "/sessions",
+        json={
+            "user_id": "alice",
+            "title": "FastAPI 学习",
+        },
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+
+    assert body["id"] > 0
+    assert body["user_id"] == "alice"
+    assert body["title"] == "FastAPI 学习"
+    assert isinstance(body["created_at"], str)
+    assert isinstance(body["updated_at"], str)
+
+
+def test_get_sessions_returns_only_current_user_sessions(monkeypatch, tmp_path):
+    use_temp_database(monkeypatch, tmp_path)
+
+    first = create_session("alice", "FastAPI")
+    second = create_session("alice", "SQLite")
+    create_session("bob", "Bob session")
+
+    response = client.get("/sessions?user_id=alice")
+
+    assert response.status_code == 200
+    body = response.json()
+
+    assert body["user_id"] == "alice"
+    assert [item["id"] for item in body["items"]] == [second.id, first.id]
+    assert [item["title"] for item in body["items"]] == ["SQLite", "FastAPI"]
+    assert all(item["user_id"] == "alice" for item in body["items"])
+
+
+def test_get_sessions_respects_limit(monkeypatch, tmp_path):
+    use_temp_database(monkeypatch, tmp_path)
+
+    create_session("alice", "first")
+    second = create_session("alice", "second")
+
+    response = client.get("/sessions?user_id=alice&limit=1")
+
+    assert response.status_code == 200
+    body = response.json()
+
+    assert len(body["items"]) == 1
+    assert body["items"][0]["id"] == second.id
+
+
+def test_get_session_conversations_returns_messages_for_one_session(
+    monkeypatch,
+    tmp_path,
+):
+    use_temp_database(monkeypatch, tmp_path)
+
+    reply_json = """
+    {
+      "answer": "Session answer",
+      "next_task": "Session task",
+      "exercise": "Session exercise",
+      "checkpoints": ["Session checkpoint"]
+    }
+    """
+    fastapi_session = create_session("alice", "FastAPI")
+    sqlite_session = create_session("alice", "SQLite")
+    save_conversation(
+        "alice",
+        "FastAPI question",
+        reply_json,
+        session_id=fastapi_session.id,
+    )
+    sqlite_id = save_conversation(
+        "alice",
+        "SQLite question",
+        reply_json,
+        session_id=sqlite_session.id,
+    )
+
+    response = client.get(f"/sessions/{sqlite_session.id}/conversations")
+
+    assert response.status_code == 200
+    body = response.json()
+
+    assert body["session_id"] == sqlite_session.id
+    assert body["user_id"] == "alice"
+    assert body["title"] == "SQLite"
+    assert len(body["items"]) == 1
+    assert body["items"][0]["id"] == sqlite_id
+    assert body["items"][0]["message"] == "SQLite question"
+    assert body["items"][0]["reply"]["answer"] == "Session answer"
+
+
+def test_get_session_conversations_respects_limit(monkeypatch, tmp_path):
+    use_temp_database(monkeypatch, tmp_path)
+
+    reply_json = """
+    {
+      "answer": "Answer",
+      "next_task": "Task",
+      "exercise": "Exercise",
+      "checkpoints": ["Checkpoint"]
+    }
+    """
+    session = create_session("alice", "Limit test")
+    save_conversation("alice", "first", reply_json, session_id=session.id)
+    second_id = save_conversation("alice", "second", reply_json, session_id=session.id)
+
+    response = client.get(f"/sessions/{session.id}/conversations?limit=1")
+
+    assert response.status_code == 200
+    body = response.json()
+
+    assert len(body["items"]) == 1
+    assert body["items"][0]["id"] == second_id
+
+
+def test_get_session_conversations_returns_404_for_missing_session():
+    response = client.get("/sessions/999999/conversations")
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Session not found"
+
+
+def test_sessions_reject_invalid_limit():
+    sessions_response = client.get("/sessions?user_id=alice&limit=0")
+    conversations_response = client.get("/sessions/1/conversations?limit=0")
+
+    assert sessions_response.status_code == 422
+    assert conversations_response.status_code == 422
+
+
 def test_health_returns_service_status():
     response = client.get("/health")
 
@@ -227,6 +363,7 @@ def test_chat_returns_structured_reply(monkeypatch, tmp_path):
     reply = body["reply"]
 
     assert body["user_id"] == "default"
+    assert isinstance(body["session_id"], int)
     assert body["message"] == "What is a FastAPI route?"
     assert isinstance(reply["answer"], str)
     assert isinstance(reply["next_task"], str)
@@ -313,6 +450,154 @@ def test_chat_saves_current_conversation_for_history_lookup(monkeypatch, tmp_pat
     assert history_body["user_id"] == "default"
     assert history_body["items"][0]["message"] == "Please save this turn."
     assert history_body["items"][0]["reply"]["answer"] == "Saved answer"
+
+
+def test_chat_uses_requested_session_for_history_and_saving(monkeypatch, tmp_path):
+    use_temp_database(monkeypatch, tmp_path)
+
+    fastapi_session = create_session("alice", "FastAPI")
+    sqlite_session = create_session("alice", "SQLite")
+    fastapi_reply = """
+    {
+      "answer": "FastAPI previous answer",
+      "next_task": "FastAPI task",
+      "exercise": "FastAPI exercise",
+      "checkpoints": ["FastAPI checkpoint"]
+    }
+    """
+    sqlite_reply = """
+    {
+      "answer": "SQLite previous answer",
+      "next_task": "SQLite task",
+      "exercise": "SQLite exercise",
+      "checkpoints": ["SQLite checkpoint"]
+    }
+    """
+    raw_model_reply = """
+    {
+      "answer": "SQLite current answer",
+      "next_task": "Current task",
+      "exercise": "Current exercise",
+      "checkpoints": ["Current checkpoint"]
+    }
+    """
+    save_conversation(
+        "alice",
+        "FastAPI previous question",
+        fastapi_reply,
+        session_id=fastapi_session.id,
+    )
+    save_conversation(
+        "alice",
+        "SQLite previous question",
+        sqlite_reply,
+        session_id=sqlite_session.id,
+    )
+    captured_messages = []
+
+    def fake_call_model(messages):
+        # 捕获 prompt，确认只带当前 session_id 的历史。
+        captured_messages.extend(messages)
+        return raw_model_reply
+
+    monkeypatch.setattr(
+        chat_route.tutor_agent_service,
+        "_call_model",
+        fake_call_model,
+    )
+
+    response = client.post(
+        "/chat",
+        json={
+            "user_id": "alice",
+            "session_id": sqlite_session.id,
+            "message": "Continue SQLite.",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    sqlite_history = list_recent_conversations(
+        user_id="alice",
+        session_id=sqlite_session.id,
+    )
+
+    prompt_text = "\n".join(str(message["content"]) for message in captured_messages)
+    assert body["session_id"] == sqlite_session.id
+    assert "SQLite previous question" in prompt_text
+    assert "SQLite previous answer" in prompt_text
+    assert "FastAPI previous question" not in prompt_text
+    assert "FastAPI previous answer" not in prompt_text
+    assert sqlite_history[0].message == "Continue SQLite."
+
+
+def test_chat_renames_empty_default_session_from_first_message(monkeypatch, tmp_path):
+    use_temp_database(monkeypatch, tmp_path)
+
+    session = create_session("alice")
+    raw_model_reply = """
+    {
+      "answer": "Title answer",
+      "next_task": "Title task",
+      "exercise": "Title exercise",
+      "checkpoints": ["Title checkpoint"]
+    }
+    """
+
+    monkeypatch.setattr(
+        chat_route.tutor_agent_service,
+        "_call_model",
+        lambda messages: raw_model_reply,
+    )
+
+    response = client.post(
+        "/chat",
+        json={
+            "user_id": "alice",
+            "session_id": session.id,
+            "message": "什么是 RAG？",
+        },
+    )
+
+    assert response.status_code == 200
+    sessions = list_sessions("alice")
+
+    assert sessions[0].id == session.id
+    assert sessions[0].title == "什么是 RAG？"
+
+
+def test_chat_returns_404_for_missing_session(monkeypatch, tmp_path):
+    use_temp_database(monkeypatch, tmp_path)
+
+    response = client.post(
+        "/chat",
+        json={
+            "user_id": "alice",
+            "session_id": 999999,
+            "message": "Use a missing session.",
+        },
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Session not found"
+
+
+def test_chat_returns_404_for_other_users_session(monkeypatch, tmp_path):
+    use_temp_database(monkeypatch, tmp_path)
+
+    bob_session = create_session("bob", "Bob session")
+
+    response = client.post(
+        "/chat",
+        json={
+            "user_id": "alice",
+            "session_id": bob_session.id,
+            "message": "Try to use Bob session.",
+        },
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Session not found"
 
 
 def test_chat_rejects_empty_message():

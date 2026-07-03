@@ -9,10 +9,16 @@ from openai.types.chat import (
     ChatCompletionSystemMessageParam,
     ChatCompletionUserMessageParam,
 )
-from app.db.models import ConversationRecord
+from app.db.models import DEFAULT_SESSION_TITLE, ConversationRecord
 from app.repositories.conversation_repository import (
     list_recent_conversations,
     save_conversation,
+)
+from app.repositories.session_repository import (
+    get_or_create_default_session,
+    get_session,
+    make_title_from_message,
+    update_session_title,
 )
 from app.clients.llm_client import create_llm_client
 from app.config import LLMConfig, load_llm_config
@@ -21,6 +27,10 @@ from app.schemas.chat import ChatRequest, ChatResponse, TutorReply
 
 # 只加载最近几轮历史，避免 prompt 无限变长。
 RECENT_HISTORY_LIMIT = 6
+
+
+class ChatSessionNotFoundError(Exception):
+    """聊天请求指定的 session_id 不存在，或不属于当前 user_id。"""
 
 
 class TutorAgentService:
@@ -37,16 +47,21 @@ class TutorAgentService:
         self.client = client or create_llm_client(self.config)
 
     def chat(self, request: ChatRequest) -> ChatResponse:
-        """Handle one chat request."""
+        """处理一次聊天请求。"""
 
         user_id = request.user_id
         message = request.message
+        session = self._resolve_session(user_id=user_id, session_id=request.session_id)
 
-        # 短期记忆第一步：先加载当前用户最近几轮对话。
+        # 多会话模式下，短期记忆只读取当前 session_id 的最近几轮。
         recent_history = list_recent_conversations(
             user_id=user_id,
+            session_id=session.id,
             limit=RECENT_HISTORY_LIMIT,
         )
+        if not recent_history and session.title == DEFAULT_SESSION_TITLE:
+            # 新会话第一条消息发出后，用这条消息生成一个更自然的会话标题。
+            update_session_title(session.id, make_title_from_message(message))
 
         messages = self._build_messages(
             message=message,
@@ -64,13 +79,28 @@ class TutorAgentService:
             user_id=user_id,
             message=message,
             reply_json=reply_json,
+            session_id=session.id,
         )
 
         return ChatResponse(
             user_id=user_id,
+            session_id=session.id,
             message=message,
             reply=reply,
         )
+
+    def _resolve_session(self, user_id: str, session_id: int | None):
+        """确定这次聊天要写入哪个会话。"""
+
+        if session_id is None:
+            # 兼容旧版前端：不传 session_id 时仍然使用默认会话。
+            return get_or_create_default_session(user_id)
+
+        session = get_session(session_id)
+        if session is None or session.user_id != user_id:
+            raise ChatSessionNotFoundError
+
+        return session
 
     def _build_messages(
         self,

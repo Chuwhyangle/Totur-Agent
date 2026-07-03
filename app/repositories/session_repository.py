@@ -1,4 +1,4 @@
-"""Chat session database operations."""
+"""聊天会话数据库操作。"""
 
 from datetime import datetime, timezone
 
@@ -14,8 +14,9 @@ SESSION_TITLE_MAX_LENGTH = 30
 
 
 def make_title_from_message(message: str) -> str:
-    """Use the first user message as a short session title."""
+    """把用户第一条消息变成简短的会话标题。"""
 
+    # 去掉首尾空白，并把中间连续空白压成一个空格。
     title = " ".join(message.strip().split())
     if not title:
         return DEFAULT_SESSION_TITLE
@@ -30,10 +31,11 @@ def create_session(
     user_id: str,
     title: str | None = None,
 ) -> ChatSessionRecord:
-    """Create one chat session for a user."""
+    """为某个用户创建一个聊天会话。"""
 
     initialize_database()
     now = datetime.now(timezone.utc).isoformat()
+    # 如果前端没有传标题，就先使用默认会话标题。
     session_title = title.strip() if title and title.strip() else DEFAULT_SESSION_TITLE
     insert_sql = f"""
     INSERT INTO {CHAT_SESSIONS_TABLE} (user_id, title, created_at, updated_at)
@@ -64,7 +66,7 @@ def create_session(
 
 
 def get_or_create_default_session(user_id: str) -> ChatSessionRecord:
-    """Return one user's default session, creating it if needed."""
+    """获取某个用户的默认会话；没有就自动创建。"""
 
     initialize_database()
     select_sql = f"""
@@ -87,11 +89,34 @@ def get_or_create_default_session(user_id: str) -> ChatSessionRecord:
     if row is not None:
         return _session_from_row(row)
 
+    # 旧版 /chat 不传 session_id 时，会走到这里创建默认会话。
     return create_session(user_id=user_id, title=DEFAULT_SESSION_TITLE)
 
 
+def get_session(session_id: int) -> ChatSessionRecord | None:
+    """根据 session_id 查询一个会话。"""
+
+    initialize_database()
+    select_sql = f"""
+    SELECT id, user_id, title, created_at, updated_at
+    FROM {CHAT_SESSIONS_TABLE}
+    WHERE id = ?
+    """
+    connection = get_connection()
+
+    try:
+        row = connection.execute(select_sql, (session_id,)).fetchone()
+
+        if row is None:
+            return None
+
+        return _session_from_row(row)
+    finally:
+        connection.close()
+
+
 def list_sessions(user_id: str, limit: int = 50) -> list[ChatSessionRecord]:
-    """Return recent chat sessions for a user, newest first."""
+    """查询某个用户最近的会话列表，最新的排在前面。"""
 
     initialize_database()
     select_sql = f"""
@@ -115,7 +140,7 @@ def list_sessions(user_id: str, limit: int = 50) -> list[ChatSessionRecord]:
 
 
 def touch_session(session_id: int) -> None:
-    """Update a session timestamp after a new conversation is saved."""
+    """保存新对话后，更新会话的最后活跃时间。"""
 
     initialize_database()
     now = datetime.now(timezone.utc).isoformat()
@@ -133,7 +158,27 @@ def touch_session(session_id: int) -> None:
         connection.close()
 
 
+def update_session_title(session_id: int, title: str) -> None:
+    """更新会话标题。"""
+
+    initialize_database()
+    update_sql = f"""
+    UPDATE {CHAT_SESSIONS_TABLE}
+    SET title = ?
+    WHERE id = ?
+    """
+    connection = get_connection()
+
+    try:
+        connection.execute(update_sql, (title, session_id))
+        connection.commit()
+    finally:
+        connection.close()
+
+
 def _session_from_row(row) -> ChatSessionRecord:
+    """把 sqlite3.Row 转成 ChatSessionRecord。"""
+
     return ChatSessionRecord(
         id=row["id"],
         user_id=row["user_id"],

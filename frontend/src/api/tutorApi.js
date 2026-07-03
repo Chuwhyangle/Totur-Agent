@@ -1,5 +1,6 @@
 const API_BASE_URL = 'http://127.0.0.1:8001'
 const CHAT_URL = `${API_BASE_URL}/chat`
+const SESSIONS_URL = `${API_BASE_URL}/sessions`
 
 // getHealth 负责请求后端健康检查接口，确认 API 是否在线。
 export async function getHealth() {
@@ -27,6 +28,21 @@ function buildConversationsUrl(userId, limit) {
   return `${API_BASE_URL}/conversations/${safeUserId}?${searchParams.toString()}`
 }
 
+function buildSessionsUrl(userId, limit) {
+  const searchParams = new URLSearchParams({
+    user_id: userId,
+    limit: String(limit),
+  })
+
+  return `${SESSIONS_URL}?${searchParams.toString()}`
+}
+
+function buildSessionConversationsUrl(sessionId, limit) {
+  const searchParams = new URLSearchParams({ limit: String(limit) })
+
+  return `${SESSIONS_URL}/${sessionId}/conversations?${searchParams.toString()}`
+}
+
 // postChat 负责把用户消息发送给后端 /chat，并保留调试信息。
 export async function postChat(requestBody) {
   const startedAt = performance.now()
@@ -50,6 +66,93 @@ export async function postChat(requestBody) {
 
   if (!response.ok) {
     const error = new Error(`Chat request failed: ${response.status}`)
+    error.debug = debug
+    throw error
+  }
+
+  return {
+    data: responseBody,
+    debug,
+  }
+}
+
+// createSession 负责创建一个新的聊天会话窗口。
+export async function createSession(requestBody) {
+  const startedAt = performance.now()
+  const response = await fetch(SESSIONS_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(requestBody),
+  })
+  const responseBody = await readJsonSafely(response)
+  const durationMs = Math.round(performance.now() - startedAt)
+  const debug = {
+    url: SESSIONS_URL,
+    method: 'POST',
+    requestBody,
+    responseBody,
+    status: response.status,
+    durationMs,
+  }
+
+  if (!response.ok) {
+    const error = new Error(`Create session failed: ${response.status}`)
+    error.debug = debug
+    throw error
+  }
+
+  return {
+    data: responseBody,
+    debug,
+  }
+}
+
+// getSessions 负责按 user_id 查询这个用户的会话列表。
+export async function getSessions(userId, limit = 50) {
+  const url = buildSessionsUrl(userId, limit)
+  const startedAt = performance.now()
+  const response = await fetch(url)
+  const responseBody = await readJsonSafely(response)
+  const durationMs = Math.round(performance.now() - startedAt)
+  const debug = {
+    url,
+    method: 'GET',
+    responseBody,
+    status: response.status,
+    durationMs,
+  }
+
+  if (!response.ok) {
+    const error = new Error(`Session list request failed: ${response.status}`)
+    error.debug = debug
+    throw error
+  }
+
+  return {
+    data: responseBody,
+    debug,
+  }
+}
+
+// getSessionConversations 负责查询某个会话窗口里的历史消息。
+export async function getSessionConversations(sessionId, limit = 50) {
+  const url = buildSessionConversationsUrl(sessionId, limit)
+  const startedAt = performance.now()
+  const response = await fetch(url)
+  const responseBody = await readJsonSafely(response)
+  const durationMs = Math.round(performance.now() - startedAt)
+  const debug = {
+    url,
+    method: 'GET',
+    responseBody,
+    status: response.status,
+    durationMs,
+  }
+
+  if (!response.ok) {
+    const error = new Error(`Session conversations request failed: ${response.status}`)
     error.debug = debug
     throw error
   }

@@ -1,4 +1,4 @@
-"""SQLite connection and schema initialization."""
+"""SQLite 连接和数据库表初始化。"""
 
 from pathlib import Path
 import sqlite3
@@ -15,18 +15,19 @@ DATABASE_PATH = PROJECT_ROOT / "tutor_agent.db"
 
 
 def get_connection() -> sqlite3.Connection:
-    """Create a SQLite connection for the app database."""
+    """创建一个 SQLite 数据库连接。"""
 
     connection = sqlite3.connect(DATABASE_PATH)
 
     connection.row_factory = sqlite3.Row
+    # 开启外键检查，让 conversations.session_id 能关联到 chat_sessions.id。
     connection.execute("PRAGMA foreign_keys = ON")
 
     return connection
 
 
 def initialize_database() -> None:
-    """Create database tables if they do not already exist."""
+    """创建数据库表，并处理旧数据库的轻量迁移。"""
 
     create_sessions_table_sql = f"""
     CREATE TABLE IF NOT EXISTS {CHAT_SESSIONS_TABLE} (
@@ -65,7 +66,9 @@ def initialize_database() -> None:
     try:
         connection.execute(create_sessions_table_sql)
         connection.execute(create_conversations_table_sql)
+        # 旧版 conversations 表没有 session_id，这里会自动补上。
         _ensure_conversations_session_id_column(connection)
+        # 把旧数据按 user_id 归入一个“默认会话”。
         _migrate_existing_conversations_to_default_sessions(connection)
         connection.execute(create_sessions_index_sql)
         connection.execute(create_conversations_session_index_sql)
@@ -76,7 +79,7 @@ def initialize_database() -> None:
 
 
 def _ensure_conversations_session_id_column(connection: sqlite3.Connection) -> None:
-    """Add session_id to old conversations tables created before sessions existed."""
+    """给旧版 conversations 表补上 session_id 字段。"""
 
     columns = {
         row["name"]
@@ -92,7 +95,7 @@ def _ensure_conversations_session_id_column(connection: sqlite3.Connection) -> N
 def _migrate_existing_conversations_to_default_sessions(
     connection: sqlite3.Connection,
 ) -> None:
-    """Move old user-only conversation rows into one default session per user."""
+    """把旧的用户历史记录迁移到每个用户自己的默认会话。"""
 
     users_with_old_rows = connection.execute(
         f"""
@@ -110,6 +113,7 @@ def _migrate_existing_conversations_to_default_sessions(
         user_id = row["user_id"]
         first_created_at = row["first_created_at"]
         last_created_at = row["last_created_at"]
+        # 每个 user_id 只创建或复用一个默认会话。
         session_id = _get_or_create_default_session_id(
             connection=connection,
             user_id=user_id,
@@ -133,7 +137,7 @@ def _get_or_create_default_session_id(
     created_at: str,
     updated_at: str,
 ) -> int:
-    """Return the default session id for one user, creating it if needed."""
+    """获取某个用户的默认会话 id；没有就创建。"""
 
     row = connection.execute(
         f"""
@@ -147,6 +151,7 @@ def _get_or_create_default_session_id(
     ).fetchone()
 
     if row is not None:
+        # 如果默认会话已存在，就把更新时间推进到旧数据的最新时间。
         connection.execute(
             f"""
             UPDATE {CHAT_SESSIONS_TABLE}

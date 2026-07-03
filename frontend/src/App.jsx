@@ -1,10 +1,16 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 
-import { getConversations, getHealth, postChat } from './api/tutorApi.js'
+import {
+  createSession,
+  getHealth,
+  getSessionConversations,
+  getSessions,
+  postChat,
+} from './api/tutorApi.js'
 import ApiStatus from './components/ApiStatus.jsx'
 import ChatInput from './components/ChatInput.jsx'
 import ChatMessage from './components/ChatMessage.jsx'
-import ConversationHistory from './components/ConversationHistory.jsx'
+import SessionSidebar from './components/SessionSidebar.jsx'
 import UserIdInput from './components/UserIdInput.jsx'
 
 function createErrorReply() {
@@ -24,10 +30,11 @@ function App() {
   // 聊天消息从空数组开始，页面启动时不再显示固定示例回复。
   const [messages, setMessages] = useState([])
   const [isSending, setIsSending] = useState(false)
-  const [historyItems, setHistoryItems] = useState([])
-  const [historyStatus, setHistoryStatus] = useState('idle')
-  const [historyLimit, setHistoryLimit] = useState(5)
-  const [historyDebug, setHistoryDebug] = useState(null)
+  const [sessions, setSessions] = useState([])
+  const [sessionsStatus, setSessionsStatus] = useState('idle')
+  const [activeSessionId, setActiveSessionId] = useState(null)
+  const [activeSessionStatus, setActiveSessionStatus] = useState('idle')
+  const [isCreatingSession, setIsCreatingSession] = useState(false)
 
   const canSend = draftMessage.trim().length > 0 && userId.trim().length > 0 && !isSending
 
@@ -35,50 +42,124 @@ function App() {
     // 切换用户时清空页面本地状态，避免把不同 user_id 的对话混在一起看。
     setUserId(nextUserId)
     setMessages([])
-    setHistoryItems([])
-    setHistoryStatus('idle')
-    setHistoryDebug(null)
+    setSessions([])
+    setSessionsStatus('idle')
+    setActiveSessionId(null)
+    setActiveSessionStatus('idle')
   }
 
-  function handleHistoryLimitChange(nextLimit) {
-    const numberLimit = Number(nextLimit)
-
-    if (Number.isNaN(numberLimit)) {
-      return
-    }
-
-    setHistoryLimit(Math.min(100, Math.max(1, numberLimit)))
+  function buildMessagesFromHistoryItems(items) {
+    // 后端历史是最新在前，聊天窗口显示时要改成旧到新。
+    return [...items].reverse().flatMap((item) => [
+      {
+        id: `history-user-${item.id}`,
+        role: 'user',
+        text: item.message,
+      },
+      {
+        id: `history-assistant-${item.id}`,
+        role: 'assistant',
+        reply: item.reply,
+      },
+    ])
   }
 
-  async function loadConversationHistory({ silent = false } = {}) {
+  function upsertSession(nextSession) {
+    setSessions((currentSessions) => {
+      const withoutCurrent = currentSessions.filter(
+        (session) => session.id !== nextSession.id,
+      )
+
+      return [nextSession, ...withoutCurrent]
+    })
+  }
+
+  const loadSessions = useCallback(async ({ silent = false } = {}) => {
     const trimmedUserId = userId.trim()
-
     if (!trimmedUserId) {
-      setHistoryItems([])
-      setHistoryStatus('error')
-      setHistoryDebug({
-        error: 'user_id 不能为空',
-      })
-      return
+      setSessions([])
+      setSessionsStatus('error')
+      return []
     }
 
     if (!silent) {
-      setHistoryStatus('loading')
+      setSessionsStatus('loading')
     }
 
     try {
-      const { data, debug } = await getConversations(trimmedUserId, historyLimit)
+      const { data } = await getSessions(trimmedUserId)
+      const nextSessions = Array.isArray(data?.items) ? data.items : []
 
-      setHistoryItems(Array.isArray(data?.items) ? data.items : [])
-      setHistoryDebug(debug)
-      setHistoryStatus('success')
+      setSessions(nextSessions)
+      setSessionsStatus('success')
       setApiStatus('online')
-    } catch (error) {
-      setHistoryItems([])
-      setHistoryDebug(error.debug ?? { error: error.message })
-      setHistoryStatus('error')
+
+      return nextSessions
+    } catch {
+      setSessions([])
+      setSessionsStatus('error')
+      setApiStatus('offline')
+
+      return []
+    }
+  }, [userId])
+
+  async function loadSessionMessages(session) {
+    setActiveSessionId(session.id)
+    setActiveSessionStatus('loading')
+    setMessages([])
+
+    try {
+      const { data } = await getSessionConversations(session.id)
+      const items = Array.isArray(data?.items) ? data.items : []
+
+      setMessages(buildMessagesFromHistoryItems(items))
+      setActiveSessionStatus('success')
+      setApiStatus('online')
+    } catch {
+      setMessages([])
+      setActiveSessionStatus('error')
       setApiStatus('offline')
     }
+  }
+
+  async function handleCreateSession() {
+    const trimmedUserId = userId.trim()
+    if (!trimmedUserId || isCreatingSession) {
+      return null
+    }
+
+    setIsCreatingSession(true)
+
+    try {
+      // 不传 title，让后端在第一条消息后用用户问题生成标题。
+      const { data } = await createSession({ user_id: trimmedUserId })
+
+      upsertSession(data)
+      setSessionsStatus('success')
+      setActiveSessionId(data.id)
+      setActiveSessionStatus('success')
+      setMessages([])
+      setApiStatus('online')
+
+      return data
+    } catch {
+      setSessionsStatus('error')
+      setApiStatus('offline')
+
+      return null
+    } finally {
+      setIsCreatingSession(false)
+    }
+  }
+
+  async function ensureActiveSession() {
+    const currentSession = sessions.find((session) => session.id === activeSessionId)
+    if (currentSession) {
+      return currentSession
+    }
+
+    return handleCreateSession()
   }
 
   async function handleSendMessage(event) {
@@ -93,6 +174,7 @@ function App() {
     const requestBody = {
       // 后端第一阶段短期记忆按 user_id 查询历史，所以这里发送去空格后的值。
       user_id: trimmedUserId,
+      session_id: activeSessionId,
       message: trimmedMessage,
     }
     const userMessage = {
@@ -106,7 +188,17 @@ function App() {
     setIsSending(true)
 
     try {
-      const { data, debug } = await postChat(requestBody)
+      const activeSession = await ensureActiveSession()
+
+      if (!activeSession) {
+        throw new Error('没有可用的会话')
+      }
+
+      const chatRequestBody = {
+        ...requestBody,
+        session_id: activeSession.id,
+      }
+      const { data, debug } = await postChat(chatRequestBody)
       const assistantMessage = {
         id: `message-assistant-${Date.now()}`,
         role: 'assistant',
@@ -115,10 +207,12 @@ function App() {
       }
 
       setMessages((currentMessages) => [...currentMessages, assistantMessage])
+      setActiveSessionId(data?.session_id ?? activeSession.id)
+      setActiveSessionStatus('success')
       setApiStatus('online')
 
-      // 每次成功发送后刷新历史，方便立刻验证本轮对话已经保存。
-      void loadConversationHistory({ silent: true })
+      // 每次成功发送后刷新会话列表，拿到最新标题和 updated_at。
+      void loadSessions({ silent: true })
     } catch (error) {
       const errorMessage = {
         id: `message-error-${Date.now()}`,
@@ -127,7 +221,10 @@ function App() {
         debug: error.debug ?? {
           url: 'http://127.0.0.1:8001/chat',
           method: 'POST',
-          requestBody,
+          requestBody: {
+            ...requestBody,
+            session_id: activeSessionId,
+          },
           error: error.message,
         },
       }
@@ -139,7 +236,7 @@ function App() {
     }
   }
 
-  async function checkApiHealth() {
+  const checkApiHealth = useCallback(async () => {
     setApiStatus('checking')
 
     try {
@@ -148,11 +245,32 @@ function App() {
     } catch {
       setApiStatus('offline')
     }
-  }
+  }, [])
 
   useEffect(() => {
     checkApiHealth()
-  }, [])
+    void loadSessions()
+  }, [checkApiHealth, loadSessions])
+
+  const chatEmptyText = (() => {
+    if (activeSessionStatus === 'loading') {
+      return '正在读取这个会话的历史消息...'
+    }
+
+    if (activeSessionStatus === 'error') {
+      return '这个会话读取失败，请确认后端是否在线。'
+    }
+
+    if (!activeSessionId) {
+      return '选择左侧会话，或点击“新建会话”开始新的学习窗口。'
+    }
+
+    if (messages.length === 0) {
+      return '这个会话还没有消息，发送第一条问题后会自动保存。'
+    }
+
+    return ''
+  })()
 
   return (
     <main className="app-shell">
@@ -178,19 +296,21 @@ function App() {
       </header>
 
       <div className="workspace-layout">
-        <ConversationHistory
+        <SessionSidebar
           userId={userId}
-          items={historyItems}
-          status={historyStatus}
-          limit={historyLimit}
-          onLimitChange={handleHistoryLimitChange}
-          onRefresh={loadConversationHistory}
-          debug={historyDebug}
+          sessions={sessions}
+          activeSessionId={activeSessionId}
+          status={sessionsStatus}
+          isCreating={isCreatingSession}
+          onCreateSession={handleCreateSession}
+          onRefreshSessions={loadSessions}
+          onSelectSession={loadSessionMessages}
         />
 
         {/* 聊天区域：发送消息后，用户消息和真实后端回复都会加入 messages。 */}
         <section className="chat-surface" aria-label="聊天工作区">
           <div className="thread-preview">
+            {chatEmptyText ? <p className="chat-empty">{chatEmptyText}</p> : null}
             {messages.map((message) => (
               <ChatMessage
                 key={message.id}

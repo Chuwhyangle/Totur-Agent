@@ -4,11 +4,12 @@
 
 Tutor Agent API v0.1 的 API 保持少而完整。
 
-第一版只提供 3 类接口：
+当前版本提供 4 类接口：
 
 - 健康检查
 - 学习对话
 - 对话历史查询
+- 多会话管理
 
 API 设计原则：
 
@@ -25,6 +26,9 @@ API 设计原则：
 | GET | `/health` | 健康检查 |
 | POST | `/chat` | 发送学习问题，获取导师回复 |
 | GET | `/conversations/{user_id}` | 查询某个用户最近对话历史 |
+| POST | `/sessions` | 创建一个新的聊天会话 |
+| GET | `/sessions` | 查询某个用户的会话列表 |
+| GET | `/sessions/{session_id}/conversations` | 查询某个会话里的对话历史 |
 
 ## 3. GET /health
 
@@ -62,6 +66,7 @@ API 设计原则：
 ```json
 {
   "user_id": "default",
+  "session_id": 1,
   "message": "FastAPI 的路由是什么？"
 }
 ```
@@ -71,6 +76,7 @@ API 设计原则：
 | 字段 | 类型 | 必填 | 说明 |
 | --- | --- | --- | --- |
 | `user_id` | string | 是 | 学习者 ID，第一版不做登录，用它区分用户 |
+| `session_id` | integer/null | 否 | 当前聊天窗口 ID，不传时使用默认会话 |
 | `message` | string | 是 | 用户发送的学习问题 |
 
 成功响应：
@@ -78,6 +84,7 @@ API 设计原则：
 ```json
 {
   "user_id": "default",
+  "session_id": 1,
   "message": "FastAPI 的路由是什么？",
   "reply": {
     "answer": "FastAPI 的路由可以理解为 URL 和 Python 函数之间的绑定。",
@@ -213,19 +220,123 @@ API 设计原则：
 | `user_id` 为空 | 400 或 422 | 请求参数不合法 |
 | 数据库查询失败 | 500 | 服务端内部错误 |
 
-## 6. API 数据流
+## 6. Sessions API
+
+Sessions API 用来支持多会话窗口。`user_id` 表示是谁，`session_id` 表示这个用户当前打开的是哪个聊天窗口。
+
+### POST /sessions
+
+用途：为某个用户创建一个新的聊天会话。
+
+请求体：
+
+```json
+{
+  "user_id": "default",
+  "title": "FastAPI 学习"
+}
+```
+
+`title` 可以不传；不传时后端会使用“默认会话”。
+
+成功响应：
+
+```json
+{
+  "id": 1,
+  "user_id": "default",
+  "title": "FastAPI 学习",
+  "created_at": "2026-07-03T10:00:00+00:00",
+  "updated_at": "2026-07-03T10:00:00+00:00"
+}
+```
+
+### GET /sessions
+
+用途：查询某个用户的会话列表。
+
+查询参数：
+
+| 参数 | 类型 | 必填 | 默认值 | 说明 |
+| --- | --- | --- | --- | --- |
+| `user_id` | string | 是 | 无 | 学习者 ID |
+| `limit` | integer | 否 | 50 | 返回最近多少个会话，当前允许 1 到 100 |
+
+响应示例：
+
+```json
+{
+  "user_id": "default",
+  "items": [
+    {
+      "id": 2,
+      "user_id": "default",
+      "title": "SQLite 学习",
+      "created_at": "2026-07-03T10:00:00+00:00",
+      "updated_at": "2026-07-03T10:10:00+00:00"
+    }
+  ]
+}
+```
+
+### GET /sessions/{session_id}/conversations
+
+用途：查询某个具体会话里的最近对话。
+
+查询参数：
+
+| 参数 | 类型 | 必填 | 默认值 | 说明 |
+| --- | --- | --- | --- | --- |
+| `limit` | integer | 否 | 20 | 返回最近多少条历史，当前允许 1 到 100 |
+
+响应示例：
+
+```json
+{
+  "session_id": 2,
+  "user_id": "default",
+  "title": "SQLite 学习",
+  "items": [
+    {
+      "id": 10,
+      "message": "什么是 SQLite？",
+      "reply": {
+        "answer": "SQLite 是一个轻量级本地数据库。",
+        "next_task": "创建一个 SQLite 表。",
+        "exercise": "写一条 CREATE TABLE SQL。",
+        "checkpoints": [
+          "你知道 SQLite 是本地数据库"
+        ]
+      },
+      "created_at": "2026-07-03T10:12:00+00:00"
+    }
+  ]
+}
+```
+
+可能错误：
+
+| 场景 | 状态码 | 说明 |
+| --- | --- | --- |
+| `user_id` 缺失或为空 | 422 | 请求参数不合法 |
+| `limit` 超出范围 | 422 | 当前允许 1 到 100 |
+| `session_id` 不存在 | 404 | 找不到这个会话 |
+
+## 7. API 数据流
 
 `POST /chat` 数据流：
 
 ```text
 用户请求 /chat
   -> FastAPI 路由接收请求
-  -> Pydantic 校验 user_id 和 message
+  -> Pydantic 校验 user_id、session_id 和 message
+  -> TutorAgentService 确定当前 session
+  -> Repository 按 user_id + session_id 查询最近历史
   -> TutorAgentService 组织导师 prompt
   -> LLMClient 调用模型
   -> 解析或兜底生成结构化 reply
-  -> Repository 保存 message 和 reply
-  -> API 返回 user_id、message、reply、conversation_id
+  -> Repository 保存 session_id、message 和 reply
+  -> API 返回 user_id、session_id、message、reply
 ```
 
 `GET /conversations/{user_id}` 数据流：
@@ -238,7 +349,18 @@ API 设计原则：
   -> API 返回历史列表
 ```
 
-## 7. API 学习目标
+`GET /sessions/{session_id}/conversations` 数据流：
+
+```text
+用户请求某个会话历史
+  -> FastAPI 路由接收 session_id
+  -> Repository 查询 chat_sessions，确认会话存在
+  -> Repository 按 user_id + session_id 查询 conversations
+  -> 将 reply_json 解析为 reply 对象
+  -> API 返回该会话的历史列表
+```
+
+## 8. API 学习目标
 
 完成第一版后，学习者应该能解释：
 

@@ -1,4 +1,4 @@
-"""Conversation history database operations."""
+"""对话历史数据库操作。"""
 
 from datetime import datetime, timezone
 
@@ -16,11 +16,12 @@ def save_conversation(
     reply_json: str,
     session_id: int | None = None,
 ) -> int:
-    """Save one conversation and return its new database id."""
+    """保存一条对话，并返回新记录 id。"""
     initialize_database()
     conversation_session_id = session_id
 
     if conversation_session_id is None:
+        # 兼容旧版 /chat：没传 session_id 时自动进入默认会话。
         conversation_session_id = get_or_create_default_session(user_id).id
 
     insert_sql = f"""
@@ -42,6 +43,7 @@ def save_conversation(
         if new_id is None:
             raise RuntimeError("保存对话失败：没有拿到新记录 id")
 
+        # 有新消息后，更新会话的最后活跃时间，方便会话列表按最近排序。
         touch_session(conversation_session_id)
 
         return new_id
@@ -54,12 +56,13 @@ def list_recent_conversations(
     limit: int = 20,
     session_id: int | None = None,
 ) -> list[ConversationRecord]:
-    """Return recent conversations for a user, newest first."""
+    """查询最近对话；传 session_id 时只查该会话。"""
     initialize_database()
     where_sql = "WHERE user_id = ?"
     params: tuple[str, int] | tuple[str, int, int] = (user_id, limit)
 
     if session_id is not None:
+        # 多会话模式下，历史边界是 user_id + session_id。
         where_sql = "WHERE user_id = ? AND session_id = ?"
         params = (user_id, session_id, limit)
 
