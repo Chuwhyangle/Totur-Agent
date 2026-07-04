@@ -4,6 +4,7 @@ These tests avoid calling the real model. The chat route is tested with a
 patched model response so the API structure is stable and repeatable.
 """
 
+import json
 import sqlite3
 
 from fastapi.testclient import TestClient
@@ -1288,6 +1289,96 @@ def test_chat_skips_bad_history_reply_json_without_crashing(monkeypatch, tmp_pat
         ("user", "Bad history question"),
         ("user", "Continue after bad history."),
     ]
+
+
+def test_manual_review_prints_llm_input_and_output(monkeypatch, tmp_path):
+    """人工核对用：运行 pytest -s 时打印 LLM 输入、模拟 LLM 输出和 API 输出。"""
+
+    use_temp_database(monkeypatch, tmp_path)
+
+    session = create_session("alice", "人工核对上下文")
+    upsert_summary(
+        session_id=session.id,
+        summary_text="第 1-8 轮摘要：用户在学习 FastAPI 路由和 SQLite 基础。",
+        last_conversation_id=0,
+    )
+
+    for index in range(9, 15):
+        save_conversation(
+            user_id="alice",
+            session_id=session.id,
+            message=f"第 {index} 轮用户问题",
+            reply_json=json.dumps(
+                {
+                    "answer": f"第 {index} 轮导师回答",
+                    "next_task": f"第 {index} 轮下一步任务",
+                    "exercise": f"第 {index} 轮练习",
+                    "checkpoints": [f"第 {index} 轮检查点"],
+                },
+                ensure_ascii=False,
+            ),
+        )
+
+    raw_model_reply = json.dumps(
+        {
+            "answer": "这是模拟 LLM 针对第 15 轮问题生成的回答。",
+            "next_task": "核对 messages 里是否包含摘要、最近历史和当前问题。",
+            "exercise": "手动检查第 9-14 轮是否按旧到新排列。",
+            "checkpoints": [
+                "LLM 输入里有 system 规则",
+                "LLM 输入里有第 1-8 轮摘要",
+                "LLM 输入最后一条是第 15 轮当前问题",
+            ],
+        },
+        ensure_ascii=False,
+    )
+    captured_messages = []
+
+    def fake_call_model(messages):
+        captured_messages.extend(messages)
+        print("\n=== LLM_INPUT_MESSAGES ===")
+        print(json.dumps(messages, ensure_ascii=False, indent=2))
+        print("\n=== LLM_RAW_OUTPUT ===")
+        print(raw_model_reply)
+        return raw_model_reply
+
+    monkeypatch.setattr(
+        chat_route.tutor_agent_service,
+        "_call_model",
+        fake_call_model,
+    )
+
+    response = client.post(
+        "/chat",
+        json={
+            "user_id": "alice",
+            "session_id": session.id,
+            "message": "第 15 轮当前问题",
+        },
+    )
+    body = response.json()
+
+    print("\n=== CHAT_API_OUTPUT ===")
+    print(json.dumps(body, ensure_ascii=False, indent=2))
+
+    assert response.status_code == 200
+    assert captured_messages[1]["content"].endswith(
+        "第 1-8 轮摘要：用户在学习 FastAPI 路由和 SQLite 基础。"
+    )
+    assert [
+        message["content"]
+        for message in captured_messages
+        if message["role"] == "user"
+    ] == [
+        "第 9 轮用户问题",
+        "第 10 轮用户问题",
+        "第 11 轮用户问题",
+        "第 12 轮用户问题",
+        "第 13 轮用户问题",
+        "第 14 轮用户问题",
+        "第 15 轮当前问题",
+    ]
+    assert body["reply"]["answer"] == "这是模拟 LLM 针对第 15 轮问题生成的回答。"
 
 
 def test_get_conversations_returns_recent_history_for_user(monkeypatch, tmp_path):
