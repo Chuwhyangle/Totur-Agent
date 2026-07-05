@@ -20,6 +20,18 @@ class TutorReply(BaseModel):
     checkpoints: list[str]
 
 
+class ToolResultPreview(BaseModel):
+    """工具结果的轻量调试预览，不包含数据库 id 或完整原文。"""
+
+    title: str
+    match_score: int | None = None
+    matched_fields: list[str] = Field(default_factory=list)
+    core_skills: list[str] = Field(default_factory=list)
+    keywords: list[str] = Field(default_factory=list)
+    interview_focus: list[str] = Field(default_factory=list)
+    raw_text_excerpt: str = ""
+
+
 class ToolCallTrace(BaseModel):
     """一次工具调用的调试摘要。"""
 
@@ -28,6 +40,7 @@ class ToolCallTrace(BaseModel):
     ok: bool
     returned_count: int | None = None
     top_titles: list[str] = Field(default_factory=list)
+    result_preview: list[ToolResultPreview] = Field(default_factory=list)
     error: str | None = None
 
 

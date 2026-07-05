@@ -1379,6 +1379,23 @@ def test_chat_executes_interview_jd_tool_call_and_uses_second_model_reply(
                 "ok": True,
                 "returned_count": 1,
                 "top_titles": ["Python AI Agent 开发工程师"],
+                "result_preview": [
+                    {
+                        "title": "Python AI Agent 开发工程师",
+                        "match_score": 18,
+                        "matched_fields": [
+                            "title",
+                            "core_skills",
+                            "keywords",
+                            "interview_focus",
+                            "raw_text",
+                        ],
+                        "core_skills": ["Function Calling", "RAG"],
+                        "keywords": ["Agent", "RAG"],
+                        "interview_focus": ["Agent 工具调用"],
+                        "raw_text_excerpt": "负责 Agent 工具调用和 RAG 应用开发。",
+                    }
+                ],
                 "error": None,
             }
         ],

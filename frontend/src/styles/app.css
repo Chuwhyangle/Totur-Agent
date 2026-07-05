@@ -752,6 +752,41 @@ h1 {
   overflow-wrap: anywhere;
 }
 
+.tool-result-preview-list {
+  display: grid;
+  gap: 8px;
+  margin: 2px 0 0;
+  padding-left: 18px;
+}
+
+.tool-result-preview-item {
+  display: grid;
+  gap: 4px;
+  padding-left: 4px;
+}
+
+.tool-result-preview-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: #263445;
+  font-size: 12px;
+  font-weight: 850;
+  overflow-wrap: anywhere;
+}
+
+.tool-result-score {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  padding: 1px 7px;
+  color: #405064;
+  background: #eef3f7;
+  font-size: 11px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
 /* 调试详情：默认折叠，展开后显示请求和响应的 JSON。 */
 .debug-details {
   margin-top: 14px;
@@ -902,5 +937,11 @@ h1 {
 
   .send-button {
     width: 100%;
+  }
+
+  .tool-result-preview-title {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 4px;
   }
 }

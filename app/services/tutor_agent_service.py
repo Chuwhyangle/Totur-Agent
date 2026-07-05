@@ -215,8 +215,51 @@ class TutorAgentService:
                 else None
             ),
             top_titles=top_titles,
+            result_preview=self._tool_result_preview(items),
             error=result.get("error") if isinstance(result, dict) else "invalid_result",
         )
+
+    def _tool_result_preview(self, items: Any) -> list[dict[str, Any]]:
+        if not isinstance(items, list):
+            return []
+
+        preview = []
+        for item in items[:3]:
+            if not isinstance(item, dict) or not item.get("title"):
+                continue
+
+            preview.append(
+                {
+                    "title": str(item["title"]),
+                    "match_score": self._optional_int(item.get("match_score")),
+                    "matched_fields": self._trace_string_list(
+                        item.get("matched_fields")
+                    ),
+                    "core_skills": self._trace_string_list(item.get("core_skills")),
+                    "keywords": self._trace_string_list(item.get("keywords")),
+                    "interview_focus": self._trace_string_list(
+                        item.get("interview_focus")
+                    ),
+                    "raw_text_excerpt": str(item.get("raw_text_excerpt") or ""),
+                }
+            )
+
+        return preview
+
+    def _optional_int(self, value: Any) -> int | None:
+        if isinstance(value, bool):
+            return None
+
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+
+    def _trace_string_list(self, value: Any) -> list[str]:
+        if not isinstance(value, list):
+            return []
+
+        return [item for item in value if isinstance(item, str)]
 
     def _trace_arguments(self, arguments: str) -> dict[str, Any]:
         try:

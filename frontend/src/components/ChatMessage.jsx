@@ -1,5 +1,54 @@
 import DebugDetails from './DebugDetails.jsx'
 
+function joinValues(values) {
+  return Array.isArray(values) && values.length > 0 ? values.join('、') : ''
+}
+
+function ToolResultPreview({ items, topTitles }) {
+  const previewItems = Array.isArray(items) ? items : []
+
+  if (previewItems.length === 0) {
+    return Array.isArray(topTitles) && topTitles.length > 0 ? (
+      <p className="tool-trace-line">标题：{topTitles.join('、')}</p>
+    ) : null
+  }
+
+  return (
+    <ol className="tool-result-preview-list">
+      {previewItems.map((item, index) => {
+        const matchedFields = joinValues(item.matched_fields)
+        const coreSkills = joinValues(item.core_skills)
+        const keywords = joinValues(item.keywords)
+        const interviewFocus = joinValues(item.interview_focus)
+
+        return (
+          <li className="tool-result-preview-item" key={`${item.title}-${index}`}>
+            <div className="tool-result-preview-title">
+              <span>{item.title}</span>
+              {item.match_score != null ? (
+                <span className="tool-result-score">匹配分 {item.match_score}</span>
+              ) : null}
+            </div>
+            {matchedFields ? (
+              <p className="tool-trace-line">命中字段：{matchedFields}</p>
+            ) : null}
+            {coreSkills ? (
+              <p className="tool-trace-line">核心技能：{coreSkills}</p>
+            ) : null}
+            {keywords ? <p className="tool-trace-line">关键词：{keywords}</p> : null}
+            {interviewFocus ? (
+              <p className="tool-trace-line">面试重点：{interviewFocus}</p>
+            ) : null}
+            {item.raw_text_excerpt ? (
+              <p className="tool-trace-line">片段：{item.raw_text_excerpt}</p>
+            ) : null}
+          </li>
+        )
+      })}
+    </ol>
+  )
+}
+
 function ToolTraceSummary({ trace }) {
   if (!trace?.used || !Array.isArray(trace.calls) || trace.calls.length === 0) {
     return null
@@ -22,10 +71,11 @@ function ToolTraceSummary({ trace }) {
             </p>
             <p className="tool-trace-line">
               结果：{call.returned_count ?? 0} 条
-              {Array.isArray(call.top_titles) && call.top_titles.length > 0
-                ? ` · ${call.top_titles.join('、')}`
-                : ''}
             </p>
+            <ToolResultPreview
+              items={call.result_preview}
+              topTitles={call.top_titles}
+            />
           </section>
         ))}
       </div>
