@@ -1,5 +1,7 @@
 """Chat API 的请求和响应格式。"""
 
+from typing import Any
+
 from pydantic import BaseModel, Field
 
 
@@ -40,7 +42,7 @@ class ToolCallTrace(BaseModel):
     ok: bool
     returned_count: int | None = None
     top_titles: list[str] = Field(default_factory=list)
-    result_preview: list[ToolResultPreview] = Field(default_factory=list)
+    result_preview: list[dict[str, Any]] = Field(default_factory=list)
     error: str | None = None
 
 

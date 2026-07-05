@@ -39,8 +39,43 @@
 - [ ] 记忆层级 4：长期记忆（TODO）
 - [ ] 记忆层级 5：语义检索记忆（TODO）
 - [ ] 记忆层级 6：RAG 学习资料（TODO）
+- [x] 面试工具 1：`interview_jd_search` 检索已保存 JD
+- [x] 面试工具 2：`score_jd_skill_fit` 对 LLM 的技能判断做确定性算分
 
 ---
+
+## 技术面试工具调用进度
+
+当前工具链路已经从“只查岗位要求”推进到“两工具地基”：
+
+```text
+interview_jd_search
+  -> 查已保存 JD，拿到岗位职责、核心技能、关键词和面试重点
+
+score_jd_skill_fit
+  -> 接收 LLM 给出的逐项技能判断，计算 JD 符合度、优势、短板和不确定项
+```
+
+关键设计边界：
+
+```text
+LLM 判断，工具算分。
+```
+
+`score_jd_skill_fit` 不解析自然语言、不读取数据库、不自己推理用户会不会某项技能。它只做结构校验、分数归一化、加权计算和 trace 预览。这样既保留 LLM 的语义判断能力，也让分数公式稳定、可测试、可调试。
+
+推荐下一步产品链路：
+
+```text
+用户查目标岗位要求
+-> Agent 调用 interview_jd_search
+-> Agent 询问用户当前技术栈和项目经历
+-> LLM 生成每项技能的 jd_importance / user_level / confidence
+-> Agent 调用 score_jd_skill_fit
+-> Agent 解释符合度、优势、短板，并给出补足建议
+```
+
+后续再进入 ReAct 循环时，可以让 Agent 在“查 JD”和“算技能匹配”之间进行多工具编排。
 
 ## 阶段 0：开发环境与后端基本感觉
 

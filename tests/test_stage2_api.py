@@ -621,7 +621,7 @@ def test_chat_returns_structured_reply(monkeypatch, tmp_path):
     """
 
     monkeypatch.setattr(
-        chat_route.tutor_agent_service,
+        chat_route.tutor_agent_service.react_orchestrator,
         "_call_model",
         lambda messages: raw_model_reply,
     )
@@ -671,7 +671,7 @@ def test_chat_without_history_sends_only_current_user_message(monkeypatch, tmp_p
         return raw_model_reply
 
     monkeypatch.setattr(
-        chat_route.tutor_agent_service,
+        chat_route.tutor_agent_service.react_orchestrator,
         "_call_model",
         fake_call_model,
     )
@@ -708,7 +708,7 @@ def test_chat_saves_current_conversation_for_history_lookup(monkeypatch, tmp_pat
     """
 
     monkeypatch.setattr(
-        chat_route.tutor_agent_service,
+        chat_route.tutor_agent_service.react_orchestrator,
         "_call_model",
         lambda messages: raw_model_reply,
     )
@@ -781,7 +781,7 @@ def test_chat_uses_requested_session_for_history_and_saving(monkeypatch, tmp_pat
         return raw_model_reply
 
     monkeypatch.setattr(
-        chat_route.tutor_agent_service,
+        chat_route.tutor_agent_service.react_orchestrator,
         "_call_model",
         fake_call_model,
     )
@@ -825,7 +825,7 @@ def test_chat_renames_empty_default_session_from_first_message(monkeypatch, tmp_
     """
 
     monkeypatch.setattr(
-        chat_route.tutor_agent_service,
+        chat_route.tutor_agent_service.react_orchestrator,
         "_call_model",
         lambda messages: raw_model_reply,
     )
@@ -908,7 +908,7 @@ def test_chat_falls_back_when_model_reply_is_not_json(monkeypatch, tmp_path):
     use_temp_database(monkeypatch, tmp_path)
 
     monkeypatch.setattr(
-        chat_route.tutor_agent_service,
+        chat_route.tutor_agent_service.react_orchestrator,
         "_call_model",
         lambda messages: "This is not JSON, but the API should still respond.",
     )
@@ -960,7 +960,7 @@ def test_chat_adds_history_user_and_assistant_messages(monkeypatch, tmp_path):
         return raw_model_reply
 
     monkeypatch.setattr(
-        chat_route.tutor_agent_service,
+        chat_route.tutor_agent_service.react_orchestrator,
         "_call_model",
         fake_call_model,
     )
@@ -1010,7 +1010,7 @@ def test_chat_adds_existing_summary_to_prompt(monkeypatch, tmp_path):
         return raw_model_reply
 
     monkeypatch.setattr(
-        chat_route.tutor_agent_service,
+        chat_route.tutor_agent_service.react_orchestrator,
         "_call_model",
         fake_call_model,
     )
@@ -1061,7 +1061,7 @@ def test_chat_updates_summary_after_saving_current_conversation(
         return False
 
     monkeypatch.setattr(
-        chat_route.tutor_agent_service,
+        chat_route.tutor_agent_service.react_orchestrator,
         "_call_model",
         lambda messages: raw_model_reply,
     )
@@ -1101,7 +1101,7 @@ def test_chat_continues_when_summary_update_fails(monkeypatch, tmp_path):
         raise RuntimeError("summary update failed")
 
     monkeypatch.setattr(
-        chat_route.tutor_agent_service,
+        chat_route.tutor_agent_service.react_orchestrator,
         "_call_model",
         lambda messages: raw_model_reply,
     )
@@ -1167,7 +1167,7 @@ def test_chat_history_prompt_ignores_other_users(monkeypatch, tmp_path):
         return raw_model_reply
 
     monkeypatch.setattr(
-        chat_route.tutor_agent_service,
+        chat_route.tutor_agent_service.react_orchestrator,
         "_call_model",
         fake_call_model,
     )
@@ -1223,7 +1223,7 @@ def test_chat_history_prompt_respects_recent_history_limit(monkeypatch, tmp_path
         return raw_model_reply
 
     monkeypatch.setattr(
-        chat_route.tutor_agent_service,
+        chat_route.tutor_agent_service.react_orchestrator,
         "_call_model",
         fake_call_model,
     )
@@ -1271,7 +1271,7 @@ def test_chat_skips_bad_history_reply_json_without_crashing(monkeypatch, tmp_pat
         return raw_model_reply
 
     monkeypatch.setattr(
-        chat_route.tutor_agent_service,
+        chat_route.tutor_agent_service.react_orchestrator,
         "_call_model",
         fake_call_model,
     )
@@ -1324,36 +1324,36 @@ def test_chat_executes_interview_jd_tool_call_and_uses_second_model_reply(
     )
     first_call_messages = []
     second_call_messages = []
+    model_call_count = 0
 
     def fake_call_model_with_tools(messages):
-        first_call_messages.extend(messages)
-        return {
-            "content": None,
-            "tool_calls": [
-                {
-                    "id": "call_interview_jd_1",
-                    "type": "function",
-                    "function": {
-                        "name": "interview_jd_search",
-                        "arguments": '{"query": "Agent RAG 面试", "limit": 1}',
-                    },
-                }
-            ],
-        }
+        """第一次请求 JD 搜索工具，第二次基于工具结果返回最终回复。"""
 
-    def fake_call_model(messages):
+        nonlocal model_call_count
+        model_call_count += 1
+        if model_call_count == 1:
+            first_call_messages.extend(messages)
+            return {
+                "content": None,
+                "tool_calls": [
+                    {
+                        "id": "call_interview_jd_1",
+                        "type": "function",
+                        "function": {
+                            "name": "interview_jd_search",
+                            "arguments": '{"query": "Agent RAG 面试", "limit": 1}',
+                        },
+                    }
+                ],
+            }
+
         second_call_messages.extend(messages)
-        return final_model_reply
+        return {"content": final_model_reply, "tool_calls": []}
 
     monkeypatch.setattr(
-        chat_route.tutor_agent_service,
+        chat_route.tutor_agent_service.react_orchestrator,
         "_call_model_with_tools",
         fake_call_model_with_tools,
-    )
-    monkeypatch.setattr(
-        chat_route.tutor_agent_service,
-        "_call_model",
-        fake_call_model,
     )
 
     response = client.post(
@@ -1423,6 +1423,140 @@ def test_chat_executes_interview_jd_tool_call_and_uses_second_model_reply(
     assert records[0].message == "我想练 AI Agent 岗位面试，问我一道题。"
 
 
+def test_chat_traces_score_jd_skill_fit_preview(monkeypatch, tmp_path):
+    use_temp_database(monkeypatch, tmp_path)
+    final_model_reply = json.dumps(
+        {
+            "answer": "你的 JD 符合度是 50%，优势是 Python，主要短板是 RAG。",
+            "next_task": "先补一个最小 RAG 闭环。",
+            "exercise": "解释 chunk、embedding、retrieval、generation 的关系。",
+            "checkpoints": [
+                "能说明当前优势",
+                "能说明最高优先级短板",
+                "能说明不确定项需要继续测试",
+            ],
+        },
+        ensure_ascii=False,
+    )
+    first_call_messages = []
+    second_call_messages = []
+    model_call_count = 0
+
+    def fake_call_model_with_tools(messages):
+        """第一次请求技能匹配评分工具，第二次基于评分结果返回最终回复。"""
+
+        nonlocal model_call_count
+        model_call_count += 1
+        if model_call_count == 1:
+            first_call_messages.extend(messages)
+            return {
+                "content": None,
+                "tool_calls": [
+                    {
+                        "id": "call_score_fit_1",
+                        "type": "function",
+                        "function": {
+                            "name": "score_jd_skill_fit",
+                            "arguments": json.dumps(
+                                {
+                                    "target_role": "AI Agent",
+                                    "skills": [
+                                        {
+                                            "name": "Python",
+                                            "jd_importance": 5,
+                                            "user_level": 4,
+                                            "confidence": "high",
+                                        },
+                                        {
+                                            "name": "RAG",
+                                            "jd_importance": 5,
+                                            "user_level": 1,
+                                            "confidence": "high",
+                                        },
+                                        {
+                                            "name": "Function Calling",
+                                            "jd_importance": 4,
+                                            "user_level": 3,
+                                            "confidence": "medium",
+                                        },
+                                    ],
+                                },
+                                ensure_ascii=False,
+                            ),
+                        },
+                    }
+                ],
+            }
+
+        second_call_messages.extend(messages)
+        return {"content": final_model_reply, "tool_calls": []}
+
+    monkeypatch.setattr(
+        chat_route.tutor_agent_service.react_orchestrator,
+        "_call_model_with_tools",
+        fake_call_model_with_tools,
+    )
+
+    response = client.post(
+        "/chat",
+        json={
+            "user_id": "demo-user",
+            "message": "我会 Python，RAG 看过一点，帮我算一下和 AI Agent JD 的差距。",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["tool_trace"] == {
+        "used": True,
+        "calls": [
+            {
+                "name": "score_jd_skill_fit",
+                "arguments": {
+                    "target_role": "AI Agent",
+                    "skills": [
+                        {
+                            "name": "Python",
+                            "jd_importance": 5,
+                            "user_level": 4,
+                            "confidence": "high",
+                        },
+                        {
+                            "name": "RAG",
+                            "jd_importance": 5,
+                            "user_level": 1,
+                            "confidence": "high",
+                        },
+                        {
+                            "name": "Function Calling",
+                            "jd_importance": 4,
+                            "user_level": 3,
+                            "confidence": "medium",
+                        },
+                    ],
+                },
+                "ok": True,
+                "returned_count": None,
+                "top_titles": [],
+                "result_preview": [
+                    {
+                        "target_role": "AI Agent",
+                        "fit_score": 53,
+                        "fit_level": "partial_fit",
+                        "top_strengths": ["Python"],
+                        "top_gaps": ["RAG"],
+                        "uncertain_skills": ["Function Calling"],
+                    }
+                ],
+                "error": None,
+            }
+        ],
+    }
+    assert body["reply"]["answer"].startswith("你的 JD 符合度")
+    assert len(first_call_messages) > 0
+    assert any(message["role"] == "tool" for message in second_call_messages)
+
+
 def test_manual_review_prints_llm_input_and_output(monkeypatch, tmp_path):
     """人工核对用：运行 pytest -s 时打印 LLM 输入、模拟 LLM 输出和 API 输出。"""
 
@@ -1475,7 +1609,7 @@ def test_manual_review_prints_llm_input_and_output(monkeypatch, tmp_path):
         return raw_model_reply
 
     monkeypatch.setattr(
-        chat_route.tutor_agent_service,
+        chat_route.tutor_agent_service.react_orchestrator,
         "_call_model",
         fake_call_model,
     )
