@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useState } from 'react'
 
 import {
+  createInterviewJD,
   createSession,
   getHealth,
+  getInterviewJDs,
   getSessionConversations,
   getSessions,
   postChat,
@@ -10,6 +12,7 @@ import {
 import ApiStatus from './components/ApiStatus.jsx'
 import ChatInput from './components/ChatInput.jsx'
 import ChatMessage from './components/ChatMessage.jsx'
+import InterviewJDPanel from './components/InterviewJDPanel.jsx'
 import SessionSidebar from './components/SessionSidebar.jsx'
 import UserIdInput from './components/UserIdInput.jsx'
 
@@ -35,6 +38,9 @@ function App() {
   const [activeSessionId, setActiveSessionId] = useState(null)
   const [activeSessionStatus, setActiveSessionStatus] = useState('idle')
   const [isCreatingSession, setIsCreatingSession] = useState(false)
+  const [interviewJDs, setInterviewJDs] = useState([])
+  const [interviewJDsStatus, setInterviewJDsStatus] = useState('idle')
+  const [isSavingInterviewJD, setIsSavingInterviewJD] = useState(false)
 
   const canSend = draftMessage.trim().length > 0 && userId.trim().length > 0 && !isSending
 
@@ -46,6 +52,8 @@ function App() {
     setSessionsStatus('idle')
     setActiveSessionId(null)
     setActiveSessionStatus('idle')
+    setInterviewJDs([])
+    setInterviewJDsStatus('idle')
   }
 
   function buildMessagesFromHistoryItems(items) {
@@ -103,6 +111,61 @@ function App() {
       return []
     }
   }, [userId])
+
+  const loadInterviewJDs = useCallback(async ({ silent = false } = {}) => {
+    const trimmedUserId = userId.trim()
+    if (!trimmedUserId) {
+      setInterviewJDs([])
+      setInterviewJDsStatus('error')
+      return []
+    }
+
+    if (!silent) {
+      setInterviewJDsStatus('loading')
+    }
+
+    try {
+      const { data } = await getInterviewJDs(trimmedUserId)
+      const nextJDs = Array.isArray(data?.items) ? data.items : []
+
+      setInterviewJDs(nextJDs)
+      setInterviewJDsStatus('success')
+      setApiStatus('online')
+
+      return nextJDs
+    } catch {
+      setInterviewJDs([])
+      setInterviewJDsStatus('error')
+      setApiStatus('offline')
+
+      return []
+    }
+  }, [userId])
+
+  async function handleSaveInterviewJD(requestBody) {
+    if (isSavingInterviewJD) {
+      return null
+    }
+
+    setIsSavingInterviewJD(true)
+
+    try {
+      const { data } = await createInterviewJD(requestBody)
+
+      setInterviewJDs((currentJDs) => [data, ...currentJDs])
+      setInterviewJDsStatus('success')
+      setApiStatus('online')
+
+      return data
+    } catch {
+      setInterviewJDsStatus('error')
+      setApiStatus('offline')
+
+      return null
+    } finally {
+      setIsSavingInterviewJD(false)
+    }
+  }
 
   async function loadSessionMessages(session) {
     setActiveSessionId(session.id)
@@ -250,7 +313,8 @@ function App() {
   useEffect(() => {
     checkApiHealth()
     void loadSessions()
-  }, [checkApiHealth, loadSessions])
+    void loadInterviewJDs()
+  }, [checkApiHealth, loadSessions, loadInterviewJDs])
 
   const chatEmptyText = (() => {
     if (activeSessionStatus === 'loading') {
@@ -329,6 +393,15 @@ function App() {
             isSending={isSending}
           />
         </section>
+
+        <InterviewJDPanel
+          userId={userId}
+          items={interviewJDs}
+          status={interviewJDsStatus}
+          isSaving={isSavingInterviewJD}
+          onRefresh={loadInterviewJDs}
+          onSave={handleSaveInterviewJD}
+        />
       </div>
     </main>
   )

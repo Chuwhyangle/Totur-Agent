@@ -7,6 +7,7 @@ from app.db.models import (
     CHAT_SESSIONS_TABLE,
     CONVERSATIONS_TABLE,
     DEFAULT_SESSION_TITLE,
+    INTERVIEW_JDS_TABLE,
     SESSION_SUMMARIES_TABLE,
 )
 
@@ -61,6 +62,26 @@ def initialize_database() -> None:
         updated_at TEXT NOT NULL
     );
     """
+    create_interview_jds_table_sql = f"""
+    CREATE TABLE IF NOT EXISTS {INTERVIEW_JDS_TABLE} (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id TEXT NOT NULL,
+        title TEXT NOT NULL,
+        role_family TEXT,
+        seniority TEXT,
+        target_graduation_years_json TEXT NOT NULL,
+        raw_text TEXT NOT NULL,
+        responsibilities_json TEXT NOT NULL,
+        must_have_json TEXT NOT NULL,
+        core_skills_json TEXT NOT NULL,
+        preferred_skills_json TEXT NOT NULL,
+        bonus_skills_json TEXT NOT NULL,
+        keywords_json TEXT NOT NULL,
+        interview_focus_json TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    );
+    """
     create_sessions_index_sql = f"""
     CREATE INDEX IF NOT EXISTS idx_chat_sessions_user_updated
     ON {CHAT_SESSIONS_TABLE} (user_id, updated_at DESC, id DESC);
@@ -77,6 +98,10 @@ def initialize_database() -> None:
     CREATE INDEX IF NOT EXISTS idx_session_summaries_last_conversation
     ON {SESSION_SUMMARIES_TABLE} (last_conversation_id);
     """
+    create_interview_jds_user_index_sql = f"""
+    CREATE INDEX IF NOT EXISTS idx_interview_jds_user_updated
+    ON {INTERVIEW_JDS_TABLE} (user_id, updated_at DESC, id DESC);
+    """
 
     connection = get_connection()
     try:
@@ -84,6 +109,8 @@ def initialize_database() -> None:
         connection.execute(create_conversations_table_sql)
         # 每个会话只保留一条滚动摘要，后续由 repository 负责更新它。
         connection.execute(create_session_summaries_table_sql)
+        # JD 是用户提供的目标岗位资料，先持久化，再让后续工具检索它。
+        connection.execute(create_interview_jds_table_sql)
         # 旧版 conversations 表没有 session_id，这里会自动补上。
         _ensure_conversations_session_id_column(connection)
         # 把旧数据按 user_id 归入一个“默认会话”。
@@ -92,6 +119,7 @@ def initialize_database() -> None:
         connection.execute(create_conversations_session_index_sql)
         connection.execute(create_conversations_user_index_sql)
         connection.execute(create_session_summaries_last_conversation_index_sql)
+        connection.execute(create_interview_jds_user_index_sql)
         connection.commit()
     finally:
         connection.close()

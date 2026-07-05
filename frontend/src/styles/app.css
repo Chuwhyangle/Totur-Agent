@@ -157,7 +157,7 @@ h1 {
 
 .workspace-layout {
   display: grid;
-  grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
+  grid-template-columns: minmax(240px, 300px) minmax(0, 1fr) minmax(280px, 340px);
   gap: 18px;
   align-items: start;
 }
@@ -438,6 +438,172 @@ h1 {
   -webkit-line-clamp: 3;
 }
 
+/* 目标岗位面板：先保存 JD，后续面试工具会从这些资料中检索。 */
+.interview-jd-panel {
+  display: grid;
+  gap: 16px;
+  min-height: 520px;
+  border: 1px solid #d7e0ea;
+  border-radius: 8px;
+  padding: 18px;
+  background: #ffffff;
+  box-shadow: 0 18px 45px rgba(39, 55, 77, 0.08);
+}
+
+.interview-jd-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.interview-jd-kicker {
+  margin: 0 0 5px;
+  color: #14746f;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0;
+}
+
+.interview-jd-header h2 {
+  margin: 0;
+  color: #18212f;
+  font-size: 22px;
+  line-height: 1.2;
+  letter-spacing: 0;
+}
+
+.interview-jd-form {
+  display: grid;
+  gap: 12px;
+}
+
+.interview-jd-field {
+  display: grid;
+  gap: 6px;
+  color: #526173;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.interview-jd-field input,
+.interview-jd-field textarea {
+  width: 100%;
+  border: 1px solid #cbd6e2;
+  border-radius: 8px;
+  padding: 10px;
+  color: #18212f;
+  background: #ffffff;
+  line-height: 1.45;
+}
+
+.interview-jd-field textarea {
+  min-height: 72px;
+  resize: vertical;
+}
+
+.interview-jd-field input:focus,
+.interview-jd-field textarea:focus {
+  border-color: #14746f;
+  outline: 3px solid rgba(20, 116, 111, 0.16);
+}
+
+.interview-jd-actions {
+  display: grid;
+  grid-template-columns: 1fr 86px;
+  gap: 10px;
+}
+
+.interview-jd-primary-button,
+.interview-jd-secondary-button,
+.interview-jd-ghost-button {
+  height: 36px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.interview-jd-primary-button {
+  border: 1px solid #14746f;
+  color: #ffffff;
+  background: #14746f;
+}
+
+.interview-jd-secondary-button,
+.interview-jd-ghost-button {
+  border: 1px solid #cbd6e2;
+  color: #405064;
+  background: #ffffff;
+}
+
+.interview-jd-primary-button:disabled,
+.interview-jd-secondary-button:disabled,
+.interview-jd-ghost-button:disabled {
+  border-color: #9db0bf;
+  color: #ffffff;
+  background: #9db0bf;
+  cursor: not-allowed;
+}
+
+.interview-jd-list-block {
+  display: grid;
+  gap: 10px;
+  padding-top: 4px;
+}
+
+.interview-jd-list-title {
+  margin: 0;
+  color: #18212f;
+  font-size: 14px;
+  font-weight: 850;
+}
+
+.interview-jd-empty,
+.interview-jd-error {
+  margin: 0;
+  color: #526173;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.interview-jd-error {
+  color: #b42318;
+}
+
+.interview-jd-list {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.interview-jd-item {
+  display: grid;
+  gap: 6px;
+  border: 1px solid #dce4ec;
+  border-radius: 8px;
+  padding: 12px;
+  background: #f9fbfd;
+}
+
+.interview-jd-item-title {
+  overflow: hidden;
+  color: #18212f;
+  font-size: 14px;
+  font-weight: 850;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.interview-jd-item-meta {
+  color: #6b7585;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
 /* 聊天工作区：后续消息列表和输入区会放在这里。 */
 .chat-surface {
   display: grid;
@@ -606,6 +772,17 @@ h1 {
   cursor: not-allowed;
 }
 
+@media (max-width: 1080px) {
+  .workspace-layout {
+    grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
+  }
+
+  .interview-jd-panel {
+    grid-column: 1 / -1;
+    min-height: auto;
+  }
+}
+
 /* 小屏幕时改成纵向布局，避免顶部内容挤在一起。 */
 @media (max-width: 680px) {
   .app-shell {
@@ -637,6 +814,14 @@ h1 {
 
   .session-sidebar {
     min-height: auto;
+  }
+
+  .interview-jd-panel {
+    min-height: auto;
+  }
+
+  .interview-jd-actions {
+    grid-template-columns: 1fr;
   }
 
   .chat-surface {

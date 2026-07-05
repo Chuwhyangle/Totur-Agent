@@ -1,5 +1,6 @@
 const API_BASE_URL = 'http://127.0.0.1:8001'
 const CHAT_URL = `${API_BASE_URL}/chat`
+const INTERVIEW_JDS_URL = `${API_BASE_URL}/interview-jds`
 const SESSIONS_URL = `${API_BASE_URL}/sessions`
 
 // getHealth 负责请求后端健康检查接口，确认 API 是否在线。
@@ -41,6 +42,15 @@ function buildSessionConversationsUrl(sessionId, limit) {
   const searchParams = new URLSearchParams({ limit: String(limit) })
 
   return `${SESSIONS_URL}/${sessionId}/conversations?${searchParams.toString()}`
+}
+
+function buildInterviewJDsUrl(userId, limit) {
+  const searchParams = new URLSearchParams({
+    user_id: userId,
+    limit: String(limit),
+  })
+
+  return `${INTERVIEW_JDS_URL}?${searchParams.toString()}`
 }
 
 // postChat 负责把用户消息发送给后端 /chat，并保留调试信息。
@@ -99,6 +109,66 @@ export async function createSession(requestBody) {
 
   if (!response.ok) {
     const error = new Error(`Create session failed: ${response.status}`)
+    error.debug = debug
+    throw error
+  }
+
+  return {
+    data: responseBody,
+    debug,
+  }
+}
+
+// createInterviewJD 负责保存用户整理出来的目标岗位 JD。
+export async function createInterviewJD(requestBody) {
+  const startedAt = performance.now()
+  const response = await fetch(INTERVIEW_JDS_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(requestBody),
+  })
+  const responseBody = await readJsonSafely(response)
+  const durationMs = Math.round(performance.now() - startedAt)
+  const debug = {
+    url: INTERVIEW_JDS_URL,
+    method: 'POST',
+    requestBody,
+    responseBody,
+    status: response.status,
+    durationMs,
+  }
+
+  if (!response.ok) {
+    const error = new Error(`Create interview JD failed: ${response.status}`)
+    error.debug = debug
+    throw error
+  }
+
+  return {
+    data: responseBody,
+    debug,
+  }
+}
+
+// getInterviewJDs 负责按 user_id 读取用户保存过的目标岗位 JD。
+export async function getInterviewJDs(userId, limit = 20) {
+  const url = buildInterviewJDsUrl(userId, limit)
+  const startedAt = performance.now()
+  const response = await fetch(url)
+  const responseBody = await readJsonSafely(response)
+  const durationMs = Math.round(performance.now() - startedAt)
+  const debug = {
+    url,
+    method: 'GET',
+    responseBody,
+    status: response.status,
+    durationMs,
+  }
+
+  if (!response.ok) {
+    const error = new Error(`Interview JD list request failed: ${response.status}`)
     error.debug = debug
     throw error
   }

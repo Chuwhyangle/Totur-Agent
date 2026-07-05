@@ -17,9 +17,9 @@
 
 ```text
 用户提出技术面试训练需求
--> 模型判断需要查面试资料
--> 后端执行 interview_material_search 工具
--> 工具返回题目、评分点、常见误区和追问
+-> 模型判断需要查目标岗位 JD
+-> 后端执行 interview_jd_search 工具
+-> 工具返回职责、技能要求、关键词、面试重点和原文片段
 -> 模型基于工具结果生成结构化导师回复
 ```
 
@@ -31,9 +31,10 @@
 
 目标用户场景：
 
-- 用户想练某个技术方向的面试题
-- 用户想知道某道技术面试题怎么答
-- 用户回答后，希望 Agent 按评分点指出覆盖点和漏点
+- 用户想准备某个技术岗位面试
+- 用户想知道某类 JD 应该重点准备什么
+- 用户希望 Agent 根据岗位要求问一道题
+- 用户回答后，希望 Agent 按岗位职责、核心技能和面试重点指出覆盖点和漏点
 - 用户想继续被追问，模拟真实面试
 - 用户想把当前项目经验转化为面试表达
 
@@ -51,10 +52,10 @@ LLM 本身已经擅长：
 
 但 LLM 只靠自身记忆做不好这些事：
 
-- 不知道题库里有哪些题
-- 不知道某道题的固定评分点
-- 不知道常见误区和追问
-- 不能稳定复用同一套标准给用户打分
+- 不知道当前资料库里有哪些真实 JD
+- 不知道某个岗位到底强调哪些职责和技术栈
+- 不知道岗位优先项和加分项的权重
+- 不能稳定围绕同一批 JD 给用户组织训练
 - 不能基于用户自己的 JD、项目经历和历史薄弱点做个性化训练
 
 所以工具调用的价值是让 Agent 接触“外部真实资料”，而不是凭空编答案。
@@ -62,7 +63,7 @@ LLM 本身已经擅长：
 第一版工具不追求大而全，只解决一个核心问题：
 
 ```text
-当用户进行技术面试训练时，Agent 可以主动检索本地面试资料库，并基于检索结果提问、讲题、评分和追问。
+当用户进行技术面试训练时，Agent 可以主动检索已保存的 JD，并基于岗位职责、技能要求和面试重点提问、点评和追问。
 ```
 
 ## 4. 与 RAG、MCP 的关系
@@ -80,62 +81,63 @@ MCP：未来如何把工具作为独立服务暴露给多个客户端或 Agent
 第一版：
 
 ```text
-interview_material_search = function calling + 本地 JSON 关键词搜索
+interview_jd_search = function calling + SQLite JD 关键词搜索
 ```
 
 未来升级：
 
 ```text
-interview_material_search = function calling + embedding 向量检索 + rerank
+interview_jd_search = function calling + embedding 向量检索 + rerank
 ```
 
 再往后：
 
 ```text
-ToolExecutor -> MCP client -> 外部 interview material MCP server
+ToolExecutor -> MCP client -> 外部 interview JD/material MCP server
 ```
 
 因此，本阶段先做 function calling，不直接实现完整 RAG 或 MCP。这样可以先学习清楚 Agent 编排闭环，同时不堵死后续演进路径。
 
 ## 5. 方案比较
 
-### 推荐方案：技术面试资料搜索工具
+### 推荐方案：岗位 JD 搜索工具
 
 工具名：
 
 ```text
-interview_material_search
+interview_jd_search
 ```
 
 能力：
 
-- 搜索本地技术面试资料
-- 返回题目、评分点、常见误区、追问和标签
-- 支持 Agent 进行提问、讲题、评分和追问
+- 搜索已保存的技术岗位 JD
+- 返回岗位职责、核心技能、优先技能、关键词、面试重点和原文片段
+- 支持 Agent 根据真实岗位要求组织模拟面试、备考建议和追问
 
 优点：
 
 - 工具价值明显
 - 实现范围小
-- 可以自然升级为 RAG
-- 与当前 Tutor Agent 项目技术栈贴合
+- 已经有 JD 存储地基和真实样例数据
+- 可以自然升级为 JD RAG、JD + 项目匹配、题库联动
+- 与当前 Tutor Agent 的“技术面试复习”方向贴合
 
 缺点：
 
-- 第一版资料量小
-- 需要手写或整理种子题库
+- 第一版不能直接返回标准题库答案
+- 需要 Agent 把岗位要求转化成面试流程
 
-### 轻量替代：纯题库搜索
+### 替代方案：技术面试题库搜索
 
 工具名可以是：
 
 ```text
-question_bank_search
+interview_material_search
 ```
 
-能力只覆盖题目和标准答案。
+能力覆盖题目、评分点、常见误区和追问。
 
-优点是更简单，缺点是面试教练感不足，因为缺少评分点、常见误区和追问。
+优点是更像传统面试题库，缺点是第一版还没有整理好题库数据，而且容易把重点放在“查题”而不是“围绕目标岗位训练”上。该工具放到 JD 搜索之后实现。
 
 ### 进阶替代：JD + 简历匹配工具
 
@@ -159,37 +161,37 @@ jd_resume_match
 第一版只做一个工具：
 
 ```text
-interview_material_search
+interview_jd_search
 ```
 
 第一版支持四种对话能力：
 
-1. 找题
+1. 岗位重点识别
 
 ```text
-用户：我想练 React 面试。
-Agent：调用 interview_material_search，找相关题目，选择一道题让用户回答。
+用户：我想准备 AI Agent 开发岗位面试。
+Agent：调用 interview_jd_search，找到相关 JD，提炼岗位职责、核心技能和面试重点。
 ```
 
-2. 讲题
+2. 模拟面试开场
 
 ```text
-用户：useEffect 这题面试里怎么答？
-Agent：调用 interview_material_search，读取评分点，组织成面试化回答。
+用户：根据这个岗位问我一道题。
+Agent：调用 interview_jd_search，围绕 JD 中的 Agent、RAG、Function Calling 等要求提出一道面试题。
 ```
 
-3. 判题
+3. 面试回答点评
 
 ```text
 用户回答上一道题。
-Agent：调用 interview_material_search，读取对应评分点，指出覆盖点、漏点和改进答案。
+Agent：调用 interview_jd_search，参考 JD 的核心技能和面试重点，指出回答和岗位要求的匹配点、漏点和补强方向。
 ```
 
 4. 追问
 
 ```text
 用户：继续追问我。
-Agent：调用 interview_material_search，读取 followups，选择一个追问用户。
+Agent：调用 interview_jd_search，基于 JD 中的职责和优先技能继续追问。
 ```
 
 ## 7. 第一版非目标
@@ -221,186 +223,181 @@ checkpoints
 
 ## 8. 面试资料来源
 
-第一版使用手写或整理的小型种子资料库。
+第一版使用已保存的岗位 JD 作为面试资料来源。
 
 数据来源优先级：
 
-1. 当前项目相关技术栈
-2. 通用技术面试高频概念
-3. 官方文档概念的自有改写
-4. 未来用户粘贴的 JD、项目经历和历史回答
+1. 用户收集并粘贴的真实技术岗位 JD
+2. 当前项目相关的 AI Agent / LLM 应用开发岗位
+3. Python AI、AI 全栈、AI 应用开发等相近岗位
+4. 后续再加入题库、项目经历和历史回答
 
 第一版不自动从互联网抓取数据。
 
-首批资料聚焦当前项目和常见 AI 应用开发面试：
+首批 JD 聚焦当前项目和常见 AI 应用开发面试：
 
-- Backend / FastAPI
-- Database / SQLite
-- Frontend / React
-- AI Agent / LLM Integration
+- AI Agent / LLM 应用开发
+- Python AI Agent 开发
+- AI 全栈开发
+- AI 应用开发 / 工作流搭建
 
-## 9. 第一版题库范围
+## 9. 第一版 JD 范围
 
-第一版内置 12 到 16 条技术面试资料。每条资料代表一道面试题。
+第一版先保存少量真实 JD，每条 JD 代表一种目标岗位画像。数量不用多，3 到 5 条足够支撑工具调用闭环。
 
-建议首批题目：
+首批 JD 应覆盖：
 
-Backend / FastAPI：
+- LLM / Agent 应用开发
+- RAG / Function Calling / 工具调用
+- LangChain / LangGraph / AutoGen 等 Agent 框架
+- Python / Java / Vue / Web API / 数据库 / 部署等工程基础
+- Prompt 设计、上下文管理、效果评估
+- 后端或全栈落地能力
 
-- FastAPI 的路由是什么？GET 和 POST 的区别是什么？
-- Pydantic 在 FastAPI 里起什么作用？
-- route、service、repository 分层分别负责什么？
-- 为什么模型调用失败适合返回 502？
+第一版不追求 JD 数量，而是追求字段完整：标题、原文、职责、核心技能、优先技能、关键词和面试重点都要尽量可检索。
 
-Database / SQLite：
+## 10. 数据组织
 
-- SQLite 适合什么场景，不适合什么场景？
-- 为什么要用 repository 封装数据库操作？
-- 聊天历史表应该包含哪些字段？
-- 如何避免不同用户或不同会话的数据混在一起？
+第一版 JD 存在 SQLite 表：
 
-Frontend / React：
+```text
+interview_jds
+```
 
-- React 组件的 state 和 props 有什么区别？
-- useEffect 常见用途和依赖数组是什么？
-- 前端调用后端 API 时要处理哪些状态？
-- 聊天界面为什么要维护 loading、error、empty 状态？
+种子数据可以保存在 JSON 文件中，作为开发和演示数据来源：
 
-AI Agent / LLM Integration：
+```text
+app/data/sample_interview_jds.json
+```
 
-- 什么是 prompt，为什么要结构化输出？
-- 为什么 LLM 不会自动记住历史？
-- function calling / tool calling 解决什么问题？
-- RAG 和工具调用是什么关系？
+但工具运行时不直接查这个 JSON，而是查 SQLite 表。JSON 只负责方便导入和复现样例数据。
 
-最终题目数量可以在实现阶段控制在 12 到 16 条之间，但每条必须有完整评分点。
-
-## 10. 数据文件组织
-
-第一版资料库放在：
+未来如果加入题库，再单独新增：
 
 ```text
 app/data/interview_materials.json
 ```
 
-第一版只使用一个 JSON 文件，避免过早拆分。
-
-未来资料变多后可拆成：
-
-```text
-app/data/interview/
-  backend_fastapi.json
-  database_sqlite.json
-  frontend_react.json
-  ai_agent_llm.json
-```
-
 ## 11. 数据结构
 
-`app/data/interview_materials.json` 顶层结构：
+`interview_jds` 表的核心字段：
 
-```json
-{
-  "version": "0.1",
-  "items": []
-}
+```text
+id
+user_id
+title
+role_family
+seniority
+target_graduation_years_json
+raw_text
+responsibilities_json
+must_have_json
+core_skills_json
+preferred_skills_json
+bonus_skills_json
+keywords_json
+interview_focus_json
+created_at
+updated_at
 ```
 
-每条资料结构：
+工具输出不暴露数据库 `id`，但数据库内部仍然保留 `id`，用于普通 API、列表展示、后续编辑删除等场景。
+
+示例工具输出条目：
 
 ```json
 {
-  "id": "backend-fastapi-001",
-  "category": "backend",
-  "topic": "FastAPI",
-  "difficulty": "easy",
-  "material_type": "interview_question",
-  "question": "FastAPI 的路由是什么？GET 和 POST 的区别是什么？",
-  "short_answer": "路由是 URL、HTTP 方法和处理函数之间的映射。GET 常用于查询资源，POST 常用于提交数据或触发业务处理。",
-  "answer_points": [
-    "路由由路径、HTTP 方法和处理函数组成",
-    "GET 通常用于读取数据，请求参数常在 URL 或 query 中",
-    "POST 通常用于提交请求体，创建或处理数据",
-    "FastAPI 会基于路由函数和 Pydantic schema 生成 OpenAPI 文档"
-  ],
-  "common_mistakes": [
-    "只说 URL，不提 HTTP 方法",
-    "把 GET 和 POST 简化成一个安全一个不安全",
-    "不知道请求体和 query 参数的区别"
-  ],
-  "followups": [
-    "POST 一定是创建资源吗？",
-    "为什么 GET 请求通常不放复杂请求体？",
-    "FastAPI 的自动文档从哪里来？"
-  ],
-  "tags": ["FastAPI", "HTTP", "API", "backend"]
+  "title": "Python AI Agent 开发工程师",
+  "role_family": "python_ai_agent_engineer",
+  "seniority": "junior_mid",
+  "match_score": 12,
+  "matched_fields": ["core_skills", "keywords", "interview_focus"],
+  "responsibilities": ["基于 LLM 开发 AI Agent"],
+  "must_have": ["Python 或 Java 编程能力"],
+  "core_skills": ["Function Calling", "RAG", "LLM API"],
+  "preferred_skills": ["MCP", "A2A"],
+  "bonus_skills": ["NetOps/AIOps"],
+  "keywords": ["Python", "Agent", "RAG"],
+  "interview_focus": ["Agent 工具调用流程"],
+  "raw_text_excerpt": "负责基于 LLM 的 AI Agent 开发..."
 }
 ```
 
 字段要求：
 
-- `id`：稳定唯一标识
-- `category`：大分类，例如 backend、database、frontend、ai_agent
-- `topic`：主题，例如 FastAPI、SQLite、React、RAG
-- `difficulty`：easy、medium、hard
-- `material_type`：第一版固定为 interview_question
-- `question`：面试题
-- `short_answer`：简短参考答案
-- `answer_points`：评分点，必须存在
-- `common_mistakes`：常见误区，必须存在
-- `followups`：追问，必须存在
-- `tags`：检索标签，必须存在
+- `title`：岗位标题，必须存在
+- `raw_text`：JD 原文，必须存在
+- `responsibilities`：岗位职责，可为空列表
+- `must_have`：基础要求，可为空列表
+- `core_skills`：核心技能，可为空列表
+- `preferred_skills`：优先技能，可为空列表
+- `bonus_skills`：加分项，可为空列表
+- `keywords`：检索关键词，可为空列表
+- `interview_focus`：面试重点，可为空列表
 
 ## 12. 工具接口设计
 
 工具名：
 
 ```text
-interview_material_search
+interview_jd_search
 ```
 
 用途：
 
 ```text
-Search the local technical interview material library for questions, answer points, common mistakes, and follow-up questions.
+Search saved technical interview job descriptions for responsibilities, skills, keywords, interview focus, and relevant JD excerpts.
 ```
 
 输入参数：
 
 ```json
 {
-  "query": "React Hooks useEffect",
-  "material_type": "interview_question",
+  "query": "AI Agent 工具调用 RAG 面试",
   "limit": 3
 }
 ```
 
 字段说明：
 
-- `query`：必填，用户想练习或查询的技术主题
-- `material_type`：可选，第一版支持 `interview_question` 和 `any`
+- `query`：必填，用户当前想准备的岗位方向、技术主题或面试意图
 - `limit`：可选，默认 3，最小 1，最大 5
+
+第一版工具参数不使用 `id`。`id` 只属于数据库内部记录和普通 API，不暴露给模型工具调用。模型表达的是检索意图，不应该被要求知道某条 JD 的数据库编号。
+
+第一版也不设计 `shared/private`。所有已保存的 JD 都可以被检索。等产品真的出现用户资料隔离或公共资料库需求，再扩展数据权限模型。
 
 输出结构：
 
 ```json
 {
   "ok": true,
+  "query": "AI Agent 工具调用 RAG 面试",
   "items": [
     {
-      "id": "frontend-react-002",
-      "category": "frontend",
-      "topic": "React",
-      "difficulty": "medium",
-      "material_type": "interview_question",
-      "question": "useEffect 常见用途和依赖数组是什么？",
-      "short_answer": "...",
-      "answer_points": ["..."],
-      "common_mistakes": ["..."],
-      "followups": ["..."],
-      "tags": ["React", "Hooks"]
+      "title": "Python AI Agent 开发工程师",
+      "role_family": "python_ai_agent_engineer",
+      "seniority": "junior_mid",
+      "match_score": 12,
+      "matched_fields": ["core_skills", "keywords", "interview_focus"],
+      "responsibilities": [
+        "基于 LLM 开发 AI Agent",
+        "封装 Function Calling 工具接口",
+        "对接主流大模型 API"
+      ],
+      "must_have": ["Python 或 Java 编程能力", "大模型 API 调用经验"],
+      "core_skills": ["Python", "LLM API", "Function Calling", "RAG"],
+      "preferred_skills": ["MCP", "A2A"],
+      "bonus_skills": ["NetOps/AIOps", "ICT 行业经验"],
+      "keywords": ["Python", "Agent", "LLM", "Function Calling", "RAG"],
+      "interview_focus": ["Agent 工具调用流程", "RAG 基本架构"],
+      "raw_text_excerpt": "负责基于 LLM 的 AI Agent 开发，构建具备感知、规划、工具调用能力的智能应用..."
     }
-  ]
+  ],
+  "summary": {
+    "returned_count": 1,
+    "searched_count": 4
+  }
 }
 ```
 
@@ -409,8 +406,13 @@ Search the local technical interview material library for questions, answer poin
 ```json
 {
   "ok": true,
+  "query": "量子通信产品经理",
   "items": [],
-  "message": "No interview material matched the query."
+  "summary": {
+    "returned_count": 0,
+    "searched_count": 4
+  },
+  "message": "No interview JD matched the query."
 }
 ```
 
@@ -430,36 +432,50 @@ Search the local technical interview material library for questions, answer poin
 
 搜索字段：
 
-- `question`
-- `topic`
-- `tags`
-- `answer_points`
-- `common_mistakes`
-- `followups`
-- `short_answer`
+- `title`
+- `role_family`
+- `responsibilities`
+- `must_have`
+- `core_skills`
+- `preferred_skills`
+- `bonus_skills`
+- `keywords`
+- `interview_focus`
+- `raw_text`
 
 排序策略：
 
 ```text
-按 query 关键词在各字段中的命中数量排序。
-topic、tags、question 命中权重大于 answer_points 和 common_mistakes。
+按 query 关键词在各字段中的命中数量和字段权重排序。
+title、role_family 命中权重最高。
+core_skills、keywords、interview_focus 命中权重较高。
+responsibilities、must_have、preferred_skills、bonus_skills 次之。
+raw_text 命中权重最低，只作为兜底召回。
 返回前 limit 条。
 ```
 
-第一版搜索质量只需要支撑小型题库，不追求复杂相关性排序。
+建议权重：
+
+```text
+title / role_family：+4
+core_skills / keywords / interview_focus：+3
+responsibilities / must_have / preferred_skills / bonus_skills：+2
+raw_text：+1
+```
+
+第一版搜索质量只需要支撑小型 JD 库，不追求复杂相关性排序。后续数据量变大后，可以在不改变工具输入输出的前提下，把内部实现替换为 embedding/RAG 检索。
 
 ## 14. Agent 调用工具策略
 
 Agent 不应每轮都调用工具。
 
-需要调用 `interview_material_search` 的场景：
+需要调用 `interview_jd_search` 的场景：
 
-- 用户想练某类技术面试题
-- 用户要求给一道题
-- 用户要求标准答案或面试答案
-- 用户回答后需要评分
-- 用户要求继续追问
-- 用户想把项目经验转化成面试表达
+- 用户想准备某个技术岗位面试
+- 用户要求根据 JD 或岗位要求制定复习重点
+- 用户要求模拟 AI Agent、RAG、Python AI、AI 全栈等技术面试
+- 用户要求 Agent 根据岗位要求出题、追问或点评
+- 用户回答后，Agent 需要判断回答是否覆盖岗位要求中的核心技能
 
 不需要调用工具的场景：
 
@@ -467,15 +483,15 @@ Agent 不应每轮都调用工具。
 - 解释当前功能怎么用
 - 用户表达情绪
 - 总结当前对话
-- 与面试资料无关的普通学习辅导
+- 与 JD、岗位、面试准备无关的普通学习辅导
 
 系统提示词需要强调：
 
 ```text
 你是技术面试训练导师。
-当用户要练题、评分、追问或查询面试答案时，优先调用 interview_material_search。
+当用户要准备岗位面试、根据 JD 出题、评分、追问或规划复习重点时，优先调用 interview_jd_search。
 如果正在模拟面试，一次只问一个问题。
-用户回答后，按评分点指出覆盖点、漏点，并给出更好的面试化回答。
+用户回答后，按岗位职责、核心技能和面试重点指出覆盖点、漏点，并给出更好的面试化回答。
 最终回复必须是 JSON，包含 answer、next_task、exercise、checkpoints。
 ```
 
@@ -487,25 +503,28 @@ Agent 不应每轮都调用工具。
 
 ```text
 1. 用户选择方向
-   例：我想练 React 面试
+   例：我想练 AI Agent 开发岗位面试
 
-2. Agent 调用 interview_material_search
-   query = React 面试
+2. Agent 调用 interview_jd_search
+   query = AI Agent 开发 岗位 面试
    limit = 3
 
-3. Agent 从结果中选择一道题提问
+3. Agent 从 JD 结果中提炼岗位重点
+   例如：Function Calling、RAG、LangChain、上下文管理、API 集成
+
+4. Agent 围绕一个重点提出一道题
    一次只问一道题
 
-4. 用户回答
+5. 用户回答
 
-5. Agent 再调用 interview_material_search
-   query = 最近题目关键词
+6. Agent 必要时再次调用 interview_jd_search
+   query = 最近题目关键词 + 岗位方向
    limit = 1
 
-6. Agent 按 answer_points、common_mistakes 给反馈
+7. Agent 按 JD 中的职责、技能要求和面试重点给反馈
 
-7. Agent 引导用户选择：
-   重答、追问、下一题
+8. Agent 引导用户选择：
+   重答、追问、换一个 JD 重点
 ```
 
 第一版不强制自动跑完整面试。每轮只推进一个小步骤。
@@ -558,10 +577,7 @@ app/services/agent/tools/
   __init__.py
   registry.py
   executor.py
-  interview_material_search.py
-
-app/data/
-  interview_materials.json
+  interview_jd_search.py
 ```
 
 职责划分：
@@ -570,7 +586,7 @@ app/data/
 
 - 提供 OpenAI-compatible tools schema
 - 注册可用工具
-- 第一版只注册 `interview_material_search`
+- 第一版只注册 `interview_jd_search`
 
 `ToolExecutor`：
 
@@ -581,11 +597,11 @@ app/data/
 - 返回结构化工具结果
 - 遇到未知工具或参数错误时返回结构化错误，不让 `/chat` 崩溃
 
-`InterviewMaterialSearchTool`：
+`InterviewJDSearchTool`：
 
-- 读取 `app/data/interview_materials.json`
+- 从 SQLite 的 `interview_jds` 表读取已保存 JD
 - 执行关键词搜索
-- 返回匹配资料
+- 返回匹配 JD 的岗位职责、技能要求、面试重点和原文片段
 
 `TutorAgentService`：
 
@@ -665,11 +681,11 @@ PromptBuilder.build_messages(context)
 
 ```text
 你是一个学习导师，也可以作为技术面试训练导师。
-当用户明确要练技术面试、查面试题、请求评分、追问或面试化回答时，优先调用 interview_material_search。
-工具返回的资料是依据，不要原样堆给用户。
+当用户明确要准备岗位面试、根据 JD 练习、请求评分、追问或规划复习重点时，优先调用 interview_jd_search。
+工具返回的 JD 是依据，不要原样堆给用户。
 最终回复必须是 JSON，不要返回 Markdown，不要返回 JSON 之外的文字。
 如果正在模拟面试，一次只问一个问题。
-用户回答后，按评分点指出覆盖点和漏点。
+用户回答后，按岗位职责、核心技能和面试重点指出覆盖点和漏点。
 ```
 
 ## 21. 错误处理
@@ -677,9 +693,9 @@ PromptBuilder.build_messages(context)
 工具搜不到资料：
 
 ```text
-Agent 明确说明当前内置题库没有找到对应资料。
-Agent 可以按通用经验临时回答，但要说明这不是基于内置题库评分。
-Agent 推荐用户切换到已有方向，例如 FastAPI、React、SQLite、AI Agent。
+Agent 明确说明当前 JD 库没有找到对应岗位资料。
+Agent 可以按通用经验临时组织面试练习，但要说明这不是基于已保存 JD。
+Agent 推荐用户补充或切换到已有方向，例如 AI Agent、Python AI、AI 全栈、AI 应用开发。
 ```
 
 工具执行失败：
@@ -718,17 +734,18 @@ ToolExecutor 返回 invalid_arguments 错误。
 
 新增测试应覆盖：
 
-1. 资料库搜索
+1. JD 搜索
 
-- 搜索 FastAPI 能返回 FastAPI 题
-- 搜索 React 能返回 React 题
+- 搜索 Agent / RAG 能返回 AI Agent 相关 JD
+- 搜索全栈 / Vue 能返回 AI 全栈相关 JD
 - 搜索不存在主题返回空 items
 - limit 生效
+- 工具输出不暴露数据库 `id`
 
 2. ToolRegistry
 
-- tools schema 包含 `interview_material_search`
-- schema 包含 query、material_type、limit 参数
+- tools schema 包含 `interview_jd_search`
+- schema 只包含 query、limit 参数
 
 3. ToolExecutor
 
@@ -743,7 +760,7 @@ ToolExecutor 返回 invalid_arguments 错误。
 5. TutorAgentService 有工具路径
 
 - fake client 第一次返回 tool call
-- 后端执行 `interview_material_search`
+- 后端执行 `interview_jd_search`
 - fake client 第二次返回最终 TutorReply JSON
 - 最终 `ChatResponse.reply` 正常解析
 - 对话保存逻辑仍然执行
@@ -758,11 +775,11 @@ ToolExecutor 返回 invalid_arguments 错误。
 功能验收：
 
 - `/chat` 可以处理普通学习问题，原有行为不破坏
-- 用户说“我想练 React 面试”时，模型可以调用 `interview_material_search`
-- 工具能从本地资料库返回相关题目
-- Agent 能基于工具结果问一道技术面试题
-- 用户回答后，Agent 能基于评分点给出覆盖点、漏点和改进建议
-- 用户要求追问时，Agent 能基于 `followups` 提出下一问
+- 用户说“我想练 AI Agent 岗位面试”时，模型可以调用 `interview_jd_search`
+- 工具能从已保存 JD 中返回相关岗位要求
+- Agent 能基于 JD 结果问一道技术面试题
+- 用户回答后，Agent 能基于岗位职责、核心技能和面试重点给出覆盖点、漏点和改进建议
+- 用户要求追问时，Agent 能基于 JD 要求提出下一问
 - 工具无结果时，Agent 能给出清楚兜底说明
 - 所有现有测试通过
 - 新增工具相关测试通过
@@ -779,17 +796,17 @@ ToolExecutor 返回 invalid_arguments 错误。
 
 后续实现计划应拆成以下阶段：
 
-1. 资料库阶段
+1. JD 搜索阶段
 
-- 新增 `app/data/interview_materials.json`
-- 写入 12 到 16 条技术面试资料
-- 确保每条资料有评分点、常见误区和追问
+- 复用已存在的 `interview_jds` 表和种子 JD
+- 实现全表 JD 检索，不按 `id` 查询
+- 返回结构化岗位要求和原文片段
 
 2. 工具阶段
 
-- 实现 `InterviewMaterialSearchTool`
+- 实现 `InterviewJDSearchTool`
 - 实现关键词搜索
-- 补资料库搜索测试
+- 补 JD 搜索测试
 
 3. Registry / Executor 阶段
 
@@ -819,7 +836,7 @@ ToolExecutor 返回 invalid_arguments 错误。
 7. 手动体验阶段
 
 - 启动 API
-- 用真实模型测试“我想练 React 面试”
+- 用真实模型测试“我想练 AI Agent 岗位面试”
 - 测试“继续追问我”
 - 测试“我的答案是……请评分”
 
@@ -849,7 +866,7 @@ jd_project_match
 3. RAG 升级
 
 ```text
-interview_material_search 内部从关键词搜索升级为 embedding 检索。
+interview_jd_search 内部从关键词搜索升级为 embedding 检索。
 ```
 
 接口保持不变，替换内部检索实现。
@@ -857,7 +874,7 @@ interview_material_search 内部从关键词搜索升级为 embedding 检索。
 4. MCP 化
 
 ```text
-把 interview_material_search 做成独立 MCP tool server。
+把 interview_jd_search 或后续 interview_material_search 做成独立 MCP tool server。
 ```
 
 适合未来多个 Agent 或客户端复用同一套面试资料工具。
@@ -866,17 +883,110 @@ interview_material_search 内部从关键词搜索升级为 embedding 检索。
 
 仅当产品范围扩展到编程面试、算法题、SQL 题或数据分析题时再加入。
 
-## 26. 当前设计结论
+## 26. JD 资料存储与岗位匹配扩展
+
+用户粘贴的岗位 JD 不应直接混入 `interview_materials.json` 题库。题库资料和 JD 资料的用途不同：
+
+```text
+interview_materials.json：存面试题、评分点、常见误区和追问
+interview_jds：存岗位描述、职责、技能要求、关键词和面试重点
+```
+
+JD 的第一版用途是先建立“岗位资料地基”，再用 `interview_jd_search` 把这批资料接入工具调用：
+
+- 用户可以通过表单保存目标岗位 JD
+- 后端可以按 `user_id` 保存和查询 JD
+- Agent 未来可以基于 JD 判断岗位重点、生成备考路径、匹配项目经历
+- 后续工具可以从 JD 中检索职责、核心技能、优先技能和加分项
+
+第一版 JD 采用 SQLite 存储，而不是只放本地 JSON。原因是 JD 来自用户输入，需要随用户和时间变化；JSON 更适合内置种子资料，SQLite 更适合用户数据。
+
+建议新增表：
+
+```text
+interview_jds
+```
+
+核心字段：
+
+```text
+id
+user_id
+title
+role_family
+seniority
+target_graduation_years_json
+raw_text
+responsibilities_json
+must_have_json
+core_skills_json
+preferred_skills_json
+bonus_skills_json
+keywords_json
+interview_focus_json
+created_at
+updated_at
+```
+
+第一版表单只需要覆盖最关键字段：
+
+- `title`：岗位名称，例如“AI Agent / LLM 应用开发岗位”
+- `raw_text`：用户粘贴的完整 JD 原文
+- `core_skills`：核心技能，例如 LangChain、LangGraph
+- `preferred_skills`：优先技能，例如 RAG、Agent 评测
+- `keywords`：检索关键词，例如 LLM、Agent、RAG、FastAPI
+- `interview_focus`：面试准备重点，例如 Agent 工具调用、RAG 系统设计
+
+表单不负责自动解析所有 JD 细节。第一版允许用户手动填写结构化字段；后续可以加入 `parse_job_description` 工具，由 LLM 根据 `raw_text` 自动提取字段。
+
+建议新增 API：
+
+```text
+POST /interview-jds
+GET /interview-jds?user_id=...
+```
+
+`POST /interview-jds` 用于保存一条 JD；`GET /interview-jds` 用于查询某个用户保存过的 JD。第一版不做删除和编辑，避免范围过大。
+
+示例数据可先保存一条 AI Agent 岗位 JD，覆盖：
+
+- LLM Agent 应用开发
+- RAG 系统设计
+- LangChain / LangGraph 工作流
+- Agent 评测
+- Python、FastAPI、Docker、Git、NLP 等加分项
+
+这条 JD 与当前 Tutor Agent 项目高度相关，可以用于后续项目包装和模拟面试：
+
+```text
+当前项目已经具备 FastAPI 后端、React 前端、多会话、滚动摘要和结构化回复。
+下一阶段加入 function calling 和 interview_jd_search 后，可以对应 JD 中的 Agent 应用、工具使用、多轮对话、RAG 演进和后端落地能力。
+```
+
+后续工具演进建议：
+
+```text
+interview_jd_search：检索已保存的 JD
+jd_project_match：把 JD 要求和用户项目经历做匹配
+parse_job_description：把 raw_text 自动拆成职责、技能、关键词和面试重点
+interview_material_search：检索题库、评分点、常见误区和追问
+```
+
+第一版开发顺序应先做 JD 存储和表单，再做 `interview_jd_search`。这样工具不是凭空查题，而是可以围绕真实目标岗位生成训练内容。题库型 `interview_material_search` 放到后续阶段，用于给 JD 重点匹配更标准的题目和评分点。
+
+## 27. 当前设计结论
 
 第一版技术面试工具调用设计如下：
 
 ```text
-新增本地技术面试资料库 app/data/interview_materials.json。
-新增 interview_material_search 工具，先用关键词检索资料库。
+复用 interview_jds 表中已经保存的技术岗位 JD。
+新增 interview_jd_search 工具，先用关键词检索 JD。
+工具输入只包含 query 和 limit，不要求模型传数据库 id。
+第一版不设计 shared/private，所有已保存 JD 都可被检索。
 新增 ToolRegistry 和 ToolExecutor，接入 OpenAI-compatible function calling。
 TutorAgentService 支持最多一轮工具调用，然后生成最终 TutorReply JSON。
-Agent 在用户练技术面试、请求评分、追问或面试化回答时调用工具。
-第一版不实现完整 RAG、MCP、联网搜索、代码执行或长期错题系统。
+Agent 在用户准备岗位面试、请求根据 JD 出题、评分、追问或规划复习重点时调用工具。
+第一版不实现完整 RAG、MCP、联网搜索、代码执行、题库搜索或长期错题系统。
 ```
 
 这条路线能用最小工程量看清楚工具调用，同时保留未来升级成 RAG 和 MCP 的空间。
