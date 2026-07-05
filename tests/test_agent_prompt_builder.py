@@ -49,6 +49,7 @@ def test_build_messages_without_summary_uses_system_and_current_message():
 
     assert [message["role"] for message in messages] == ["system", "user"]
     assert "新手友好的后端开发导师" in str(messages[0]["content"])
+    assert "interview_jd_search" in str(messages[0]["content"])
     assert messages[-1]["content"] == "什么是 FastAPI？"
 
 
@@ -154,7 +155,11 @@ def test_build_messages_shows_exact_llm_input_with_summary_and_recent_history():
     assert role_and_content == [
         (
             "system",
-            "你是一个新手友好的后端开发导师。\n"
+            "你是一个新手友好的后端开发导师，也可以作为技术面试训练导师。\n"
+            "当用户明确要准备岗位面试、根据 JD 出题、追问、点评或规划复习重点时，"
+            "可以调用 interview_jd_search。\n"
+            "普通概念解释、闲聊、总结对话或与岗位面试无关的问题不需要调用工具。\n"
+            "工具返回的 JD 是依据，不要把原文字段机械堆给用户。\n"
             "你必须只返回 JSON，不要返回 Markdown，不要返回解释 JSON 之外的文字。\n"
             "JSON 必须包含四个字段：\n"
             "- answer: 字符串，3 到 6 句话\n"

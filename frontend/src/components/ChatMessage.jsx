@@ -1,5 +1,38 @@
 import DebugDetails from './DebugDetails.jsx'
 
+function ToolTraceSummary({ trace }) {
+  if (!trace?.used || !Array.isArray(trace.calls) || trace.calls.length === 0) {
+    return null
+  }
+
+  return (
+    <details className="tool-trace-summary">
+      <summary>工具调用</summary>
+      <div className="tool-trace-list">
+        {trace.calls.map((call, index) => (
+          <section className="tool-trace-item" key={`${call.name}-${index}`}>
+            <div className="tool-trace-header">
+              <span className="tool-trace-name">{call.name}</span>
+              <span className={call.ok ? 'tool-trace-ok' : 'tool-trace-error'}>
+                {call.ok ? 'ok' : call.error || 'error'}
+              </span>
+            </div>
+            <p className="tool-trace-line">
+              参数：{JSON.stringify(call.arguments ?? {})}
+            </p>
+            <p className="tool-trace-line">
+              结果：{call.returned_count ?? 0} 条
+              {Array.isArray(call.top_titles) && call.top_titles.length > 0
+                ? ` · ${call.top_titles.join('、')}`
+                : ''}
+            </p>
+          </section>
+        ))}
+      </div>
+    </details>
+  )
+}
+
 // ChatMessage 负责显示一条聊天消息，用户消息和 AI 消息共用这个组件。
 function ChatMessage({ role, text, reply, debug }) {
   const isAssistant = role === 'assistant'
@@ -13,6 +46,7 @@ function ChatMessage({ role, text, reply, debug }) {
   const checkpoints = Array.isArray(reply?.checkpoints)
     ? reply.checkpoints
     : ['前端没有因为响应字段异常而崩溃']
+  const toolTrace = debug?.responseBody?.tool_trace
 
   return (
     <article className={messageClassName}>
@@ -44,6 +78,8 @@ function ChatMessage({ role, text, reply, debug }) {
       ) : (
         <p>{text}</p>
       )}
+
+      <ToolTraceSummary trace={toolTrace} />
 
       {debug ? <DebugDetails data={debug} /> : null}
     </article>

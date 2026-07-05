@@ -20,6 +20,24 @@ class TutorReply(BaseModel):
     checkpoints: list[str]
 
 
+class ToolCallTrace(BaseModel):
+    """一次工具调用的调试摘要。"""
+
+    name: str
+    arguments: dict
+    ok: bool
+    returned_count: int | None = None
+    top_titles: list[str] = Field(default_factory=list)
+    error: str | None = None
+
+
+class ToolTrace(BaseModel):
+    """一次 /chat 请求里的工具调用调试信息。"""
+
+    used: bool
+    calls: list[ToolCallTrace] = Field(default_factory=list)
+
+
 class ChatResponse(BaseModel):
     """POST /chat 的响应体。"""
 
@@ -27,3 +45,4 @@ class ChatResponse(BaseModel):
     session_id: int
     message: str
     reply: TutorReply
+    tool_trace: ToolTrace

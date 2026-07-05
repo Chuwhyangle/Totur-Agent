@@ -21,6 +21,7 @@ from app.repositories.conversation_repository import (
     list_recent_conversations,
     save_conversation,
 )
+from app.repositories.interview_jd_repository import create_interview_jd
 from app.repositories.session_repository import (
     create_session,
     list_sessions,
@@ -640,6 +641,10 @@ def test_chat_returns_structured_reply(monkeypatch, tmp_path):
     assert body["user_id"] == "default"
     assert isinstance(body["session_id"], int)
     assert body["message"] == "What is a FastAPI route?"
+    assert body["tool_trace"] == {
+        "used": False,
+        "calls": [],
+    }
     assert isinstance(reply["answer"], str)
     assert isinstance(reply["next_task"], str)
     assert isinstance(reply["exercise"], str)
@@ -1289,6 +1294,116 @@ def test_chat_skips_bad_history_reply_json_without_crashing(monkeypatch, tmp_pat
         ("user", "Bad history question"),
         ("user", "Continue after bad history."),
     ]
+
+
+def test_chat_executes_interview_jd_tool_call_and_uses_second_model_reply(
+    monkeypatch,
+    tmp_path,
+):
+    use_temp_database(monkeypatch, tmp_path)
+    create_interview_jd(
+        user_id="demo-user",
+        title="Python AI Agent 开发工程师",
+        raw_text="负责 Agent 工具调用和 RAG 应用开发。",
+        core_skills=["Function Calling", "RAG"],
+        keywords=["Agent", "RAG"],
+        interview_focus=["Agent 工具调用"],
+    )
+    final_model_reply = json.dumps(
+        {
+            "answer": "根据 JD，这个岗位重点考 Agent 工具调用和 RAG。我先问你：Function Calling 在 Agent 系统里解决了什么问题？",
+            "next_task": "请用 1 分钟回答这道题。",
+            "exercise": "回答时必须包含模型、工具、参数、工具结果四个关键词。",
+            "checkpoints": [
+                "能说明模型不直接执行函数",
+                "能说明后端负责执行工具",
+                "能说明工具结果会回填给模型",
+            ],
+        },
+        ensure_ascii=False,
+    )
+    first_call_messages = []
+    second_call_messages = []
+
+    def fake_call_model_with_tools(messages):
+        first_call_messages.extend(messages)
+        return {
+            "content": None,
+            "tool_calls": [
+                {
+                    "id": "call_interview_jd_1",
+                    "type": "function",
+                    "function": {
+                        "name": "interview_jd_search",
+                        "arguments": '{"query": "Agent RAG 面试", "limit": 1}',
+                    },
+                }
+            ],
+        }
+
+    def fake_call_model(messages):
+        second_call_messages.extend(messages)
+        return final_model_reply
+
+    monkeypatch.setattr(
+        chat_route.tutor_agent_service,
+        "_call_model_with_tools",
+        fake_call_model_with_tools,
+    )
+    monkeypatch.setattr(
+        chat_route.tutor_agent_service,
+        "_call_model",
+        fake_call_model,
+    )
+
+    response = client.post(
+        "/chat",
+        json={
+            "user_id": "demo-user",
+            "message": "我想练 AI Agent 岗位面试，问我一道题。",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["reply"]["answer"].startswith("根据 JD")
+    assert body["tool_trace"] == {
+        "used": True,
+        "calls": [
+            {
+                "name": "interview_jd_search",
+                "arguments": {
+                    "query": "Agent RAG 面试",
+                    "limit": 1,
+                },
+                "ok": True,
+                "returned_count": 1,
+                "top_titles": ["Python AI Agent 开发工程师"],
+                "error": None,
+            }
+        ],
+    }
+    assert len(first_call_messages) > 0
+
+    assistant_tool_messages = [
+        message
+        for message in second_call_messages
+        if message["role"] == "assistant" and "tool_calls" in message
+    ]
+    tool_result_messages = [
+        message for message in second_call_messages if message["role"] == "tool"
+    ]
+    assert len(assistant_tool_messages) == 1
+    assert len(tool_result_messages) == 1
+    assert tool_result_messages[0]["tool_call_id"] == "call_interview_jd_1"
+
+    tool_result = json.loads(tool_result_messages[0]["content"])
+    assert tool_result["ok"] is True
+    assert tool_result["items"][0]["title"] == "Python AI Agent 开发工程师"
+    assert "id" not in tool_result["items"][0]
+
+    records = list_recent_conversations("demo-user", limit=1)
+    assert records[0].message == "我想练 AI Agent 岗位面试，问我一道题。"
 
 
 def test_manual_review_prints_llm_input_and_output(monkeypatch, tmp_path):

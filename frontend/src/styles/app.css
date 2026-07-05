@@ -684,6 +684,74 @@ h1 {
   padding-left: 2px;
 }
 
+.tool-trace-summary {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid #dce4ec;
+}
+
+.tool-trace-summary summary {
+  width: fit-content;
+  color: #526173;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.tool-trace-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.tool-trace-item {
+  display: grid;
+  gap: 6px;
+  border: 1px solid #dce4ec;
+  border-radius: 8px;
+  padding: 10px;
+  background: #ffffff;
+}
+
+.tool-trace-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.tool-trace-name {
+  color: #263445;
+  font-size: 13px;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.tool-trace-ok,
+.tool-trace-error {
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.tool-trace-ok {
+  color: #14746f;
+  background: #e5f5f1;
+}
+
+.tool-trace-error {
+  color: #a33a2a;
+  background: #fdebe7;
+}
+
+.tool-trace-line {
+  color: #526173;
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
 /* 调试详情：默认折叠，展开后显示请求和响应的 JSON。 */
 .debug-details {
   margin-top: 14px;
