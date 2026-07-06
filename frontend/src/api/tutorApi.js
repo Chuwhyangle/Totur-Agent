@@ -1,6 +1,7 @@
 const API_BASE_URL = 'http://127.0.0.1:8001'
 const CHAT_URL = `${API_BASE_URL}/chat`
 const INTERVIEW_JDS_URL = `${API_BASE_URL}/interview-jds`
+const PERSONAS_URL = `${API_BASE_URL}/personas`
 const SESSIONS_URL = `${API_BASE_URL}/sessions`
 
 // getHealth 负责请求后端健康检查接口，确认 API 是否在线。
@@ -76,6 +77,32 @@ export async function postChat(requestBody) {
 
   if (!response.ok) {
     const error = new Error(`Chat request failed: ${response.status}`)
+    error.debug = debug
+    throw error
+  }
+
+  return {
+    data: responseBody,
+    debug,
+  }
+}
+
+// getPersonas 负责读取后端当前可用的人设列表。
+export async function getPersonas() {
+  const startedAt = performance.now()
+  const response = await fetch(PERSONAS_URL)
+  const responseBody = await readJsonSafely(response)
+  const durationMs = Math.round(performance.now() - startedAt)
+  const debug = {
+    url: PERSONAS_URL,
+    method: 'GET',
+    responseBody,
+    status: response.status,
+    durationMs,
+  }
+
+  if (!response.ok) {
+    const error = new Error(`Persona list request failed: ${response.status}`)
     error.debug = debug
     throw error
   }

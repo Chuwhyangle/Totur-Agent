@@ -61,7 +61,12 @@ function ToolTraceSummary({ trace }) {
         {trace.calls.map((call, index) => (
           <section className="tool-trace-item" key={`${call.name}-${index}`}>
             <div className="tool-trace-header">
-              <span className="tool-trace-name">{call.name}</span>
+              <div className="tool-trace-title">
+                {call.round != null ? (
+                  <span className="tool-trace-round">第 {call.round} 轮</span>
+                ) : null}
+                <span className="tool-trace-name">{call.name}</span>
+              </div>
               <span className={call.ok ? 'tool-trace-ok' : 'tool-trace-error'}>
                 {call.ok ? 'ok' : call.error || 'error'}
               </span>

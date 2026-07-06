@@ -5,6 +5,7 @@ import {
   createSession,
   getHealth,
   getInterviewJDs,
+  getPersonas,
   getSessionConversations,
   getSessions,
   postChat,
@@ -13,8 +14,17 @@ import ApiStatus from './components/ApiStatus.jsx'
 import ChatInput from './components/ChatInput.jsx'
 import ChatMessage from './components/ChatMessage.jsx'
 import InterviewJDPanel from './components/InterviewJDPanel.jsx'
+import PersonaBadge from './components/PersonaBadge.jsx'
+import PersonaSelector from './components/PersonaSelector.jsx'
 import SessionSidebar from './components/SessionSidebar.jsx'
 import UserIdInput from './components/UserIdInput.jsx'
+
+const DEFAULT_PERSONA_ID = 'tutor'
+const FALLBACK_PERSONA = {
+  persona_id: DEFAULT_PERSONA_ID,
+  name: '默认导师',
+  description: '后端学习与面试训练的默认人设。',
+}
 
 function createErrorReply() {
   return {
@@ -41,8 +51,49 @@ function App() {
   const [interviewJDs, setInterviewJDs] = useState([])
   const [interviewJDsStatus, setInterviewJDsStatus] = useState('idle')
   const [isSavingInterviewJD, setIsSavingInterviewJD] = useState(false)
+  const [personas, setPersonas] = useState([])
+  const [personasStatus, setPersonasStatus] = useState('idle')
+  const [selectedPersonaId, setSelectedPersonaId] = useState(DEFAULT_PERSONA_ID)
 
   const canSend = draftMessage.trim().length > 0 && userId.trim().length > 0 && !isSending
+  const selectedPersona = personas.find(
+    (persona) => persona.persona_id === selectedPersonaId,
+  ) ?? FALLBACK_PERSONA
+
+  const loadPersonas = useCallback(async () => {
+    setPersonasStatus('loading')
+
+    try {
+      const { data } = await getPersonas()
+      const nextPersonas = Array.isArray(data) ? data : []
+
+      setPersonas(nextPersonas)
+      setPersonasStatus('success')
+      setApiStatus('online')
+      setSelectedPersonaId((currentPersonaId) => {
+        const stillAvailable = nextPersonas.some(
+          (persona) => persona.persona_id === currentPersonaId,
+        )
+
+        return stillAvailable
+          ? currentPersonaId
+          : nextPersonas[0]?.persona_id ?? DEFAULT_PERSONA_ID
+      })
+
+      return nextPersonas
+    } catch {
+      setPersonas([])
+      setPersonasStatus('error')
+      setApiStatus('offline')
+
+      return []
+    }
+  }, [])
+
+  function handlePersonaChange(nextPersonaId) {
+    // 切换人设只影响后续发送到 /chat 的请求，不改写已经展示出来的历史消息。
+    setSelectedPersonaId(nextPersonaId)
+  }
 
   function handleUserIdChange(nextUserId) {
     // 切换用户时清空页面本地状态，避免把不同 user_id 的对话混在一起看。
@@ -238,6 +289,7 @@ function App() {
       // 后端第一阶段短期记忆按 user_id 查询历史，所以这里发送去空格后的值。
       user_id: trimmedUserId,
       session_id: activeSessionId,
+      persona_id: selectedPersonaId,
       message: trimmedMessage,
     }
     const userMessage = {
@@ -312,9 +364,10 @@ function App() {
 
   useEffect(() => {
     checkApiHealth()
+    void loadPersonas()
     void loadSessions()
     void loadInterviewJDs()
-  }, [checkApiHealth, loadSessions, loadInterviewJDs])
+  }, [checkApiHealth, loadPersonas, loadSessions, loadInterviewJDs])
 
   const chatEmptyText = (() => {
     if (activeSessionStatus === 'loading') {
@@ -355,6 +408,12 @@ function App() {
           >
             刷新
           </button>
+          <PersonaSelector
+            personas={personas}
+            selectedPersonaId={selectedPersonaId}
+            status={personasStatus}
+            onPersonaChange={handlePersonaChange}
+          />
           <UserIdInput userId={userId} onUserIdChange={handleUserIdChange} />
         </div>
       </header>
@@ -373,6 +432,7 @@ function App() {
 
         {/* 聊天区域：发送消息后，用户消息和真实后端回复都会加入 messages。 */}
         <section className="chat-surface" aria-label="聊天工作区">
+          <PersonaBadge persona={selectedPersona} status={personasStatus} />
           <div className="thread-preview">
             {chatEmptyText ? <p className="chat-empty">{chatEmptyText}</p> : null}
             {messages.map((message) => (

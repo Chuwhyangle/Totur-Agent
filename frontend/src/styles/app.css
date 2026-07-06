@@ -73,6 +73,40 @@ h1 {
   gap: 12px;
 }
 
+.persona-field {
+  display: grid;
+  gap: 5px;
+  color: #526173;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.persona-field span {
+  line-height: 1;
+}
+
+.persona-select {
+  width: 176px;
+  height: 36px;
+  border: 1px solid #cbd6e2;
+  border-radius: 8px;
+  padding: 0 10px;
+  color: #18212f;
+  background: #ffffff;
+  cursor: pointer;
+}
+
+.persona-select:disabled {
+  color: #7a8898;
+  background: #eef3f7;
+  cursor: not-allowed;
+}
+
+.persona-select:focus {
+  border-color: #14746f;
+  outline: 3px solid rgba(20, 116, 111, 0.16);
+}
+
 .api-status {
   display: inline-flex;
   align-items: center;
@@ -607,12 +641,48 @@ h1 {
 /* 聊天工作区：后续消息列表和输入区会放在这里。 */
 .chat-surface {
   display: grid;
-  grid-template-rows: 1fr auto;
+  grid-template-rows: auto 1fr auto;
   min-height: 520px;
   border: 1px solid #d7e0ea;
   border-radius: 8px;
   background: #ffffff;
   box-shadow: 0 18px 45px rgba(39, 55, 77, 0.08);
+}
+
+.persona-badge {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  width: 100%;
+  max-width: 760px;
+  margin: 0 auto;
+  padding: clamp(16px, 3vw, 24px) clamp(24px, 5vw, 56px) 0;
+  color: #405064;
+}
+
+.persona-badge-label {
+  border: 1px solid #cbd6e2;
+  border-radius: 999px;
+  padding: 3px 9px;
+  color: #14746f;
+  background: #eef8f6;
+  font-size: 12px;
+  font-weight: 850;
+  white-space: nowrap;
+}
+
+.persona-badge-name {
+  color: #18212f;
+  font-size: 14px;
+  font-weight: 850;
+}
+
+.persona-badge-description {
+  min-width: 0;
+  color: #526173;
+  font-size: 13px;
+  line-height: 1.45;
 }
 
 .thread-preview {
@@ -718,6 +788,23 @@ h1 {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
+}
+
+.tool-trace-title {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 7px;
+}
+
+.tool-trace-round {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  padding: 2px 7px;
+  color: #405064;
+  background: #eef3f7;
+  font-size: 11px;
+  font-weight: 800;
 }
 
 .tool-trace-name {

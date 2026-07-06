@@ -521,3 +521,62 @@ app/services/agent/
 - 为什么工业界常常先在当前结构里渐进式拆分，而不是一开始就上重架构
 
 这一轮重构的目的不是炫技，而是让后面的工具调用、长期记忆、RAG 都有地方生长。
+
+## 15. v0.2 Agent Core 实现补充
+
+v0.2 在第一轮拆分的基础上补上了两个核心能力：ReAct 多轮工具循环和 Prompt Persona 人设系统。当前落地结构如下：
+
+```text
+app/services/agent/
+  context.py             AgentContext，封装一次聊天调用的上下文
+  memory_manager.py      读取历史、保存本轮对话、触发摘要更新
+  prompt_builder.py      组装模型 messages，并接入 persona system prompt
+  response_parser.py     解析模型结构化回复
+  react_orchestrator.py  执行 ReAct loop、工具调用、观察回填与 final call
+  personas.py            内置人设配置、查询与 system prompt 构建
+```
+
+### 15.1 ReActOrchestrator
+
+`ReactOrchestrator` 是当前工具调用的默认执行引擎。它接收初始 `messages`，按以下流程推进：
+
+1. 请求模型。
+2. 如果模型没有返回 `tool_calls`，直接把模型消息交给 `ResponseParser` 解析。
+3. 如果模型返回 `tool_calls`，执行工具并把观察结果追加回 messages。
+4. 模型可以基于观察结果继续请求工具，直到没有工具请求、达到 `MAX_TOOL_ROUNDS`，或达到 `MAX_TOOL_FAILURES`。
+5. 达到上限后，不返回静态兜底文案，而是再发起一次不带 tools 的 final call，让模型基于已有上下文生成最终回答。
+
+相关集中配置位于 `app/services/memory_settings.py`：
+
+```python
+MAX_TOOL_ROUNDS = 3
+MAX_TOOL_FAILURES = 2
+TOOL_OBSERVATION_MAX_CHARS = 4000
+```
+
+`tool_trace` 保持向后兼容，仍然是：
+
+```json
+{
+  "used": true,
+  "calls": []
+}
+```
+
+每个 `calls[]` 现在额外包含 `round` 字段，用来表示该工具调用发生在 ReAct 第几轮。前端调试面板会展示这个轮次。
+
+### 15.2 Prompt Personas
+
+人设系统集中在 `app/services/agent/personas.py`。当前内置：
+
+- `tutor`：默认后端学习导师，保持旧请求兼容。
+- `algorithm_coach`：算法教练。
+- `interviewer`：模拟面试官。
+
+`POST /chat` 新增可选字段 `persona_id`，缺省为 `tutor`。`PromptBuilder.build_messages(...)` 会根据 persona 构建 system prompt；无效 `persona_id` 会在 API 层返回 422，并给出可用人设列表。
+
+前端通过 `GET /personas` 获取人设列表，通过顶栏下拉框保存当前 `selectedPersonaId`，并在每次 `/chat` 请求体中发送 `persona_id`。聊天区顶部展示当前人设徽章，帮助用户确认“现在在和谁对话”。
+
+### 15.3 v0.2 明确延期项
+
+FR2.5“会话与人设绑定”延期到 v0.3。原因是它需要给 `chat_sessions` 增加 `persona_id` 字段并定义历史会话的迁移策略，同时还会改变“切换会话后应该沿用哪个人设”的产品语义。v0.2 工作台阶段只保证当前选择的人设会影响后续发送的 `/chat` 请求，不把人设写入会话表。
