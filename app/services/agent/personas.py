@@ -53,6 +53,15 @@ STRUCTURED_REPLY_PROMPT = (
 )
 
 
+KNOWLEDGE_TOOL_PROMPT = (
+    "当用户问到自己的笔记、之前记过/讨论过/复盘过的内容时，"
+    "调用 search_learning_notes 检索学习笔记后再回答。\n"
+    "引用笔记内容时必须在句末标注出处，格式：（来源：文件名）。\n"
+    "工具返回 found=false 或 index_not_built 时，如实告知没有找到相关笔记，"
+    "再基于你自己的知识回答，不得伪造出处。"
+)
+
+
 BUILTIN_PERSONAS: tuple[Persona, ...] = (
     Persona(
         persona_id="tutor",
@@ -116,4 +125,8 @@ def get_persona(persona_id: str | None) -> Persona:
 def build_system_prompt(persona: Persona) -> str:
     """把人设提示词和统一四段式 JSON 输出要求合并。"""
 
-    return f"{persona.system_prompt}\n{STRUCTURED_REPLY_PROMPT}"
+    return (
+        f"{persona.system_prompt}\n"
+        f"{KNOWLEDGE_TOOL_PROMPT}\n"
+        f"{STRUCTURED_REPLY_PROMPT}"
+    )

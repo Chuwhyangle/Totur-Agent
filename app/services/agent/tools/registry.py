@@ -7,6 +7,7 @@ from copy import deepcopy
 from typing import Any
 
 from app.services.agent.tools.interview_jd_search import search_interview_jds
+from app.services.agent.tools.search_learning_notes import search_learning_notes
 from app.services.agent.tools.score_jd_skill_fit import score_jd_skill_fit
 
 
@@ -114,12 +115,46 @@ SCORE_JD_SKILL_FIT_SCHEMA: dict[str, Any] = {
 }
 
 
+SEARCH_LEARNING_NOTES_SCHEMA: dict[str, Any] = {
+    "type": "function",
+    "function": {
+        "name": "search_learning_notes",
+        "description": (
+            "Search the user's own indexed learning notes for project docs, "
+            "study notes, previous plans, retrospectives, and architecture notes."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": (
+                        "The concept, previous note, plan, or learning material "
+                        "to search for."
+                    ),
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum number of note chunks to return.",
+                    "minimum": 1,
+                    "maximum": 5,
+                    "default": 3,
+                },
+            },
+            "required": ["query"],
+            "additionalProperties": False,
+        },
+    },
+}
+
+
 class ToolRegistry:
     """Keeps tool schemas and Python callables in one small boundary."""
 
     def __init__(self) -> None:
         self._tools: dict[str, Callable[..., dict[str, Any]]] = {
             "interview_jd_search": search_interview_jds,
+            "search_learning_notes": search_learning_notes,
             "score_jd_skill_fit": score_jd_skill_fit,
         }
 
@@ -128,6 +163,7 @@ class ToolRegistry:
 
         return [
             deepcopy(INTERVIEW_JD_SEARCH_SCHEMA),
+            deepcopy(SEARCH_LEARNING_NOTES_SCHEMA),
             deepcopy(SCORE_JD_SKILL_FIT_SCHEMA),
         ]
 

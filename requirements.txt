@@ -5,3 +5,4 @@ uvicorn
 pytest
 httpx
 httpx2
+chromadb==1.5.9

@@ -24,3 +24,6 @@ logs/
 
 # Local SQLite database
 tutor_agent.db
+
+# Local Chroma vector database
+chroma_db/

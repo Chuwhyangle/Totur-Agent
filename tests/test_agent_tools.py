@@ -34,7 +34,11 @@ def test_tool_registry_exposes_score_jd_skill_fit_schema():
     parameters = tool["function"]["parameters"]
     skill_properties = parameters["properties"]["skills"]["items"]["properties"]
 
-    assert names == ["interview_jd_search", "score_jd_skill_fit"]
+    assert names == [
+        "interview_jd_search",
+        "search_learning_notes",
+        "score_jd_skill_fit",
+    ]
     assert tool["type"] == "function"
     assert set(parameters["properties"]) == {"target_role", "skills"}
     assert parameters["required"] == ["skills"]
@@ -47,6 +51,20 @@ def test_tool_registry_exposes_score_jd_skill_fit_schema():
         "reason",
         "recommended_action",
     }
+
+
+def test_tool_registry_exposes_search_learning_notes_schema():
+    registry = ToolRegistry()
+
+    tools = registry.get_tools_schema()
+    tool = next(tool for tool in tools if tool["function"]["name"] == "search_learning_notes")
+    parameters = tool["function"]["parameters"]
+
+    assert tool["type"] == "function"
+    assert tool["function"]["name"] == "search_learning_notes"
+    assert set(parameters["properties"]) == {"query", "limit"}
+    assert parameters["required"] == ["query"]
+    assert parameters["properties"]["limit"]["maximum"] == 5
 
 
 def test_score_jd_skill_fit_calculates_weighted_fit_score():

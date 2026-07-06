@@ -50,6 +50,7 @@ def test_build_messages_without_summary_uses_system_and_current_message():
     assert [message["role"] for message in messages] == ["system", "user"]
     assert "新手友好的后端开发导师" in str(messages[0]["content"])
     assert "interview_jd_search" in str(messages[0]["content"])
+    assert "search_learning_notes" in str(messages[0]["content"])
     assert "score_jd_skill_fit" in str(messages[0]["content"])
     assert "LLM 先判断，工具只负责算分" in str(messages[0]["content"])
     assert messages[-1]["content"] == "什么是 FastAPI？"
@@ -166,6 +167,11 @@ def test_build_messages_shows_exact_llm_input_with_summary_and_recent_history():
             "user_level、confidence、evidence、reason 和 recommended_action。\n"
             "普通概念解释、闲聊、总结对话或与岗位面试无关的问题不需要调用工具。\n"
             "工具返回的 JD 是依据，不要把原文字段机械堆给用户。\n"
+            "当用户问到自己的笔记、之前记过/讨论过/复盘过的内容时，"
+            "调用 search_learning_notes 检索学习笔记后再回答。\n"
+            "引用笔记内容时必须在句末标注出处，格式：（来源：文件名）。\n"
+            "工具返回 found=false 或 index_not_built 时，如实告知没有找到相关笔记，"
+            "再基于你自己的知识回答，不得伪造出处。\n"
             "你必须只返回 JSON，不要返回 Markdown，不要返回解释 JSON 之外的文字。\n"
             "JSON 必须包含四个字段：\n"
             "- answer: 字符串，3 到 6 句话\n"
