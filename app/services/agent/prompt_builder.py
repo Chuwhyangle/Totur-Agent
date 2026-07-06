@@ -8,6 +8,11 @@ from openai.types.chat import (
 )
 
 from app.services.agent.context import AgentContext
+from app.services.agent.personas import (
+    Persona,
+    build_system_prompt,
+    get_persona,
+)
 from app.services.agent.response_parser import ResponseParser
 
 
@@ -22,28 +27,14 @@ class PromptBuilder:
     def build_messages(
         self,
         context: AgentContext,
+        persona: Persona | None = None,
     ) -> list[ChatCompletionMessageParam]:
         """按 system、摘要、最近历史、当前问题的顺序构建 messages。"""
 
+        resolved_persona = persona or get_persona(None)
         system_msg: ChatCompletionSystemMessageParam = {
             "role": "system",
-            "content": (
-                "你是一个新手友好的后端开发导师，也可以作为技术面试训练导师。\n"
-                "当用户明确要准备岗位面试、根据 JD 出题、追问、点评或规划复习重点时，"
-                "可以调用 interview_jd_search。\n"
-                "当已经拿到目标 JD 技能要求，并且用户提供了当前技术栈或项目经历时，"
-                "可以调用 score_jd_skill_fit 计算 JD 符合度；LLM 先判断，工具只负责算分。\n"
-                "调用 score_jd_skill_fit 前，你要先为每项技能判断 jd_importance、"
-                "user_level、confidence、evidence、reason 和 recommended_action。\n"
-                "普通概念解释、闲聊、总结对话或与岗位面试无关的问题不需要调用工具。\n"
-                "工具返回的 JD 是依据，不要把原文字段机械堆给用户。\n"
-                "你必须只返回 JSON，不要返回 Markdown，不要返回解释 JSON 之外的文字。\n"
-                "JSON 必须包含四个字段：\n"
-                "- answer: 字符串，3 到 6 句话\n"
-                "- next_task: 字符串，一个很小的下一步任务\n"
-                "- exercise: 字符串，一个小练习\n"
-                "- checkpoints: 字符串数组，3 个检查点"
-            ),
+            "content": build_system_prompt(resolved_persona),
         }
         messages: list[ChatCompletionMessageParam] = [system_msg]
 

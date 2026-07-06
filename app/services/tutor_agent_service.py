@@ -12,6 +12,10 @@ from app.clients.llm_client import create_llm_client
 from app.config import LLMConfig, load_llm_config
 from app.schemas.chat import ChatRequest, ChatResponse
 from app.services.agent.memory_manager import MemoryManager
+from app.services.agent.personas import (
+    InvalidPersonaError,
+    get_persona,
+)
 from app.services.agent.prompt_builder import PromptBuilder
 from app.services.agent.react_orchestrator import ReactOrchestrator
 from app.services.agent.response_parser import ResponseParser
@@ -57,7 +61,6 @@ class TutorAgentService:
             client=self.client,
             tool_registry=self.tool_registry,
             tool_executor=self.tool_executor,
-            max_steps=3,
         )
 
     def chat(self, request: ChatRequest) -> ChatResponse:
@@ -65,6 +68,7 @@ class TutorAgentService:
 
         user_id = request.user_id
         message = request.message
+        persona = get_persona(request.persona_id)
         session = self._resolve_session(user_id=user_id, session_id=request.session_id)
 
         # 先准备模型上下文；具体怎么读历史和摘要交给 MemoryManager。
@@ -77,7 +81,7 @@ class TutorAgentService:
             # 新会话第一条消息发出后，用这条消息生成一个更自然的会话标题。
             update_session_title(session.id, make_title_from_message(message))
 
-        messages = self.prompt_builder.build_messages(context)
+        messages = self.prompt_builder.build_messages(context, persona=persona)
         raw_reply, tool_trace = self.react_orchestrator.run(messages)
         reply = self.response_parser.parse_model_reply(raw_reply)
 
