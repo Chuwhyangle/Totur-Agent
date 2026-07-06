@@ -11,7 +11,10 @@
 - `conversations` 对话历史保存
 - `session_summaries` 会话滚动摘要
 - `SummaryService` 摘要生成与更新
+- v0.3 RAG 学习笔记检索：离线脚本把 `docs/**/*.md` 分块、embedding 后写入 Chroma，在线通过 `search_learning_notes` 工具检索
 - React 前端聊天界面
+
+v0.3 的 RAG 接入保持了第一轮重构的边界：`TutorAgentService`、`ReactOrchestrator`、`ToolExecutor` 不做结构性改动，只通过 `ToolRegistry` 增加第三个工具。离线链路是 `docs/**/*.md -> knowledge_chunker -> EmbeddingClient -> KnowledgeRepository.rebuild()`；在线链路是模型发起 `search_learning_notes` tool call 后，由工具内部完成 query embedding 和 Chroma 检索。
 
 下一步的重点不是马上做新功能，而是先把后端 Agent 主流程拆清楚，避免所有能力继续堆进 `TutorAgentService`。
 

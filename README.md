@@ -10,6 +10,7 @@ AI 学习辅导 Agent 练习项目。后端使用 FastAPI，前端使用 React +
 - `GET /personas`：读取当前可用人设列表，前端顶栏下拉框使用这个接口。
 - 会话会绑定 `persona_id`；切换历史会话时，前端会恢复该会话的人设。
 - ReAct 工具循环：模型可以连续多轮请求工具；`tool_trace.calls[]` 会记录工具名、参数、结果摘要和 `round`。
+- RAG 学习笔记检索：`search_learning_notes` 会从本地 `docs/**/*.md` 的 Chroma 索引中检索，并要求回答标注来源。
 - `GET /sessions`、`POST /sessions`、`GET /sessions/{session_id}/conversations`：多会话窗口。
 - `GET /conversations/{user_id}`：查询某个用户的最近对话历史。
 - `GET /interview-jds`、`POST /interview-jds`：保存和读取面试 JD，用于工具检索。
@@ -36,7 +37,20 @@ pip install -r requirements.txt
 OPENAI_API_KEY=...
 OPENAI_BASE_URL=...
 OPENAI_MODEL=...
+EMBEDDING_KEY=...
+EMBEDDING_BASE_URL=...
+EMBEDDING_MODEL=...
 ```
+
+聊天模型和 Embedding 模型可以来自不同 OpenAI-compatible 服务；Embedding 侧必须单独配置 `EMBEDDING_BASE_URL`，不会回退到 `OPENAI_BASE_URL`。
+
+构建本地学习笔记索引：
+
+```powershell
+.\.venv\Scripts\python.exe scripts\build_knowledge_index.py
+```
+
+脚本会扫描 `docs/**/*.md`，写入本地 `chroma_db/learning_notes` 集合。文档更新后需要重新运行脚本。
 
 启动 API：
 
@@ -107,4 +121,4 @@ tests/                 自动化测试
 
 ## 本地文件
 
-`tutor_agent.db` 是运行时生成的本地 SQLite 数据库，已在 `.gitignore` 中忽略。
+`tutor_agent.db` 是运行时生成的本地 SQLite 数据库，`chroma_db/` 是运行时生成的本地向量库目录，二者都已在 `.gitignore` 中忽略。

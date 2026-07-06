@@ -13,21 +13,68 @@ def test_load_embedding_config_reads_openai_compatible_environment(monkeypatch):
     monkeypatch.setattr(config_module, "load_dotenv", lambda: None)
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
     monkeypatch.setenv("OPENAI_BASE_URL", "https://example.com/v1")
+    monkeypatch.setenv("EMBEDDING_KEY", "embedding-key")
+    monkeypatch.setenv("EMBEDDING_BASE_URL", "https://embedding.example.com/v1")
     monkeypatch.setenv("EMBEDDING_MODEL", "text-embedding-demo")
 
     config = load_embedding_config()
 
     assert config == EmbeddingConfig(
-        api_key="test-key",
-        base_url="https://example.com/v1",
+        api_key="embedding-key",
+        base_url="https://embedding.example.com/v1",
         model="text-embedding-demo",
     )
+
+
+def test_load_embedding_config_accepts_legacy_embedding_key(monkeypatch):
+    monkeypatch.setattr(config_module, "load_dotenv", lambda: None)
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://example.com/v1")
+    monkeypatch.delenv("EMBEDDING_KEY", raising=False)
+    monkeypatch.setenv("EMBEDDING_API_KEY", "alias-embedding-key")
+    monkeypatch.setenv("EMBEDDING_BASE_URL", "https://embedding.example.com/v1")
+    monkeypatch.setenv("EMBEDDING_MODEL", "text-embedding-demo")
+
+    config = load_embedding_config()
+
+    assert config == EmbeddingConfig(
+        api_key="alias-embedding-key",
+        base_url="https://embedding.example.com/v1",
+        model="text-embedding-demo",
+    )
+
+
+def test_load_embedding_config_requires_independent_embedding_base_url(monkeypatch):
+    monkeypatch.setattr(config_module, "load_dotenv", lambda: None)
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://example.com/v1")
+    monkeypatch.setenv("EMBEDDING_KEY", "embedding-key")
+    monkeypatch.delenv("EMBEDDING_BASE_URL", raising=False)
+    monkeypatch.setenv("EMBEDDING_MODEL", "text-embedding-demo")
+
+    with pytest.raises(RuntimeError, match="embedding Base URL"):
+        load_embedding_config()
+
+
+def test_load_embedding_config_requires_independent_embedding_key(monkeypatch):
+    monkeypatch.setattr(config_module, "load_dotenv", lambda: None)
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://example.com/v1")
+    monkeypatch.delenv("EMBEDDING_KEY", raising=False)
+    monkeypatch.delenv("EMBEDDING_API_KEY", raising=False)
+    monkeypatch.setenv("EMBEDDING_BASE_URL", "https://embedding.example.com/v1")
+    monkeypatch.setenv("EMBEDDING_MODEL", "text-embedding-demo")
+
+    with pytest.raises(RuntimeError, match="embedding api key"):
+        load_embedding_config()
 
 
 def test_load_embedding_config_requires_embedding_model(monkeypatch):
     monkeypatch.setattr(config_module, "load_dotenv", lambda: None)
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
     monkeypatch.setenv("OPENAI_BASE_URL", "https://example.com/v1")
+    monkeypatch.setenv("EMBEDDING_KEY", "embedding-key")
+    monkeypatch.setenv("EMBEDDING_BASE_URL", "https://embedding.example.com/v1")
     monkeypatch.delenv("EMBEDDING_MODEL", raising=False)
 
     with pytest.raises(RuntimeError, match="embedding model"):
@@ -106,4 +153,3 @@ def test_embedding_client_wraps_sdk_errors():
 
     with pytest.raises(EmbeddingError, match="embedding 调用失败"):
         client.embed_texts(["会失败的文本"])
-
