@@ -37,6 +37,7 @@ class ToolResultPreview(BaseModel):
 class ToolCallTrace(BaseModel):
     """一次工具调用的调试摘要。"""
 
+    round: int
     name: str
     arguments: dict
     ok: bool

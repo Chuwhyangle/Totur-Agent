@@ -10,6 +10,11 @@ from openai.types.chat import ChatCompletionMessageParam
 
 from app.config import LLMConfig
 from app.schemas.chat import ToolCallTrace, ToolTrace
+from app.services.memory_settings import (
+    MAX_TOOL_FAILURES,
+    MAX_TOOL_ROUNDS,
+    TOOL_OBSERVATION_MAX_CHARS,
+)
 from app.services.agent.tools.executor import ToolExecutor
 from app.services.agent.tools.registry import ToolRegistry
 
@@ -23,7 +28,9 @@ class ReactOrchestrator:
         client: OpenAI,
         tool_registry: ToolRegistry | None = None,
         tool_executor: ToolExecutor | None = None,
-        max_steps: int = 3,
+        max_steps: int = MAX_TOOL_ROUNDS,
+        max_failures: int = MAX_TOOL_FAILURES,
+        max_observation_chars: int = TOOL_OBSERVATION_MAX_CHARS,
     ) -> None:
         """保存模型客户端、工具注册表、工具执行器和最大 ReAct 步数。"""
 
@@ -32,6 +39,8 @@ class ReactOrchestrator:
         self.tool_registry = tool_registry or ToolRegistry()
         self.tool_executor = tool_executor or ToolExecutor(self.tool_registry)
         self.max_steps = max_steps
+        self.max_failures = max_failures
+        self.max_observation_chars = max_observation_chars
 
     def run(
         self,
@@ -41,8 +50,9 @@ class ReactOrchestrator:
 
         working_messages: list[ChatCompletionMessageParam] = [*messages]
         tool_call_traces: list[ToolCallTrace] = []
+        failure_count = 0
 
-        for _ in range(self.max_steps):
+        for round_number in range(1, self.max_steps + 1):
             model_message = self._call_model_with_tools(working_messages)
             tool_calls = self._message_tool_calls(model_message)
 
@@ -60,29 +70,21 @@ class ReactOrchestrator:
                 messages=working_messages,
                 first_message=model_message,
                 tool_calls=tool_calls,
+                round_number=round_number,
             )
             tool_call_traces.extend(step_traces)
+            failure_count += sum(1 for trace in step_traces if not trace.ok)
 
-        return self._max_steps_fallback_reply(), ToolTrace(
+            if failure_count >= self.max_failures:
+                break
+
+        raw_reply = self._call_model(working_messages)
+        if not raw_reply:
+            raise RuntimeError("模型没有返回内容")
+
+        return raw_reply, ToolTrace(
             used=bool(tool_call_traces),
             calls=tool_call_traces,
-        )
-
-    def _max_steps_fallback_reply(self) -> str:
-        """生成 ReAct 步数耗尽时仍可被 ResponseParser 解析的回复。"""
-
-        return json.dumps(
-            {
-                "answer": "我已经达到最大步骤限制，先基于目前拿到的信息给出阶段性结论。",
-                "next_task": "请补充最关键的目标或材料，我会继续推进下一步。",
-                "exercise": "用三句话写清楚你的目标、已有基础和最想解决的问题。",
-                "checkpoints": [
-                    "已停止继续调用工具",
-                    "保留了本轮工具调用结果",
-                    "下一步需要更明确的信息",
-                ],
-            },
-            ensure_ascii=False,
         )
 
     def _call_model_with_tools(self, messages: list[ChatCompletionMessageParam]):
@@ -109,6 +111,7 @@ class ReactOrchestrator:
         messages: list[ChatCompletionMessageParam],
         first_message,
         tool_calls: list[Any],
+        round_number: int,
     ) -> tuple[list[ChatCompletionMessageParam], list[ToolCallTrace]]:
         """把模型 tool call 和工具执行结果追加到下一步模型输入里。"""
 
@@ -129,11 +132,12 @@ class ReactOrchestrator:
                 {
                     "role": "tool",
                     "tool_call_id": self._tool_call_id(tool_call, index),
-                    "content": json.dumps(tool_result, ensure_ascii=False),
+                    "content": self._tool_observation_content(tool_result),
                 }
             )
             traces.append(
                 self._tool_call_trace(
+                    round_number=round_number,
                     name=tool_name,
                     arguments=tool_arguments,
                     result=tool_result,
@@ -142,8 +146,44 @@ class ReactOrchestrator:
 
         return tool_messages, traces
 
+    def _tool_observation_content(self, tool_result: dict[str, Any]) -> str:
+        """把工具结果序列化成 observation，并按配置截断超长内容。"""
+
+        serialized = json.dumps(tool_result, ensure_ascii=False)
+        if len(serialized) <= self.max_observation_chars:
+            return serialized
+
+        return self._truncated_observation(serialized)
+
+    def _truncated_observation(self, serialized: str) -> str:
+        """生成带截断标记的 observation 文本，并尽量保持在长度上限内。"""
+
+        max_chars = max(0, self.max_observation_chars)
+        if max_chars == 0:
+            return ""
+
+        payload: dict[str, Any] = {
+            "truncated": True,
+            "original_chars": len(serialized),
+            "preview": "",
+        }
+        content = json.dumps(payload, ensure_ascii=False)
+        if len(content) > max_chars:
+            return content[:max_chars]
+
+        available_preview_chars = max_chars - len(content)
+        payload["preview"] = serialized[:available_preview_chars]
+        content = json.dumps(payload, ensure_ascii=False)
+
+        while len(content) > max_chars and payload["preview"]:
+            payload["preview"] = payload["preview"][:-1]
+            content = json.dumps(payload, ensure_ascii=False)
+
+        return content
+
     def _tool_call_trace(
         self,
+        round_number: int,
         name: str,
         arguments: str,
         result: dict[str, Any],
@@ -159,6 +199,7 @@ class ReactOrchestrator:
         ]
 
         return ToolCallTrace(
+            round=round_number,
             name=name,
             arguments=self._trace_arguments(arguments),
             ok=bool(result.get("ok")) if isinstance(result, dict) else False,

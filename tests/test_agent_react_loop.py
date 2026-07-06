@@ -6,6 +6,7 @@ import json
 from types import SimpleNamespace
 from typing import Any
 
+from app.services import memory_settings
 from app.services.agent.react_orchestrator import ReactOrchestrator
 
 
@@ -107,6 +108,42 @@ def score_tool(topic: str) -> dict[str, Any]:
     }
 
 
+def noisy_tool() -> dict[str, Any]:
+    """模拟返回很长观察结果的工具。"""
+
+    return {
+        "ok": True,
+        "summary": {"returned_count": 1},
+        "items": [
+            {
+                "title": "Very long result",
+                "raw_text_excerpt": "x" * 1000,
+            }
+        ],
+    }
+
+
+def test_max_tool_rounds_lives_in_central_settings():
+    """ReAct 最大工具轮次应放在统一配置文件里，避免散落硬编码。"""
+
+    assert hasattr(memory_settings, "MAX_TOOL_ROUNDS")
+    assert memory_settings.MAX_TOOL_ROUNDS == 3
+
+
+def test_tool_observation_max_chars_lives_in_central_settings():
+    """工具 observation 截断上限应集中配置。"""
+
+    assert hasattr(memory_settings, "TOOL_OBSERVATION_MAX_CHARS")
+    assert memory_settings.TOOL_OBSERVATION_MAX_CHARS > 0
+
+
+def test_max_tool_failures_lives_in_central_settings():
+    """工具失败上限应集中配置，独立于最大工具轮次。"""
+
+    assert hasattr(memory_settings, "MAX_TOOL_FAILURES")
+    assert memory_settings.MAX_TOOL_FAILURES == 2
+
+
 def test_react_loop_returns_model_content_when_no_tool_is_requested():
     """模型没有请求工具时，ReAct loop 应直接返回最终内容。"""
 
@@ -201,17 +238,18 @@ def test_react_loop_can_execute_a_second_tool_after_observing_the_first_result()
     assert len(model_calls) == 3
     assert tool_trace.used is True
     assert [call.name for call in tool_trace.calls] == ["lookup", "score"]
+    assert [call.round for call in tool_trace.calls] == [1, 2]
     assert tool_trace.calls[1].arguments == {"topic": "agent"}
     assert tool_trace.calls[1].ok is True
 
 
-def test_react_loop_stops_before_followup_model_call_when_max_steps_is_reached():
-    """达到 max_react_steps 后，应停止继续请求模型并返回 fallback。"""
+def test_react_loop_uses_no_tools_final_call_when_max_steps_is_reached():
+    """达到 max_steps 后，应发起一次不带 tools 的模型收尾调用。"""
 
     registry = StubToolRegistry({"lookup": lookup_tool})
     orchestrator = make_orchestrator(registry)
     orchestrator.max_steps = 1
-    final_model_call_count = 0
+    messages_seen_by_final_call = []
 
     def fake_call_model_with_tools(messages):
         """每次都请求工具，用来触发最大步数保护。"""
@@ -219,10 +257,9 @@ def test_react_loop_stops_before_followup_model_call_when_max_steps_is_reached()
         return tool_call_message(tool_call("lookup", {"query": "agent"}))
 
     def fake_call_model(messages):
-        """记录是否误入旧的一轮工具后 final 调用路径。"""
+        """记录 no-tools 收尾调用看到的 observation。"""
 
-        nonlocal final_model_call_count
-        final_model_call_count += 1
+        messages_seen_by_final_call.extend(messages)
         return FINAL_REPLY
 
     orchestrator._call_model_with_tools = fake_call_model_with_tools
@@ -232,10 +269,13 @@ def test_react_loop_stops_before_followup_model_call_when_max_steps_is_reached()
         [{"role": "user", "content": "一直查资料。"}]
     )
 
-    assert final_model_call_count == 0
+    tool_messages = [
+        message for message in messages_seen_by_final_call if message["role"] == "tool"
+    ]
+    assert raw_reply == FINAL_REPLY
+    assert len(tool_messages) == 1
     assert tool_trace.used is True
     assert len(tool_trace.calls) == 1
-    assert "最大步骤" in raw_reply
 
 
 def test_react_loop_records_tool_errors_in_trace():
@@ -269,6 +309,173 @@ def test_react_loop_records_tool_errors_in_trace():
     assert tool_trace.calls[0].error == "tool_not_found"
 
 
+def test_react_loop_allows_model_to_retry_after_tool_error():
+    """AC3：工具失败会回填给模型，模型可换参数重试并最终成功。"""
+
+    registry = StubToolRegistry({"lookup": lookup_tool})
+    orchestrator = make_orchestrator(registry)
+    model_call_count = 0
+    second_round_messages = []
+
+    def fake_call_model_with_tools(messages):
+        """第一次给坏参数，第二次看到错误后用正确参数重试，第三次结束。"""
+
+        nonlocal model_call_count
+        model_call_count += 1
+        if model_call_count == 1:
+            return tool_call_message(
+                {
+                    "id": "bad_lookup",
+                    "type": "function",
+                    "function": {
+                        "name": "lookup",
+                        "arguments": "{bad json",
+                    },
+                }
+            )
+        if model_call_count == 2:
+            second_round_messages.extend(messages)
+            return tool_call_message(
+                tool_call("lookup", {"query": "agent retry"}, "good_lookup")
+            )
+
+        return final_message()
+
+    orchestrator._call_model_with_tools = fake_call_model_with_tools
+
+    raw_reply, tool_trace = orchestrator.run(
+        [{"role": "user", "content": "先失败再重试。"}]
+    )
+
+    error_observations = [
+        message
+        for message in second_round_messages
+        if message["role"] == "tool" and "invalid_arguments" in message["content"]
+    ]
+    assert raw_reply == FINAL_REPLY
+    assert model_call_count == 3
+    assert len(error_observations) == 1
+    assert [call.round for call in tool_trace.calls] == [1, 2]
+    assert [call.ok for call in tool_trace.calls] == [False, True]
+    assert tool_trace.calls[0].error == "invalid_arguments"
+    assert tool_trace.calls[1].arguments == {"query": "agent retry"}
+    assert tool_trace.calls[1].error is None
+
+
+def test_react_loop_limits_repeated_tool_errors_with_max_rounds():
+    """模型持续错误时，最多执行 max_steps 轮工具，然后 no-tools 收尾。"""
+
+    orchestrator = make_orchestrator(StubToolRegistry())
+    orchestrator.max_steps = 2
+    tool_model_call_count = 0
+    final_messages = []
+
+    def fake_call_model_with_tools(messages):
+        """每一轮都请求不存在的工具，用来确认不会无限重试。"""
+
+        nonlocal tool_model_call_count
+        tool_model_call_count += 1
+        return tool_call_message(
+            tool_call("missing_tool", {"attempt": tool_model_call_count})
+        )
+
+    def fake_call_model(messages):
+        """记录达到错误上限后的 no-tools 收尾输入。"""
+
+        final_messages.extend(messages)
+        return FINAL_REPLY
+
+    orchestrator._call_model_with_tools = fake_call_model_with_tools
+    orchestrator._call_model = fake_call_model
+
+    raw_reply, tool_trace = orchestrator.run(
+        [{"role": "user", "content": "一直失败会怎样？"}]
+    )
+
+    final_tool_messages = [
+        message for message in final_messages if message["role"] == "tool"
+    ]
+    assert raw_reply == FINAL_REPLY
+    assert tool_model_call_count == 2
+    assert len(tool_trace.calls) == 2
+    assert [call.round for call in tool_trace.calls] == [1, 2]
+    assert [call.ok for call in tool_trace.calls] == [False, False]
+    assert len(final_tool_messages) == 2
+
+
+def test_react_loop_stops_when_max_tool_failures_is_reached_before_max_steps():
+    """失败次数达到 max_failures 时，即使 max_steps 更高也要提前收尾。"""
+
+    orchestrator = make_orchestrator(StubToolRegistry())
+    orchestrator.max_steps = 5
+    orchestrator.max_failures = 2
+    tool_model_call_count = 0
+    final_messages = []
+
+    def fake_call_model_with_tools(messages):
+        """持续请求缺失工具，验证失败上限会比轮次上限更早生效。"""
+
+        nonlocal tool_model_call_count
+        tool_model_call_count += 1
+        return tool_call_message(
+            tool_call("missing_tool", {"attempt": tool_model_call_count})
+        )
+
+    def fake_call_model(messages):
+        """记录达到失败上限后的 no-tools 收尾输入。"""
+
+        final_messages.extend(messages)
+        return FINAL_REPLY
+
+    orchestrator._call_model_with_tools = fake_call_model_with_tools
+    orchestrator._call_model = fake_call_model
+
+    raw_reply, tool_trace = orchestrator.run(
+        [{"role": "user", "content": "失败次数超过限制会怎样？"}]
+    )
+
+    final_tool_messages = [
+        message for message in final_messages if message["role"] == "tool"
+    ]
+    assert raw_reply == FINAL_REPLY
+    assert tool_model_call_count == 2
+    assert len(tool_trace.calls) == 2
+    assert [call.ok for call in tool_trace.calls] == [False, False]
+    assert len(final_tool_messages) == 2
+
+
+def test_react_loop_truncates_long_tool_observations_before_next_model_call():
+    """超长工具结果回填给模型前应截断，避免多轮循环撑爆上下文。"""
+
+    registry = StubToolRegistry({"noisy": noisy_tool})
+    orchestrator = make_orchestrator(registry)
+    orchestrator.max_observation_chars = 180
+    messages_seen_by_final_call = []
+    model_call_count = 0
+
+    def fake_call_model_with_tools(messages):
+        """第一次请求长结果工具，第二次结束并记录输入。"""
+
+        nonlocal model_call_count
+        model_call_count += 1
+        if model_call_count == 1:
+            return tool_call_message(tool_call("noisy", {}))
+
+        messages_seen_by_final_call.extend(messages)
+        return final_message()
+
+    orchestrator._call_model_with_tools = fake_call_model_with_tools
+
+    orchestrator.run([{"role": "user", "content": "查一个很长的结果。"}])
+
+    tool_messages = [
+        message for message in messages_seen_by_final_call if message["role"] == "tool"
+    ]
+    assert len(tool_messages) == 1
+    assert len(tool_messages[0]["content"]) <= 180
+    assert "truncated" in tool_messages[0]["content"]
+
+
 def test_react_loop_trace_keeps_a_stable_public_shape():
     """tool_trace 的公开字段结构应保持稳定，方便前端调试区消费。"""
 
@@ -297,6 +504,7 @@ def test_react_loop_trace_keeps_a_stable_public_shape():
     assert len(dumped["calls"]) == 1
     assert set(dumped) == {"used", "calls"}
     assert set(dumped["calls"][0]) == {
+        "round",
         "name",
         "arguments",
         "ok",
@@ -305,6 +513,7 @@ def test_react_loop_trace_keeps_a_stable_public_shape():
         "result_preview",
         "error",
     }
+    assert dumped["calls"][0]["round"] == 1
     assert dumped["calls"][0]["result_preview"] == [
         {
             "title": "Result for agent",
