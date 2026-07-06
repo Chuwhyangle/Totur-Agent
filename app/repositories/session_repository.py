@@ -8,6 +8,7 @@ from app.db.models import (
     DEFAULT_SESSION_TITLE,
     ChatSessionRecord,
 )
+from app.services.agent.personas import DEFAULT_PERSONA_ID
 
 
 SESSION_TITLE_MAX_LENGTH = 30
@@ -30,6 +31,7 @@ def make_title_from_message(message: str) -> str:
 def create_session(
     user_id: str,
     title: str | None = None,
+    persona_id: str = DEFAULT_PERSONA_ID,
 ) -> ChatSessionRecord:
     """为某个用户创建一个聊天会话。"""
 
@@ -38,15 +40,16 @@ def create_session(
     # 如果前端没有传标题，就先使用默认会话标题。
     session_title = title.strip() if title and title.strip() else DEFAULT_SESSION_TITLE
     insert_sql = f"""
-    INSERT INTO {CHAT_SESSIONS_TABLE} (user_id, title, created_at, updated_at)
-    VALUES (?, ?, ?, ?)
+    INSERT INTO {CHAT_SESSIONS_TABLE}
+        (user_id, title, persona_id, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?)
     """
     connection = get_connection()
 
     try:
         cursor = connection.execute(
             insert_sql,
-            (user_id, session_title, now, now),
+            (user_id, session_title, persona_id, now, now),
         )
         connection.commit()
         new_id = cursor.lastrowid
@@ -58,6 +61,7 @@ def create_session(
             id=new_id,
             user_id=user_id,
             title=session_title,
+            persona_id=persona_id,
             created_at=now,
             updated_at=now,
         )
@@ -65,14 +69,17 @@ def create_session(
         connection.close()
 
 
-def get_or_create_default_session(user_id: str) -> ChatSessionRecord:
+def get_or_create_default_session(
+    user_id: str,
+    persona_id: str = DEFAULT_PERSONA_ID,
+) -> ChatSessionRecord:
     """获取某个用户的默认会话；没有就自动创建。"""
 
     initialize_database()
     select_sql = f"""
-    SELECT id, user_id, title, created_at, updated_at
+    SELECT id, user_id, title, persona_id, created_at, updated_at
     FROM {CHAT_SESSIONS_TABLE}
-    WHERE user_id = ? AND title = ?
+    WHERE user_id = ? AND title = ? AND persona_id = ?
     ORDER BY id ASC
     LIMIT 1
     """
@@ -81,7 +88,7 @@ def get_or_create_default_session(user_id: str) -> ChatSessionRecord:
     try:
         row = connection.execute(
             select_sql,
-            (user_id, DEFAULT_SESSION_TITLE),
+            (user_id, DEFAULT_SESSION_TITLE, persona_id),
         ).fetchone()
     finally:
         connection.close()
@@ -90,7 +97,11 @@ def get_or_create_default_session(user_id: str) -> ChatSessionRecord:
         return _session_from_row(row)
 
     # 旧版 /chat 不传 session_id 时，会走到这里创建默认会话。
-    return create_session(user_id=user_id, title=DEFAULT_SESSION_TITLE)
+    return create_session(
+        user_id=user_id,
+        title=DEFAULT_SESSION_TITLE,
+        persona_id=persona_id,
+    )
 
 
 def get_session(session_id: int) -> ChatSessionRecord | None:
@@ -98,7 +109,7 @@ def get_session(session_id: int) -> ChatSessionRecord | None:
 
     initialize_database()
     select_sql = f"""
-    SELECT id, user_id, title, created_at, updated_at
+    SELECT id, user_id, title, persona_id, created_at, updated_at
     FROM {CHAT_SESSIONS_TABLE}
     WHERE id = ?
     """
@@ -120,7 +131,7 @@ def list_sessions(user_id: str, limit: int = 50) -> list[ChatSessionRecord]:
 
     initialize_database()
     select_sql = f"""
-    SELECT id, user_id, title, created_at, updated_at
+    SELECT id, user_id, title, persona_id, created_at, updated_at
     FROM {CHAT_SESSIONS_TABLE}
     WHERE user_id = ?
     ORDER BY updated_at DESC, id DESC
@@ -183,6 +194,7 @@ def _session_from_row(row) -> ChatSessionRecord:
         id=row["id"],
         user_id=row["user_id"],
         title=row["title"],
+        persona_id=row["persona_id"],
         created_at=row["created_at"],
         updated_at=row["updated_at"],
     )

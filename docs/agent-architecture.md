@@ -580,3 +580,24 @@ TOOL_OBSERVATION_MAX_CHARS = 4000
 ### 15.3 v0.2 明确延期项
 
 FR2.5“会话与人设绑定”延期到 v0.3。原因是它需要给 `chat_sessions` 增加 `persona_id` 字段并定义历史会话的迁移策略，同时还会改变“切换会话后应该沿用哪个人设”的产品语义。v0.2 工作台阶段只保证当前选择的人设会影响后续发送的 `/chat` 请求，不把人设写入会话表。
+
+## 16. v0.3 FR2.5 会话绑定人设
+
+v0.3 第一阶段补齐 FR2.5：`persona_id` 从一次 `/chat` 请求参数升级为 `chat_sessions` 的会话属性。
+
+当前规则：
+
+1. `chat_sessions` 表新增 `persona_id TEXT NOT NULL DEFAULT 'tutor'`。
+2. 旧数据库启动时自动补 `persona_id` 列，已有会话统一迁移为 `tutor`。
+3. `POST /sessions` 接收 `persona_id`，创建会话时写入绑定人设。
+4. `GET /sessions` 与 `GET /sessions/{session_id}/conversations` 返回 `persona_id`，前端切换会话时可恢复对应人设。
+5. `/chat` 带 `session_id` 且不带 `persona_id` 时，后端沿用该会话绑定的人设。
+6. `/chat` 带 `session_id` 且显式传入不同 `persona_id` 时返回 `422 session_persona_mismatch`，避免同一会话中途切换人设造成上下文错乱。
+7. `/chat` 不带 `session_id` 时，仍兼容旧请求：默认使用 `tutor`；如果请求显式传入 `persona_id`，默认会话会按 `user_id + title + persona_id` 隔离创建或复用。
+
+前端规则：
+
+1. 新建会话时发送当前 `selectedPersonaId`。
+2. 选择已有会话时，用该会话的 `persona_id` 恢复顶部人设选择和聊天区徽章。
+3. 在已有会话中切换顶部人设，会退出当前会话并清空本地消息；下一次发送消息会创建一个绑定新 persona 的会话。
+4. 会话侧栏显示每个会话的人设标签。

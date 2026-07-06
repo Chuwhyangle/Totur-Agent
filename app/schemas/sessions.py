@@ -10,6 +10,7 @@ class CreateSessionRequest(BaseModel):
 
     user_id: str = Field(..., min_length=1)
     title: str | None = Field(default=None, max_length=100)
+    persona_id: str = "tutor"
 
 
 class SessionItem(BaseModel):
@@ -18,6 +19,7 @@ class SessionItem(BaseModel):
     id: int
     user_id: str
     title: str
+    persona_id: str
     created_at: str
     updated_at: str
 
@@ -35,4 +37,5 @@ class SessionConversationsResponse(BaseModel):
     session_id: int
     user_id: str
     title: str
+    persona_id: str
     items: list[ConversationItem]

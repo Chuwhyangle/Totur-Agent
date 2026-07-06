@@ -36,6 +36,7 @@ def initialize_database() -> None:
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         user_id TEXT NOT NULL,
         title TEXT NOT NULL,
+        persona_id TEXT NOT NULL DEFAULT 'tutor',
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
     );
@@ -107,6 +108,8 @@ def initialize_database() -> None:
     try:
         connection.execute(create_sessions_table_sql)
         connection.execute(create_conversations_table_sql)
+        # 旧版 chat_sessions 表没有 persona_id，这里会自动补上。
+        _ensure_chat_sessions_persona_id_column(connection)
         # 每个会话只保留一条滚动摘要，后续由 repository 负责更新它。
         connection.execute(create_session_summaries_table_sql)
         # JD 是用户提供的目标岗位资料，先持久化，再让后续工具检索它。
@@ -136,6 +139,23 @@ def _ensure_conversations_session_id_column(connection: sqlite3.Connection) -> N
     if "session_id" not in columns:
         connection.execute(
             f"ALTER TABLE {CONVERSATIONS_TABLE} ADD COLUMN session_id INTEGER"
+        )
+
+
+def _ensure_chat_sessions_persona_id_column(connection: sqlite3.Connection) -> None:
+    """给旧版 chat_sessions 表补上 persona_id 字段。"""
+
+    columns = {
+        row["name"]
+        for row in connection.execute(f"PRAGMA table_info({CHAT_SESSIONS_TABLE})")
+    }
+
+    if "persona_id" not in columns:
+        connection.execute(
+            f"""
+            ALTER TABLE {CHAT_SESSIONS_TABLE}
+            ADD COLUMN persona_id TEXT NOT NULL DEFAULT 'tutor'
+            """
         )
 
 
@@ -211,10 +231,11 @@ def _get_or_create_default_session_id(
 
     cursor = connection.execute(
         f"""
-        INSERT INTO {CHAT_SESSIONS_TABLE} (user_id, title, created_at, updated_at)
-        VALUES (?, ?, ?, ?)
+        INSERT INTO {CHAT_SESSIONS_TABLE}
+            (user_id, title, persona_id, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?)
         """,
-        (user_id, DEFAULT_SESSION_TITLE, created_at, updated_at),
+        (user_id, DEFAULT_SESSION_TITLE, "tutor", created_at, updated_at),
     )
     new_id = cursor.lastrowid
 

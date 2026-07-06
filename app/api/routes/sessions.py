@@ -19,6 +19,11 @@ from app.schemas.sessions import (
     SessionItem,
     SessionListResponse,
 )
+from app.services.agent.personas import (
+    InvalidPersonaError,
+    available_persona_ids,
+    get_persona,
+)
 
 
 router = APIRouter(tags=["sessions"])
@@ -32,10 +37,23 @@ router = APIRouter(tags=["sessions"])
 def create_chat_session(request: CreateSessionRequest) -> SessionItem:
     """创建一个新的聊天会话。"""
 
+    try:
+        persona = get_persona(request.persona_id)
+    except InvalidPersonaError as error:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error": "invalid_persona_id",
+                "persona_id": error.persona_id,
+                "available_personas": available_persona_ids(),
+            },
+        ) from error
+
     # 当前阶段只创建会话，不会顺手创建聊天消息。
     session = create_session(
         user_id=request.user_id,
         title=request.title,
+        persona_id=persona.persona_id,
     )
 
     return _session_item_from_record(session)
@@ -84,6 +102,7 @@ def get_session_conversations(
         session_id=session.id,
         user_id=session.user_id,
         title=session.title,
+        persona_id=session.persona_id,
         items=[_conversation_item_from_record(record) for record in records],
     )
 
@@ -95,6 +114,7 @@ def _session_item_from_record(record: ChatSessionRecord) -> SessionItem:
         id=record.id,
         user_id=record.user_id,
         title=record.title,
+        persona_id=record.persona_id,
         created_at=record.created_at,
         updated_at=record.updated_at,
     )

@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 from app.api.routes import chat as chat_route
 from app.db import database
 from app.main import app
+from app.repositories.session_repository import create_session, list_sessions
 
 
 client = TestClient(app)
@@ -97,4 +98,109 @@ def test_chat_rejects_unknown_persona_with_available_personas(monkeypatch, tmp_p
         "error": "invalid_persona_id",
         "persona_id": "ghost",
         "available_personas": ["tutor", "algorithm_coach", "interviewer"],
+    }
+
+
+def test_post_sessions_binds_persona_id_to_new_session(monkeypatch, tmp_path):
+    """FR2.5：创建会话时应把 persona_id 写入会话记录。"""
+
+    use_temp_database(monkeypatch, tmp_path)
+
+    response = client.post(
+        "/sessions",
+        json={
+            "user_id": "persona-user",
+            "title": "算法训练",
+            "persona_id": "algorithm_coach",
+        },
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    sessions = list_sessions("persona-user")
+
+    assert body["persona_id"] == "algorithm_coach"
+    assert sessions[0].persona_id == "algorithm_coach"
+
+
+def test_get_sessions_returns_bound_persona_id(monkeypatch, tmp_path):
+    """FR2.5：会话列表要返回 persona_id，前端才能恢复人设。"""
+
+    use_temp_database(monkeypatch, tmp_path)
+    create_session("persona-user", "算法训练", persona_id="algorithm_coach")
+
+    response = client.get("/sessions?user_id=persona-user")
+
+    assert response.status_code == 200
+    assert response.json()["items"][0]["persona_id"] == "algorithm_coach"
+
+
+def test_chat_uses_bound_session_persona_when_persona_id_is_omitted(
+    monkeypatch,
+    tmp_path,
+):
+    """FR2.5：同一会话后续请求不传 persona_id 时，应沿用会话绑定人设。"""
+
+    use_temp_database(monkeypatch, tmp_path)
+    session = create_session(
+        "persona-user",
+        "算法训练",
+        persona_id="algorithm_coach",
+    )
+    captured_messages = []
+
+    def fake_call_model(messages):
+        """捕获发给模型的 messages，确认 system prompt 来自会话绑定人设。"""
+
+        captured_messages.extend(messages)
+        return final_reply()
+
+    monkeypatch.setattr(
+        chat_route.tutor_agent_service.react_orchestrator,
+        "_call_model",
+        fake_call_model,
+    )
+
+    response = client.post(
+        "/chat",
+        json={
+            "user_id": "persona-user",
+            "session_id": session.id,
+            "message": "继续这道算法题。",
+        },
+    )
+
+    assert response.status_code == 200
+    assert "算法教练" in captured_messages[0]["content"]
+
+
+def test_chat_rejects_persona_id_that_conflicts_with_bound_session(
+    monkeypatch,
+    tmp_path,
+):
+    """FR2.5：已绑定会话不允许用另一个 persona_id 中途切换人设。"""
+
+    use_temp_database(monkeypatch, tmp_path)
+    session = create_session(
+        "persona-user",
+        "算法训练",
+        persona_id="algorithm_coach",
+    )
+
+    response = client.post(
+        "/chat",
+        json={
+            "user_id": "persona-user",
+            "session_id": session.id,
+            "persona_id": "tutor",
+            "message": "强行切换回默认导师。",
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == {
+        "error": "session_persona_mismatch",
+        "session_id": session.id,
+        "session_persona_id": "algorithm_coach",
+        "request_persona_id": "tutor",
     }

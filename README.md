@@ -6,8 +6,9 @@ AI 学习辅导 Agent 练习项目。后端使用 FastAPI，前端使用 React +
 
 - `GET /health`：健康检查。
 - `POST /chat`：发送学习问题，返回 `answer` / `next_task` / `exercise` / `checkpoints` 四段式结构化回复。
-- `POST /chat` 支持可选 `persona_id`，缺省为 `tutor`，用于切换后端导师人设。
+- `POST /chat` 支持可选 `persona_id`；不传 `session_id` 时缺省为 `tutor`，传 `session_id` 时沿用会话绑定人设。
 - `GET /personas`：读取当前可用人设列表，前端顶栏下拉框使用这个接口。
+- 会话会绑定 `persona_id`；切换历史会话时，前端会恢复该会话的人设。
 - ReAct 工具循环：模型可以连续多轮请求工具；`tool_trace.calls[]` 会记录工具名、参数、结果摘要和 `round`。
 - `GET /sessions`、`POST /sessions`、`GET /sessions/{session_id}/conversations`：多会话窗口。
 - `GET /conversations/{user_id}`：查询某个用户的最近对话历史。

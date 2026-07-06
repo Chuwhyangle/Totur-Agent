@@ -8,6 +8,7 @@ from app.services.agent.personas import (
 )
 from app.services.tutor_agent_service import (
     ChatSessionNotFoundError,
+    SessionPersonaMismatchError,
     TutorAgentService,
 )
 
@@ -29,6 +30,16 @@ def chat(request: ChatRequest) -> ChatResponse:
                 "error": "invalid_persona_id",
                 "persona_id": error.persona_id,
                 "available_personas": available_persona_ids(),
+            },
+        ) from error
+    except SessionPersonaMismatchError as error:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error": "session_persona_mismatch",
+                "session_id": error.session_id,
+                "session_persona_id": error.session_persona_id,
+                "request_persona_id": error.request_persona_id,
             },
         ) from error
     except ChatSessionNotFoundError as error:

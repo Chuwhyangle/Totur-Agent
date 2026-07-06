@@ -124,6 +124,66 @@ def test_initialize_database_migrates_old_conversations_into_default_sessions(
     assert alice_session_ids != bob_session_ids
 
 
+def test_initialize_database_adds_persona_id_to_existing_sessions(
+    monkeypatch,
+    tmp_path,
+):
+    use_temp_database(monkeypatch, tmp_path)
+
+    connection = sqlite3.connect(database.DATABASE_PATH)
+    try:
+        connection.execute(
+            f"""
+            CREATE TABLE {CHAT_SESSIONS_TABLE} (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id TEXT NOT NULL,
+                title TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            f"""
+            INSERT INTO {CHAT_SESSIONS_TABLE}
+                (user_id, title, created_at, updated_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (
+                "alice",
+                "Old session",
+                "2026-01-01T00:00:00+00:00",
+                "2026-01-01T00:00:00+00:00",
+            ),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    database.initialize_database()
+
+    connection = sqlite3.connect(database.DATABASE_PATH)
+    connection.row_factory = sqlite3.Row
+    try:
+        columns = {
+            row["name"]
+            for row in connection.execute(f"PRAGMA table_info({CHAT_SESSIONS_TABLE})")
+        }
+        session = connection.execute(
+            f"""
+            SELECT persona_id
+            FROM {CHAT_SESSIONS_TABLE}
+            WHERE user_id = ?
+            """,
+            ("alice",),
+        ).fetchone()
+    finally:
+        connection.close()
+
+    assert "persona_id" in columns
+    assert session["persona_id"] == "tutor"
+
+
 def test_save_conversation_assigns_default_session(monkeypatch, tmp_path):
     use_temp_database(monkeypatch, tmp_path)
 

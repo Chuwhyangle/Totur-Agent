@@ -91,8 +91,11 @@ function App() {
   }, [])
 
   function handlePersonaChange(nextPersonaId) {
-    // 切换人设只影响后续发送到 /chat 的请求，不改写已经展示出来的历史消息。
+    // v0.3 起人设绑定在会话上；切换人设会退出当前会话，下一次发送时创建新会话。
     setSelectedPersonaId(nextPersonaId)
+    setActiveSessionId(null)
+    setActiveSessionStatus('idle')
+    setMessages([])
   }
 
   function handleUserIdChange(nextUserId) {
@@ -220,6 +223,7 @@ function App() {
 
   async function loadSessionMessages(session) {
     setActiveSessionId(session.id)
+    setSelectedPersonaId(session.persona_id ?? DEFAULT_PERSONA_ID)
     setActiveSessionStatus('loading')
     setMessages([])
 
@@ -247,7 +251,10 @@ function App() {
 
     try {
       // 不传 title，让后端在第一条消息后用用户问题生成标题。
-      const { data } = await createSession({ user_id: trimmedUserId })
+      const { data } = await createSession({
+        user_id: trimmedUserId,
+        persona_id: selectedPersonaId,
+      })
 
       upsertSession(data)
       setSessionsStatus('success')
@@ -422,6 +429,7 @@ function App() {
         <SessionSidebar
           userId={userId}
           sessions={sessions}
+          personas={personas}
           activeSessionId={activeSessionId}
           status={sessionsStatus}
           isCreating={isCreatingSession}

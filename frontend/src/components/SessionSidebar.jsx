@@ -13,10 +13,17 @@ function formatUpdatedAt(updatedAt) {
   }).format(date)
 }
 
+function getPersonaName(personas, personaId) {
+  const persona = personas.find((item) => item.persona_id === personaId)
+
+  return persona?.name ?? personaId ?? '默认导师'
+}
+
 // SessionSidebar 负责显示会话列表，并让用户新建或切换会话。
 function SessionSidebar({
   userId,
   sessions,
+  personas = [],
   activeSessionId,
   status,
   isCreating,
@@ -76,6 +83,7 @@ function SessionSidebar({
         <ol className="session-list">
           {sessions.map((session) => {
             const isActive = session.id === activeSessionId
+            const personaName = getPersonaName(personas, session.persona_id)
 
             return (
               <li key={session.id}>
@@ -85,6 +93,7 @@ function SessionSidebar({
                   onClick={() => onSelectSession(session)}
                 >
                   <span className="session-title">{session.title}</span>
+                  <span className="session-persona">{personaName}</span>
                   <span className="session-meta">
                     #{session.id} · {formatUpdatedAt(session.updated_at)}
                   </span>
