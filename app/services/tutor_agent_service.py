@@ -1,5 +1,7 @@
 """Tutor Agent 聊天业务服务。"""
 
+from collections.abc import Callable
+
 from openai import OpenAI
 from app.db.models import DEFAULT_SESSION_TITLE
 from app.repositories.session_repository import (
@@ -21,6 +23,8 @@ from app.services.agent.react_orchestrator import ReactOrchestrator
 from app.services.agent.response_parser import ResponseParser
 from app.services.agent.tools.executor import ToolExecutor
 from app.services.agent.tools.registry import ToolRegistry
+from app.services.rag_seed_context import retrieve_seed_knowledge_context
+from app.services.rag_settings import ENABLE_RAG_SEED_CONTEXT
 from app.services.summary_service import SummaryService
 
 
@@ -62,6 +66,8 @@ class TutorAgentService:
         tool_registry: ToolRegistry | None = None,
         tool_executor: ToolExecutor | None = None,
         react_orchestrator: ReactOrchestrator | None = None,
+        seed_context_enabled: bool = ENABLE_RAG_SEED_CONTEXT,
+        seed_context_provider: Callable[[str], str | None] | None = None,
     ) -> None:
         """初始化模型配置、模型客户端和 Agent 辅助组件。"""
 
@@ -82,6 +88,8 @@ class TutorAgentService:
             tool_registry=self.tool_registry,
             tool_executor=self.tool_executor,
         )
+        self.seed_context_enabled = seed_context_enabled
+        self.seed_context_provider = seed_context_provider or retrieve_seed_knowledge_context
 
     def chat(self, request: ChatRequest) -> ChatResponse:
         """处理一次聊天请求。"""
@@ -101,6 +109,9 @@ class TutorAgentService:
             session_id=session.id,
             current_message=message,
         )
+        if self.seed_context_enabled:
+            context.seed_knowledge_context = self.seed_context_provider(message)
+
         if not context.recent_history and session.title == DEFAULT_SESSION_TITLE:
             # 新会话第一条消息发出后，用这条消息生成一个更自然的会话标题。
             update_session_title(session.id, make_title_from_message(message))

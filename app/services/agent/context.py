@@ -14,3 +14,4 @@ class AgentContext:
     current_message: str
     summary_text: str | None
     recent_history: list[ConversationRecord]
+    seed_knowledge_context: str | None = None

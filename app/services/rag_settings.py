@@ -9,8 +9,8 @@ CHUNK_OVERLAP = 50
 # 检索工具默认返回的候选块数量。
 RAG_TOP_K = 3
 
-# 相似度低于该阈值的结果会被丢弃，宁可说没找到也不硬凑。
-SIMILARITY_THRESHOLD = 0.35
+# 相似度低于该阈值的结果会被丢弃；v0.4 评测集基线校准为 0.45。
+SIMILARITY_THRESHOLD = 0.45
 
 # Chroma 集合名，后续工具和脚本都通过这个名字访问学习笔记索引。
 KNOWLEDGE_COLLECTION_NAME = "learning_notes"
@@ -23,3 +23,17 @@ KNOWLEDGE_SOURCE_DIR = "docs"
 
 # 离线索引脚本调用 embedding 接口时的默认批大小。
 EMBEDDING_BATCH_SIZE = 32
+
+# v0.4 Hybrid 检索候选池大小：向量和 BM25 各取 top_k * 2 后融合。
+HYBRID_CANDIDATE_MULTIPLIER = 2
+
+# v0.4 Hybrid 检索初始融合权重；评测证明收益后再作为线上默认。
+HYBRID_VECTOR_WEIGHT = 0.5
+HYBRID_BM25_WEIGHT = 0.5
+
+# v0.4 FR4.6 种子检索实验默认关闭，避免未经生成层评测就改变 /chat 主链路。
+ENABLE_RAG_SEED_CONTEXT = False
+
+# 进入 ReAct 循环前预检索的种子块数量和注入上下文字符上限。
+RAG_SEED_TOP_K = 2
+RAG_SEED_MAX_CHARS = 900

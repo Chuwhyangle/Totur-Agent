@@ -67,6 +67,13 @@ class PromptBuilder:
                 }
                 messages.append(history_assistant_msg)
 
+        if context.seed_knowledge_context and context.seed_knowledge_context.strip():
+            seed_msg: ChatCompletionSystemMessageParam = {
+                "role": "system",
+                "content": context.seed_knowledge_context.strip(),
+            }
+            messages.append(seed_msg)
+
         user_msg: ChatCompletionUserMessageParam = {
             "role": "user",
             "content": context.current_message,

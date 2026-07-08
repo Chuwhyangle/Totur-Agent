@@ -204,3 +204,42 @@ def test_chat_rejects_persona_id_that_conflicts_with_bound_session(
         "session_persona_id": "algorithm_coach",
         "request_persona_id": "tutor",
     }
+
+
+def test_chat_can_inject_seed_knowledge_context_when_experiment_enabled(
+    monkeypatch,
+    tmp_path,
+):
+    """FR4.6：实验开关打开时，/chat 会在当前问题前注入 seed context。"""
+
+    use_temp_database(monkeypatch, tmp_path)
+    captured_messages = []
+
+    def fake_call_model(messages):
+        captured_messages.extend(messages)
+        return final_reply()
+
+    monkeypatch.setattr(
+        chat_route.tutor_agent_service.react_orchestrator,
+        "_call_model",
+        fake_call_model,
+    )
+    monkeypatch.setattr(chat_route.tutor_agent_service, "seed_context_enabled", True)
+    monkeypatch.setattr(
+        chat_route.tutor_agent_service,
+        "seed_context_provider",
+        lambda message: "[Knowledge Base Context]\n来源：docs/rag.md",
+    )
+
+    response = client.post(
+        "/chat",
+        json={
+            "user_id": "seed-user",
+            "message": "RAG 分块器怎么设计？",
+        },
+    )
+
+    assert response.status_code == 200
+    assert captured_messages[-2]["role"] == "system"
+    assert "[Knowledge Base Context]" in captured_messages[-2]["content"]
+    assert captured_messages[-1]["content"] == "RAG 分块器怎么设计？"

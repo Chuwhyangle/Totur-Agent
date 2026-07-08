@@ -32,6 +32,7 @@ def _context(
     current_message: str = "当前问题",
     summary_text: str | None = None,
     recent_history: list[ConversationRecord] | None = None,
+    seed_knowledge_context: str | None = None,
 ) -> AgentContext:
     return AgentContext(
         user_id="alice",
@@ -39,6 +40,7 @@ def _context(
         current_message=current_message,
         summary_text=summary_text,
         recent_history=recent_history or [],
+        seed_knowledge_context=seed_knowledge_context,
     )
 
 
@@ -113,6 +115,21 @@ def test_build_messages_always_puts_current_message_last():
         "role": "user",
         "content": "最后的问题",
     }
+
+
+def test_build_messages_adds_seed_context_before_current_message():
+    builder = PromptBuilder(ResponseParser())
+
+    messages = builder.build_messages(
+        _context(
+            current_message="RAG 分块器怎么设计？",
+            seed_knowledge_context="[Knowledge Base Context]\n来源：docs/rag.md",
+        )
+    )
+
+    assert [message["role"] for message in messages] == ["system", "system", "user"]
+    assert "[Knowledge Base Context]" in str(messages[-2]["content"])
+    assert messages[-1]["content"] == "RAG 分块器怎么设计？"
 
 
 def test_build_messages_skips_bad_history_answer_without_crashing():

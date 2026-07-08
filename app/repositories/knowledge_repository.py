@@ -30,6 +30,17 @@ class KnowledgeHit:
     similarity: float
 
 
+@dataclass(frozen=True)
+class KnowledgeEntry:
+    """向量库里已经索引的一条学习笔记块。"""
+
+    chunk_id: str
+    content: str
+    source: str
+    title_path: str
+    embedding: list[float] | None = None
+
+
 class KnowledgeRepository:
     """隔离 Chroma API，让工具层不直接依赖具体向量库实现。"""
 
@@ -122,6 +133,40 @@ class KnowledgeRepository:
 
         return int(collection.count())
 
+    def list_entries(self, include_embeddings: bool = False) -> list[KnowledgeEntry]:
+        """列出当前集合里的块；评测脚本用它做 corpus 对拍和 BM25 实验。"""
+
+        collection = self._get_collection()
+        if collection is None or collection.count() == 0:
+            return []
+
+        include = ["documents", "metadatas"]
+        if include_embeddings:
+            include.append("embeddings")
+
+        results = collection.get(include=include)
+        ids = results.get("ids") or []
+        documents = results.get("documents") or []
+        metadatas = results.get("metadatas") or []
+        raw_embeddings = results.get("embeddings") if include_embeddings else None
+
+        entries: list[KnowledgeEntry] = []
+        for index, chunk_id in enumerate(ids):
+            metadata = metadatas[index] if index < len(metadatas) else {}
+            safe_metadata = metadata or {}
+            embedding = _embedding_at(raw_embeddings, index)
+            entries.append(
+                KnowledgeEntry(
+                    chunk_id=str(chunk_id),
+                    content=str(documents[index] if index < len(documents) else ""),
+                    source=str(safe_metadata.get("source") or ""),
+                    title_path=str(safe_metadata.get("title_path") or ""),
+                    embedding=embedding,
+                )
+            )
+
+        return entries
+
     def _create_collection(self):
         """创建 cosine 距离集合，避免 Chroma 默认 L2 影响阈值语义。"""
 
@@ -146,3 +191,19 @@ class KnowledgeRepository:
         except Exception:
             return
 
+
+def _embedding_at(raw_embeddings: Any, index: int) -> list[float] | None:
+    """从 Chroma 返回值中安全取出某个 embedding。"""
+
+    if raw_embeddings is None:
+        return None
+
+    try:
+        embedding = raw_embeddings[index]
+    except (IndexError, TypeError):
+        return None
+
+    if embedding is None:
+        return None
+
+    return [float(value) for value in embedding]

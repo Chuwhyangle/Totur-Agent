@@ -73,6 +73,30 @@ def test_knowledge_repository_rebuild_search_and_count():
     assert hits[0].similarity >= hits[1].similarity
 
 
+def test_knowledge_repository_lists_entries_with_embeddings():
+    repository = _repository()
+    repository.rebuild(
+        chunks=[
+            _chunk(0, "FastAPI 路由说明", "FastAPI > 路由"),
+            _chunk(1, "SQLite 表结构说明", "SQLite > 表"),
+        ],
+        embeddings=[
+            [1.0, 0.0],
+            [0.0, 1.0],
+        ],
+    )
+
+    entries = repository.list_entries(include_embeddings=True)
+
+    assert [entry.chunk_id for entry in entries] == [
+        "docs/note-0.md#0",
+        "docs/note-1.md#1",
+    ]
+    assert entries[0].source == "docs/note-0.md"
+    assert entries[0].title_path == "FastAPI > 路由"
+    assert entries[0].embedding == [1.0, 0.0]
+
+
 def test_knowledge_repository_rebuild_is_idempotent():
     repository = _repository()
     chunks = [_chunk(0, "第一次内容", "标题")]
