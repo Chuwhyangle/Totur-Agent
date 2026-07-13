@@ -1,4 +1,4 @@
-"""Run v0.4 retrieval evaluation against the local Chroma knowledge index."""
+"""Run reproducible retrieval evaluation against a frozen Chroma index."""
 
 from __future__ import annotations
 
@@ -11,11 +11,27 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+import chromadb
+from chromadb.errors import ChromaError
+
 from app.clients.embedding_client import EmbeddingClient, EmbeddingError
 from app.config import load_embedding_config
 from app.repositories.knowledge_repository import KnowledgeRepository
 from app.services.hybrid_retriever import hybrid_search
-from app.services.rag_settings import RAG_TOP_K, SIMILARITY_THRESHOLD
+from app.services.index_manifest import (
+    IndexManifest,
+    ManifestError,
+    load_manifest,
+)
+from app.services.knowledge_index_builder import (
+    IndexBuildResult,
+    build_knowledge_index,
+)
+from app.services.rag_settings import (
+    CHROMA_PERSIST_DIR,
+    RAG_TOP_K,
+    SIMILARITY_THRESHOLD,
+)
 from app.services.retrieval_eval import (
     evaluate_cases,
     load_eval_cases,
@@ -24,6 +40,8 @@ from app.services.retrieval_eval import (
 
 
 DEFAULT_EVAL_FILE = PROJECT_ROOT / "tests" / "data" / "retrieval_eval.jsonl"
+DEFAULT_CORPUS_ROOT = PROJECT_ROOT / "tests" / "data" / "corpus"
+DEFAULT_MANIFEST_PATH = PROJECT_ROOT / CHROMA_PERSIST_DIR / "index_manifest.json"
 
 
 def main() -> int:
@@ -31,6 +49,12 @@ def main() -> int:
 
     parser = argparse.ArgumentParser(description="Evaluate RAG retrieval quality.")
     parser.add_argument("--eval-file", type=Path, default=DEFAULT_EVAL_FILE)
+    parser.add_argument("--corpus-root", type=Path, default=DEFAULT_CORPUS_ROOT)
+    parser.add_argument(
+        "--use-existing-index",
+        action="store_true",
+        help="Evaluate the persistent local index instead of rebuilding frozen corpus.",
+    )
     parser.add_argument(
         "--mode",
         choices=["vector", "hybrid"],
@@ -54,11 +78,24 @@ def main() -> int:
 
     try:
         cases = load_eval_cases(args.eval_file)
-        repository = KnowledgeRepository()
-        if repository.count() == 0:
-            raise RuntimeError("knowledge index is empty; run scripts/build_knowledge_index.py first.")
+        config = load_embedding_config()
+        embedding_client = EmbeddingClient(config=config)
 
-        embedding_client = EmbeddingClient(config=load_embedding_config())
+        if args.use_existing_index:
+            repository = KnowledgeRepository()
+            if repository.count() == 0:
+                raise RuntimeError(
+                    "knowledge index is empty; run scripts/build_knowledge_index.py first."
+                )
+            manifest = load_manifest(DEFAULT_MANIFEST_PATH)
+        else:
+            repository = KnowledgeRepository(client=chromadb.EphemeralClient())
+            result = build_frozen_evaluation_index(
+                corpus_root=args.corpus_root,
+                repository=repository,
+                embedding_client=embedding_client,
+            )
+            manifest = result.manifest
 
         cached_hits = {}
 
@@ -86,6 +123,7 @@ def main() -> int:
             threshold=args.threshold,
         )
         summary["mode"] = args.mode
+        attach_manifest_summary(summary, manifest)
         if args.threshold_sweep:
             summary["threshold_sweep"] = _run_threshold_sweep(
                 cases=cases,
@@ -98,7 +136,14 @@ def main() -> int:
             repository=repository,
             embedding_client=embedding_client,
         )
-    except (RuntimeError, EmbeddingError, ValueError, OSError) as exc:
+    except (
+        ChromaError,
+        RuntimeError,
+        EmbeddingError,
+        ManifestError,
+        ValueError,
+        OSError,
+    ) as exc:
         print(f"检索评测失败：{exc}", file=sys.stderr)
         return 1
 
@@ -108,6 +153,37 @@ def main() -> int:
         _print_summary(summary)
 
     return 0
+
+
+def build_frozen_evaluation_index(
+    *,
+    corpus_root: Path,
+    repository: KnowledgeRepository,
+    embedding_client: EmbeddingClient,
+) -> IndexBuildResult:
+    """Build the frozen evaluation corpus into the supplied repository."""
+
+    return build_knowledge_index(
+        corpus_root=corpus_root,
+        source_dir=Path("docs"),
+        corpus_label="tests/data/corpus",
+        repository=repository,
+        embedding_client=embedding_client,
+        embedding_model=embedding_client.config.model,
+    )
+
+
+def attach_manifest_summary(summary: dict, manifest: IndexManifest) -> None:
+    """Attach stable index traceability fields to an evaluation summary."""
+
+    summary["index_manifest"] = {
+        "fingerprint": manifest.fingerprint,
+        "corpus": manifest.corpus_root,
+        "files": manifest.file_count,
+        "chunks": manifest.chunk_count,
+        "embedding_model": manifest.embedding_model,
+        "embedding_dimensions": manifest.embedding_dimensions,
+    }
 
 
 def _parse_sweep_values(raw_values: str) -> list[float]:
@@ -182,8 +258,15 @@ def _print_summary(summary: dict) -> None:
     """Print a compact human-readable eval report."""
 
     metrics = summary["metrics"]
-    print("v0.4 retrieval eval")
+    print("v0.5 frozen retrieval eval")
     print(f"mode={summary.get('mode', 'vector')}")
+    trace = summary["index_manifest"]
+    print(
+        "manifest={fingerprint} corpus={corpus} files={files} chunks={chunks} "
+        "embedding_model={embedding_model} dimensions={embedding_dimensions}".format(
+            **trace
+        )
+    )
     print(
         "cases={total_cases} positives={positive_cases} negatives={negative_cases} "
         "top_k={top_k} threshold={threshold}".format(**metrics)
