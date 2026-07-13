@@ -27,3 +27,5 @@ tutor_agent.db
 
 # Local Chroma vector database
 chroma_db/
+# Local Git worktrees
+.worktrees/
