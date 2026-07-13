@@ -29,3 +29,4 @@ tutor_agent.db
 chroma_db/
 # Local Git worktrees
 .worktrees/
+/.test-tmp/
