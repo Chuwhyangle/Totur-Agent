@@ -252,6 +252,52 @@ def test_embedding_dimension_mismatch_fails_before_repository_rebuild(tmp_path):
     assert repository.calls == []
 
 
+@pytest.mark.parametrize(
+    "invalid_element",
+    ["not-a-number", None, True, float("nan"), float("inf"), float("-inf")],
+)
+def test_invalid_embedding_element_fails_before_repository_rebuild(
+    tmp_path, invalid_element
+):
+    write_corpus_file(tmp_path, "docs/a.md", "a")
+    repository = RecordingRepository()
+    embedding = FakeEmbedding(
+        responses=[[[1.0, invalid_element, 3.0]]]
+    )
+
+    with pytest.raises(ValueError, match=r"vector 0 element 1"):
+        build_knowledge_index(
+            **build_kwargs(
+                tmp_path,
+                repository=repository,
+                embedding_client=embedding,
+            )
+        )
+
+    assert repository.calls == []
+
+
+def test_real_numeric_scalar_types_are_accepted(tmp_path):
+    import numpy as np
+
+    write_corpus_file(tmp_path, "docs/a.md", "a")
+    repository = RecordingRepository()
+    embedding = FakeEmbedding(
+        responses=[[[np.float32(1.0), np.float64(2.0), np.int32(3)]]]
+    )
+
+    result = build_knowledge_index(
+        **build_kwargs(
+            tmp_path,
+            repository=repository,
+            embedding_client=embedding,
+        )
+    )
+
+    assert result.indexed_count == 1
+    assert len(repository.calls) == 1
+
+
 def test_provider_failure_happens_before_repository_rebuild(tmp_path):
     write_corpus_file(tmp_path, "docs/a.md", "a")
     repository = RecordingRepository()

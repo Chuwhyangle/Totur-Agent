@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from math import isfinite
+from numbers import Real
 from pathlib import Path
 from typing import Callable, Protocol
 
@@ -125,7 +127,8 @@ def build_knowledge_index(
                 "embedding result count does not match requested batch count"
             )
 
-        for vector in batch_embeddings:
+        for batch_vector_index, vector in enumerate(batch_embeddings):
+            vector_index = start + batch_vector_index
             try:
                 dimensions = len(vector)
             except TypeError as exc:
@@ -136,6 +139,16 @@ def build_knowledge_index(
                 embedding_dimensions = dimensions
             elif dimensions != embedding_dimensions:
                 raise ValueError("embedding vector dimensions do not match")
+            for element_index, element in enumerate(vector):
+                if (
+                    isinstance(element, bool)
+                    or not isinstance(element, Real)
+                    or not isfinite(element)
+                ):
+                    raise ValueError(
+                        f"embedding vector {vector_index} element {element_index} "
+                        "must be a finite real number"
+                    )
         embeddings.extend(batch_embeddings)
 
     if embedding_dimensions is None:
