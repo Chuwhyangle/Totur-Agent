@@ -5,6 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 import sys
 
+from chromadb.errors import ChromaError
+
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
@@ -17,25 +19,45 @@ from app.services.knowledge_index_builder import build_knowledge_index
 from app.services.rag_settings import CHROMA_PERSIST_DIR, KNOWLEDGE_SOURCE_DIR
 
 
+class _ManifestTrackingRepository:
+    """Invalidate stale metadata immediately before a destructive rebuild."""
+
+    def __init__(self, repository, manifest_path: Path) -> None:
+        self.repository = repository
+        self.manifest_path = manifest_path
+        self.rebuild_attempted = False
+
+    def rebuild(self, chunks, embeddings) -> int:
+        # Once the live collection may change, its previous Manifest must no
+        # longer be queryable as valid metadata.  Preflight/provider failures
+        # never reach this method, so they preserve the existing Manifest.
+        self.manifest_path.unlink(missing_ok=True)
+        self.rebuild_attempted = True
+        return self.repository.rebuild(chunks, embeddings)
+
+
 def main() -> int:
     """Rebuild the live index, then atomically persist its validated Manifest."""
 
+    manifest_path = PROJECT_ROOT / CHROMA_PERSIST_DIR / "index_manifest.json"
     try:
         config = load_embedding_config()
+        repository = _ManifestTrackingRepository(
+            KnowledgeRepository(),
+            manifest_path,
+        )
         result = build_knowledge_index(
             corpus_root=PROJECT_ROOT,
             source_dir=Path(KNOWLEDGE_SOURCE_DIR),
             corpus_label=KNOWLEDGE_SOURCE_DIR,
-            repository=KnowledgeRepository(),
+            repository=repository,
             embedding_client=EmbeddingClient(config=config),
             embedding_model=config.model,
             progress=lambda source, count: print(f"{source}: {count} chunks"),
         )
-        write_manifest(
-            PROJECT_ROOT / CHROMA_PERSIST_DIR / "index_manifest.json",
-            result.manifest,
-        )
+        write_manifest(manifest_path, result.manifest)
     except (
+        ChromaError,
         RuntimeError,
         EmbeddingError,
         ManifestError,
