@@ -2,6 +2,7 @@
 from dataclasses import FrozenInstanceError, replace
 import hashlib
 import json
+from pathlib import Path
 
 import pytest
 
@@ -145,6 +146,28 @@ def test_manifest_json_round_trip_creates_parent_and_replaces_target(tmp_path):
     assert raw["corpus"]["chunk_count"] == 3
 
 
+def test_atomic_write_keeps_old_target_and_cleans_temp_when_replace_fails(
+    tmp_path, monkeypatch
+):
+    path = tmp_path / "index_manifest.json"
+    temporary = path.with_name("index_manifest.json.tmp")
+    old_content = b"old manifest bytes"
+    path.write_bytes(old_content)
+
+    def fail_replace(self, target):
+        assert self == temporary
+        assert target == path
+        raise OSError("replace blocked")
+
+    monkeypatch.setattr(Path, "replace", fail_replace)
+
+    with pytest.raises(ManifestError, match="cannot write Manifest"):
+        write_manifest(path, make_manifest())
+
+    assert path.read_bytes() == old_content
+    assert not temporary.exists()
+
+
 def test_write_manifest_validates_before_touching_files(tmp_path):
     path = tmp_path / "new-parent" / "index_manifest.json"
     invalid = replace(make_manifest(), fingerprint="sha256:" + "0" * 64)
@@ -248,12 +271,23 @@ def test_from_dict_rejects_incorrect_declared_totals(field, declared, message):
         IndexManifest.from_dict(raw)
 
 
-def test_from_dict_rejects_fingerprint_that_does_not_match_payload():
+def test_from_dict_rejects_tampered_stable_payload():
     raw = make_manifest().to_dict()
     raw["embedding"]["model"] = "tampered-model"
 
     with pytest.raises(ManifestError, match="fingerprint"):
         IndexManifest.from_dict(raw)
+
+
+def test_load_rejects_tampered_fingerprint(tmp_path):
+    path = tmp_path / "index_manifest.json"
+    write_manifest(path, make_manifest())
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    raw["fingerprint"] = "sha256:" + "0" * 64
+    path.write_text(json.dumps(raw), encoding="utf-8")
+
+    with pytest.raises(ManifestError, match="fingerprint"):
+        load_manifest(path)
 
 
 @pytest.mark.parametrize(

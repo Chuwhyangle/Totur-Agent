@@ -298,10 +298,32 @@ def test_real_numeric_scalar_types_are_accepted(tmp_path):
     assert len(repository.calls) == 1
 
 
-def test_provider_failure_happens_before_repository_rebuild(tmp_path):
+def test_later_provider_failure_does_not_call_destructive_repository_rebuild(tmp_path):
     write_corpus_file(tmp_path, "docs/a.md", "a")
-    repository = RecordingRepository()
-    embedding = FakeEmbedding(error=RuntimeError("provider down"))
+    write_corpus_file(tmp_path, "docs/b.md", "b")
+
+    class FailsOnSecondBatch:
+        def __init__(self):
+            self.calls = []
+
+        def embed_texts(self, texts):
+            self.calls.append(list(texts))
+            if len(self.calls) == 2:
+                raise RuntimeError("provider down")
+            return [[1.0, 2.0, 3.0] for _ in texts]
+
+    class DestructiveRepository:
+        def __init__(self):
+            self.contents = ["existing index"]
+            self.rebuild_calls = 0
+
+        def rebuild(self, chunks, embeddings):
+            self.rebuild_calls += 1
+            self.contents.clear()
+            return len(chunks)
+
+    repository = DestructiveRepository()
+    embedding = FailsOnSecondBatch()
 
     with pytest.raises(RuntimeError, match="provider down"):
         build_knowledge_index(
@@ -309,10 +331,13 @@ def test_provider_failure_happens_before_repository_rebuild(tmp_path):
                 tmp_path,
                 repository=repository,
                 embedding_client=embedding,
+                batch_size=1,
             )
         )
 
-    assert repository.calls == []
+    assert len(embedding.calls) == 2
+    assert repository.rebuild_calls == 0
+    assert repository.contents == ["existing index"]
 
 
 def test_invalid_utf8_read_failure_happens_before_repository_rebuild(tmp_path):
@@ -359,9 +384,29 @@ def test_success_returns_frozen_result_and_manifest_with_utc_metadata(tmp_path):
         result.indexed_count = 99
 
 
-def test_rebuilding_same_corpus_produces_stable_manifest_fingerprint(tmp_path):
+def test_rebuilding_same_stable_inputs_ignores_different_build_times(
+    tmp_path, monkeypatch
+):
     write_corpus_file(tmp_path, "docs/b.md", "b")
     write_corpus_file(tmp_path, "docs/a.md", "a")
+
+    import app.services.knowledge_index_builder as builder_module
+
+    build_times = iter(
+        (
+            datetime.fromisoformat("2026-07-13T00:00:00+00:00"),
+            datetime.fromisoformat("2026-07-14T00:00:00+00:00"),
+        )
+    )
+
+    class SequencedDateTime:
+        @classmethod
+        def now(cls, timezone):
+            value = next(build_times)
+            assert value.tzinfo == timezone
+            return value
+
+    monkeypatch.setattr(builder_module, "datetime", SequencedDateTime)
 
     first = build_knowledge_index(
         **build_kwargs(
@@ -378,4 +423,6 @@ def test_rebuilding_same_corpus_produces_stable_manifest_fingerprint(tmp_path):
         )
     )
 
+    assert first.manifest.built_at != second.manifest.built_at
+    assert first.manifest.stable_payload() == second.manifest.stable_payload()
     assert first.manifest.fingerprint == second.manifest.fingerprint
