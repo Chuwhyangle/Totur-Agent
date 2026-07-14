@@ -12,6 +12,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 import chromadb
+from chromadb.config import Settings
 from chromadb.errors import ChromaError
 
 from app.clients.embedding_client import EmbeddingClient, EmbeddingError
@@ -29,6 +30,7 @@ from app.services.knowledge_index_builder import (
 )
 from app.services.rag_settings import (
     CHROMA_PERSIST_DIR,
+    KNOWLEDGE_COLLECTION_NAME,
     RAG_TOP_K,
     SIMILARITY_THRESHOLD,
 )
@@ -83,13 +85,18 @@ def main() -> int:
 
         if args.use_existing_index:
             repository = KnowledgeRepository()
-            if repository.count() == 0:
-                raise RuntimeError(
-                    "knowledge index is empty; run scripts/build_knowledge_index.py first."
-                )
             manifest = load_manifest(DEFAULT_MANIFEST_PATH)
+            validate_existing_index_identity(
+                repository_count=repository.count(),
+                manifest=manifest,
+                embedding_model=config.model,
+            )
         else:
-            repository = KnowledgeRepository(client=chromadb.EphemeralClient())
+            repository = KnowledgeRepository(
+                client=chromadb.EphemeralClient(
+                    settings=Settings(anonymized_telemetry=False)
+                )
+            )
             result = build_frozen_evaluation_index(
                 corpus_root=args.corpus_root,
                 repository=repository,
@@ -104,6 +111,10 @@ def main() -> int:
                 return cached_hits[query][:top_k]
 
             query_embedding = embedding_client.embed_texts([query])[0]
+            validate_query_embedding_dimensions(
+                query_embedding=query_embedding,
+                manifest=manifest,
+            )
             if args.mode == "hybrid":
                 hits = hybrid_search(
                     repository=repository,
@@ -135,6 +146,7 @@ def main() -> int:
             cases=cases,
             repository=repository,
             embedding_client=embedding_client,
+            manifest=manifest,
         )
     except (
         ChromaError,
@@ -186,6 +198,51 @@ def attach_manifest_summary(summary: dict, manifest: IndexManifest) -> None:
     }
 
 
+def validate_existing_index_identity(
+    *,
+    repository_count: int,
+    manifest: IndexManifest,
+    embedding_model: str,
+) -> None:
+    """Reject a persistent index that cannot be identified by its Manifest."""
+
+    if repository_count != manifest.chunk_count:
+        raise ManifestError(
+            "index chunk count does not match Manifest: "
+            f"repository={repository_count}, manifest={manifest.chunk_count}"
+        )
+    if manifest.collection_name != KNOWLEDGE_COLLECTION_NAME:
+        raise ManifestError(
+            "index collection does not match configured collection: "
+            f"manifest={manifest.collection_name!r}, "
+            f"configured={KNOWLEDGE_COLLECTION_NAME!r}"
+        )
+    if embedding_model != manifest.embedding_model:
+        raise ManifestError(
+            "query embedding model does not match index embedding model: "
+            f"query={embedding_model!r}, manifest={manifest.embedding_model!r}"
+        )
+
+
+def validate_query_embedding_dimensions(
+    *,
+    query_embedding,
+    manifest: IndexManifest,
+) -> None:
+    """Validate query vector dimensions before any repository operation."""
+
+    try:
+        actual_dimensions = len(query_embedding)
+    except TypeError as exc:
+        raise ManifestError("query embedding must be a vector") from exc
+
+    if actual_dimensions != manifest.embedding_dimensions:
+        raise ManifestError(
+            "query embedding dimensions do not match index Manifest: "
+            f"query={actual_dimensions}, manifest={manifest.embedding_dimensions}"
+        )
+
+
 def _parse_sweep_values(raw_values: str) -> list[float]:
     """Parse comma-separated threshold values."""
 
@@ -234,6 +291,7 @@ def _run_manual_cosine_check(
     cases,
     repository: KnowledgeRepository,
     embedding_client: EmbeddingClient,
+    manifest: IndexManifest,
 ) -> dict:
     """对第一条正例做一次手算 cosine 和 Chroma top-1 对拍。"""
 
@@ -242,6 +300,10 @@ def _run_manual_cosine_check(
         return {"status": "skipped", "message": "no positive eval case found."}
 
     query_embedding = embedding_client.embed_texts([positive_case.query])[0]
+    validate_query_embedding_dimensions(
+        query_embedding=query_embedding,
+        manifest=manifest,
+    )
     chroma_hits = repository.search(query_embedding=query_embedding, top_k=1)
     entries = repository.list_entries(include_embeddings=True)
     result = manual_cosine_check(

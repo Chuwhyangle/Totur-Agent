@@ -1,11 +1,13 @@
 ﻿"""FR5.6 frozen-corpus and isolated-evaluation tests."""
 
+from dataclasses import replace
 import json
 from pathlib import Path
 import sys
 from types import SimpleNamespace
 
 import chromadb
+import pytest
 
 from app.clients.embedding_client import EmbeddingError
 from app.repositories.knowledge_repository import KnowledgeRepository
@@ -131,7 +133,15 @@ def test_cli_defaults_to_frozen_ephemeral_index_without_persistent_access(
         observed["build"] = kwargs
         return result
 
-    monkeypatch.setattr(run_retrieval_eval.chromadb, "EphemeralClient", lambda: ephemeral_client)
+    def fake_ephemeral_client(*, settings):
+        observed["settings"] = settings
+        return ephemeral_client
+
+    monkeypatch.setattr(
+        run_retrieval_eval.chromadb,
+        "EphemeralClient",
+        fake_ephemeral_client,
+    )
     monkeypatch.setattr(run_retrieval_eval, "KnowledgeRepository", FakeRepository)
     monkeypatch.setattr(run_retrieval_eval, "build_frozen_evaluation_index", fake_build)
     monkeypatch.setattr(
@@ -167,6 +177,7 @@ def test_cli_defaults_to_frozen_ephemeral_index_without_persistent_access(
     assert run_retrieval_eval.main() == 0
 
     payload = json.loads(capsys.readouterr().out)
+    assert observed["settings"].anonymized_telemetry is False
     assert observed["build"]["corpus_root"] == run_retrieval_eval.DEFAULT_CORPUS_ROOT
     assert observed["build"]["repository"] is observed["repository"]
     assert payload["index_manifest"]["fingerprint"] == result.manifest.fingerprint
@@ -259,6 +270,11 @@ def test_cli_reports_frozen_build_and_manifest_errors_without_traceback(
     )
     monkeypatch.setattr(run_retrieval_eval, "load_eval_cases", lambda path: [])
     monkeypatch.setattr(
+        run_retrieval_eval.chromadb,
+        "EphemeralClient",
+        lambda *, settings: object(),
+    )
+    monkeypatch.setattr(
         run_retrieval_eval,
         "build_frozen_evaluation_index",
         lambda **kwargs: (_ for _ in ()).throw(EmbeddingError("provider unavailable")),
@@ -291,3 +307,143 @@ def test_cli_reports_frozen_build_and_manifest_errors_without_traceback(
     captured = capsys.readouterr()
     assert "invalid Manifest" in captured.err
     assert "Traceback" not in captured.err
+
+
+@pytest.mark.parametrize(
+    ("repository_count", "manifest_changes", "config_model", "message"),
+    [
+        (2, {}, "fake-model", "chunk count"),
+        (1, {"collection_name": "other_collection"}, "fake-model", "collection"),
+        (1, {}, "other-model", "embedding model"),
+    ],
+)
+def test_existing_index_identity_rejects_manifest_mismatches(
+    tmp_path,
+    repository_count,
+    manifest_changes,
+    config_model,
+    message,
+):
+    _, result = _build_fake_frozen_result(tmp_path)
+    manifest = replace(result.manifest, **manifest_changes)
+
+    with pytest.raises(ManifestError, match=message):
+        run_retrieval_eval.validate_existing_index_identity(
+            repository_count=repository_count,
+            manifest=manifest,
+            embedding_model=config_model,
+        )
+
+
+def test_cli_returns_one_for_existing_index_identity_mismatch(
+    monkeypatch,
+    tmp_path,
+    capsys,
+):
+    _, result = _build_fake_frozen_result(tmp_path)
+
+    class ExistingRepository:
+        def count(self):
+            return result.manifest.chunk_count + 1
+
+    monkeypatch.setattr(run_retrieval_eval, "KnowledgeRepository", ExistingRepository)
+    monkeypatch.setattr(run_retrieval_eval, "load_manifest", lambda path: result.manifest)
+    monkeypatch.setattr(
+        run_retrieval_eval,
+        "load_embedding_config",
+        lambda: SimpleNamespace(model="fake-model"),
+    )
+    monkeypatch.setattr(
+        run_retrieval_eval,
+        "EmbeddingClient",
+        lambda config: FakeEmbeddingClient(),
+    )
+    monkeypatch.setattr(run_retrieval_eval, "load_eval_cases", lambda path: [])
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["run_retrieval_eval.py", "--use-existing-index", "--json"],
+    )
+
+    assert run_retrieval_eval.main() == 1
+    captured = capsys.readouterr()
+    assert "chunk count" in captured.err
+    assert "Traceback" not in captured.err
+
+
+@pytest.mark.parametrize("mode", ["vector", "hybrid"])
+def test_cli_rejects_query_embedding_dimension_before_search(
+    monkeypatch,
+    tmp_path,
+    capsys,
+    mode,
+):
+    _, result = _build_fake_frozen_result(tmp_path)
+
+    class ExistingRepository:
+        def count(self):
+            return result.manifest.chunk_count
+
+        def search(self, **kwargs):
+            raise AssertionError("dimension mismatch must fail before repository.search")
+
+        def list_entries(self, **kwargs):
+            raise AssertionError("dimension mismatch must fail before hybrid lookup")
+
+    class WrongDimensionEmbeddingClient:
+        def embed_texts(self, texts):
+            return [[1.0, 2.0] for _ in texts]
+
+    def evaluate_with_search(*, search, **kwargs):
+        search("dimension mismatch", 1)
+        raise AssertionError("search should have raised ManifestError")
+
+    monkeypatch.setattr(run_retrieval_eval, "KnowledgeRepository", ExistingRepository)
+    monkeypatch.setattr(run_retrieval_eval, "load_manifest", lambda path: result.manifest)
+    monkeypatch.setattr(
+        run_retrieval_eval,
+        "load_embedding_config",
+        lambda: SimpleNamespace(model="fake-model"),
+    )
+    monkeypatch.setattr(
+        run_retrieval_eval,
+        "EmbeddingClient",
+        lambda config: WrongDimensionEmbeddingClient(),
+    )
+    monkeypatch.setattr(run_retrieval_eval, "load_eval_cases", lambda path: [])
+    monkeypatch.setattr(run_retrieval_eval, "evaluate_cases", evaluate_with_search)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["run_retrieval_eval.py", "--use-existing-index", "--mode", mode, "--json"],
+    )
+
+    assert run_retrieval_eval.main() == 1
+    captured = capsys.readouterr()
+    assert "embedding dimensions" in captured.err
+    assert "Traceback" not in captured.err
+
+
+def test_manual_cosine_check_rejects_query_dimension_before_search(tmp_path):
+    _, result = _build_fake_frozen_result(tmp_path)
+
+    class Repository:
+        def search(self, **kwargs):
+            raise AssertionError("dimension mismatch must fail before repository.search")
+
+        def list_entries(self, **kwargs):
+            raise AssertionError("dimension mismatch must fail before listing entries")
+
+    case = SimpleNamespace(is_negative=False, query="query", case_id="case-1")
+
+    with pytest.raises(ManifestError, match="embedding dimensions"):
+        run_retrieval_eval._run_manual_cosine_check(
+            cases=[case],
+            repository=Repository(),
+            embedding_client=type(
+                "WrongDimensionEmbeddingClient",
+                (),
+                {"embed_texts": lambda self, texts: [[1.0, 2.0]]},
+            )(),
+            manifest=result.manifest,
+        )
