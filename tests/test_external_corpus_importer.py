@@ -56,6 +56,7 @@ def test_import_exports_only_markdown_and_writes_manifest(tmp_path):
         target / "docs/models_ascend/qwen3.5/3.6/guide.md"
     ).read_bytes() == b"guide\n"
     assert (target / "LICENSE").read_bytes() == b"Apache License"
+    assert (target / ".gitattributes").read_bytes() == b"* -text\n"
     assert result.target_path == target
     assert result.manifest["commit_sha"] == "a" * 40
     assert result.manifest["markdown_file_count"] == 2

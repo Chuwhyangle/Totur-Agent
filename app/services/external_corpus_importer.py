@@ -172,6 +172,7 @@ def import_corpus(
     try:
         staging.mkdir(parents=True, exist_ok=False)
         (staging / "docs").mkdir(parents=True, exist_ok=True)
+        (staging / ".gitattributes").write_bytes(b"* -text\n")
         for entry in markdown_entries:
             output = staging / PurePosixPath(mapping[entry.original_path])
             _assert_within(output, staging)
