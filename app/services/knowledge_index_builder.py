@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from math import isfinite
 from numbers import Real
 from pathlib import Path
-from typing import Callable, Protocol
+from typing import Callable, Iterable, Protocol
 
 from app.services.index_manifest import (
     CorpusFileManifest,
@@ -54,7 +54,8 @@ class IndexBuildResult:
 def build_knowledge_index(
     *,
     corpus_root: Path,
-    source_dir: Path,
+    source_dir: Path | None = None,
+    source_dirs: Iterable[Path] | None = None,
     corpus_label: str,
     repository: IndexRepository,
     embedding_client: EmbeddingProvider,
@@ -73,17 +74,18 @@ def build_knowledge_index(
     _require_nonempty(collection_name, "collection_name")
 
     root = Path(corpus_root)
-    source_root = root / source_dir
+    normalized_source_dirs = _resolve_source_dirs(source_dir, source_dirs)
     markdown_paths = sorted(
-        (
+        {
             path
-            for path in source_root.rglob("*.md")
+            for source in normalized_source_dirs
+            for path in (root / source).rglob("*.md")
             if path.is_file()
-        ),
+        },
         key=lambda path: path.relative_to(root).as_posix(),
     )
     if not markdown_paths:
-        raise ValueError(f"no markdown files found under {source_root}")
+        raise ValueError(f"no markdown files found under {normalized_source_dirs}")
 
     chunks: list[KnowledgeChunk] = []
     file_records: list[CorpusFileManifest] = []
@@ -187,3 +189,22 @@ def _require_positive_batch_size(batch_size: int) -> None:
 def _require_nonempty(value: str, name: str) -> None:
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"{name} must be non-empty")
+
+
+def _resolve_source_dirs(
+    source_dir: Path | None,
+    source_dirs: Iterable[Path] | None,
+) -> tuple[Path, ...]:
+    if source_dir is not None and source_dirs is not None:
+        raise ValueError("source_dir and source_dirs are mutually exclusive")
+    if source_dirs is None:
+        if source_dir is None:
+            raise ValueError("at least one source directory is required")
+        normalized = (Path(source_dir),)
+    else:
+        normalized = tuple(Path(item) for item in source_dirs)
+        if not normalized:
+            raise ValueError("at least one source directory is required")
+    if any(path.is_absolute() for path in normalized):
+        raise ValueError("source directories must be relative to corpus_root")
+    return normalized

@@ -426,3 +426,33 @@ def test_rebuilding_same_stable_inputs_ignores_different_build_times(
     assert first.manifest.built_at != second.manifest.built_at
     assert first.manifest.stable_payload() == second.manifest.stable_payload()
     assert first.manifest.fingerprint == second.manifest.fingerprint
+
+
+def test_multiple_source_dirs_are_globally_sorted_and_rebuilt_together(tmp_path):
+    write_corpus_file(tmp_path, "docs/local.md", "local")
+    write_corpus_file(tmp_path, "corpus/self-llm/docs/guide.md", "external")
+    repository = RecordingRepository()
+
+    result = build_knowledge_index(
+        **build_kwargs(
+            tmp_path,
+            source_dir=None,
+            source_dirs=(Path("docs"), Path("corpus/self-llm/docs")),
+            repository=repository,
+        )
+    )
+
+    chunks, _ = repository.calls[0]
+    assert [chunk.source for chunk in chunks] == [
+        "corpus/self-llm/docs/guide.md",
+        "docs/local.md",
+    ]
+    assert [item.path for item in result.manifest.files] == [
+        "corpus/self-llm/docs/guide.md",
+        "docs/local.md",
+    ]
+
+
+def test_single_source_dir_keyword_remains_compatible(tmp_path):
+    write_corpus_file(tmp_path, "docs/a.md", "a")
+    assert build_knowledge_index(**build_kwargs(tmp_path)).indexed_count == 1
