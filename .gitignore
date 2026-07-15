@@ -29,3 +29,7 @@ tutor_agent.db
 chroma_db/
 # Local Git worktrees
 .worktrees/
+/.test-tmp/
+
+# Local partial Git clones
+/external/

@@ -1,9 +1,11 @@
-"""Build the local Chroma knowledge index from Markdown notes."""
+"""Build the persistent Chroma knowledge index and its Manifest."""
 
 from __future__ import annotations
 
 from pathlib import Path
 import sys
+
+from chromadb.errors import ChromaError
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
@@ -12,69 +14,70 @@ if str(PROJECT_ROOT) not in sys.path:
 from app.clients.embedding_client import EmbeddingClient, EmbeddingError
 from app.config import load_embedding_config
 from app.repositories.knowledge_repository import KnowledgeRepository
-from app.services.knowledge_chunker import KnowledgeChunk, chunk_markdown
+from app.services.index_manifest import ManifestError, write_manifest
+from app.services.knowledge_index_builder import build_knowledge_index
 from app.services.rag_settings import (
-    EMBEDDING_BATCH_SIZE,
-    KNOWLEDGE_COLLECTION_NAME,
-    KNOWLEDGE_SOURCE_DIR,
+    CHROMA_PERSIST_DIR,
+    KNOWLEDGE_SOURCE_DIRS,
 )
 
 
-def main() -> int:
-    """扫描 docs Markdown，生成 embedding，并全量重建 Chroma 集合。"""
+class _ManifestTrackingRepository:
+    """Invalidate stale metadata immediately before a destructive rebuild."""
 
+    def __init__(self, repository, manifest_path: Path) -> None:
+        self.repository = repository
+        self.manifest_path = manifest_path
+        self.rebuild_attempted = False
+
+    def rebuild(self, chunks, embeddings) -> int:
+        # Once the live collection may change, its previous Manifest must no
+        # longer be queryable as valid metadata.  Preflight/provider failures
+        # never reach this method, so they preserve the existing Manifest.
+        self.manifest_path.unlink(missing_ok=True)
+        self.rebuild_attempted = True
+        return self.repository.rebuild(chunks, embeddings)
+
+
+def main() -> int:
+    """Rebuild the live index, then atomically persist its validated Manifest."""
+
+    manifest_path = PROJECT_ROOT / CHROMA_PERSIST_DIR / "index_manifest.json"
     try:
-        embedding_client = EmbeddingClient(config=load_embedding_config())
-        chunks = _load_chunks()
-        embeddings = _embed_chunks(embedding_client, chunks)
-        count = KnowledgeRepository().rebuild(chunks, embeddings)
-    except (RuntimeError, EmbeddingError, ValueError) as exc:
+        config = load_embedding_config()
+        repository = _ManifestTrackingRepository(
+            KnowledgeRepository(),
+            manifest_path,
+        )
+        result = build_knowledge_index(
+            corpus_root=PROJECT_ROOT,
+            source_dirs=tuple(Path(item) for item in KNOWLEDGE_SOURCE_DIRS),
+            corpus_label="+".join(KNOWLEDGE_SOURCE_DIRS),
+            repository=repository,
+            embedding_client=EmbeddingClient(config=config),
+            embedding_model=config.model,
+            progress=lambda source, count: print(f"{source}: {count} chunks"),
+        )
+        write_manifest(manifest_path, result.manifest)
+    except (
+        ChromaError,
+        RuntimeError,
+        EmbeddingError,
+        ManifestError,
+        ValueError,
+        OSError,
+    ) as exc:
         print(f"构建学习笔记索引失败：{exc}", file=sys.stderr)
         return 1
 
-    source_count = len({chunk.source for chunk in chunks})
     print(
-        f"索引构建完成：files={source_count} chunks={count} "
-        f"collection={KNOWLEDGE_COLLECTION_NAME}"
+        f"索引构建完成：files={result.manifest.file_count} "
+        f"chunks={result.indexed_count} "
+        f"collection={result.manifest.collection_name} "
+        f"fingerprint={result.manifest.fingerprint}"
     )
     return 0
 
 
-def _load_chunks() -> list[KnowledgeChunk]:
-    """读取 docs/**/*.md，并按文件名排序保证重建顺序确定。"""
-
-    source_root = PROJECT_ROOT / KNOWLEDGE_SOURCE_DIR
-    markdown_files = sorted(source_root.rglob("*.md"))
-    chunks: list[KnowledgeChunk] = []
-
-    for path in markdown_files:
-        source = path.relative_to(PROJECT_ROOT).as_posix()
-        file_chunks = chunk_markdown(
-            text=path.read_text(encoding="utf-8"),
-            source=source,
-        )
-        chunks.extend(file_chunks)
-        print(f"{source}: {len(file_chunks)} chunks")
-
-    return chunks
-
-
-def _embed_chunks(
-    embedding_client: EmbeddingClient,
-    chunks: list[KnowledgeChunk],
-) -> list[list[float]]:
-    """按批次调用 embedding API，避免单次请求过大。"""
-
-    embeddings: list[list[float]] = []
-    for start in range(0, len(chunks), EMBEDDING_BATCH_SIZE):
-        batch = chunks[start : start + EMBEDDING_BATCH_SIZE]
-        embeddings.extend(
-            embedding_client.embed_texts([chunk.content for chunk in batch])
-        )
-
-    return embeddings
-
-
 if __name__ == "__main__":
     raise SystemExit(main())
-

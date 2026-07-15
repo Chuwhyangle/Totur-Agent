@@ -1,0 +1,1714 @@
+{
+  "commit_sha": "42c1bff4334f4c21c33e5791f29e9cdca5d47c61",
+  "files": [
+    {
+      "byte_count": 19547,
+      "content_sha256": "sha256:fe3fac501619d1b2fcb7b4afa81a85626f1a68c3f3b260238193ecbb072980ce",
+      "normalized_path": "docs/README.md",
+      "original_path": "README.md"
+    },
+    {
+      "byte_count": 21724,
+      "content_sha256": "sha256:69884cd373a6c979ce094a7a30e5648034295575487bc4e2163dddfa4f31684c",
+      "normalized_path": "docs/README_en.md",
+      "original_path": "README_en.md"
+    },
+    {
+      "byte_count": 13050,
+      "content_sha256": "sha256:ec9364339e5473b6293df6d1d663fe5366e79edfdbe62b14257d927e75586a6f",
+      "normalized_path": "docs/examples/AMchat-高等数学/readme.md",
+      "original_path": "examples/AMchat-高等数学/readme.md"
+    },
+    {
+      "byte_count": 12553,
+      "content_sha256": "sha256:f917b8e5f1a898aceff2f503f7721ade7d7171c8704119971b372f12fe7fe834",
+      "normalized_path": "docs/examples/Chat-嬛嬛/readme.md",
+      "original_path": "examples/Chat-嬛嬛/readme.md"
+    },
+    {
+      "byte_count": 33787,
+      "content_sha256": "sha256:04a2f5a43df118a1f14b76be50b045f36f08d3d42bdfe3762a6e0493924a3790",
+      "normalized_path": "docs/examples/Tianji-天机/readme.md",
+      "original_path": "examples/Tianji-天机/readme.md"
+    },
+    {
+      "byte_count": 6603,
+      "content_sha256": "sha256:2a871668f98cf99363121b6eb765061196a5763bdeee13b551b96f6f70fe43e5",
+      "normalized_path": "docs/examples/readme.md",
+      "original_path": "examples/readme.md"
+    },
+    {
+      "byte_count": 16093,
+      "content_sha256": "sha256:42235b361864b1ce7a6e32419a75fcde21f1cb85ae94db77584a33700ca06afc",
+      "normalized_path": "docs/examples/数字生命/readme.md",
+      "original_path": "examples/数字生命/readme.md"
+    },
+    {
+      "byte_count": 3380,
+      "content_sha256": "sha256:9ffae4ae054eb026d5af0e527ea49fdb508b2e2a7b884f973edde80c72f054ee",
+      "normalized_path": "docs/models/Atom/01-Atom-7B-chat-WebDemo.md",
+      "original_path": "models/Atom/01-Atom-7B-chat-WebDemo.md"
+    },
+    {
+      "byte_count": 16245,
+      "content_sha256": "sha256:0670952f09412ffe6fed5359db9efc058ef8355bf9616188131cd5ca5850f1dc",
+      "normalized_path": "docs/models/Atom/02-Atom-7B-Chat Lora 微调.md",
+      "original_path": "models/Atom/02-Atom-7B-Chat Lora 微调.md"
+    },
+    {
+      "byte_count": 21500,
+      "content_sha256": "sha256:b828e082e6216c52ab034e12a69a74c0426d06096bf486985ea8c7e750b9b662",
+      "normalized_path": "docs/models/Atom/03-Atom-7B-Chat 接入langchain搭建知识库助手.md",
+      "original_path": "models/Atom/03-Atom-7B-Chat 接入langchain搭建知识库助手.md"
+    },
+    {
+      "byte_count": 195,
+      "content_sha256": "sha256:4fc3a59336684d82d559b87f33e0cf6b507f1415b4d5cfb7d625d613995f1ced",
+      "normalized_path": "docs/models/Atom/03-Atom-7B-Chat 接入langchain搭建知识库助手/readme.md",
+      "original_path": "models/Atom/03-Atom-7B-Chat 接入langchain搭建知识库助手/readme.md"
+    },
+    {
+      "byte_count": 7971,
+      "content_sha256": "sha256:1815cb4e81c9ed93124c057bb8d1bd6c375e15d72148234ed6e32de39167794d",
+      "normalized_path": "docs/models/Atom/04-Atom-7B-chat 全量微调.md",
+      "original_path": "models/Atom/04-Atom-7B-chat 全量微调.md"
+    },
+    {
+      "byte_count": 51027,
+      "content_sha256": "sha256:63093ec83f3d081bb5cf06f7b336a3df31f3515c9b818b623382c5aea60a99b2",
+      "normalized_path": "docs/models/BGE-M3-finetune-embedding-with-valid/README.md",
+      "original_path": "models/BGE-M3-finetune-embedding-with-valid/README.md"
+    },
+    {
+      "byte_count": 6331,
+      "content_sha256": "sha256:765c0b309cee2a91274785e7a18d97b58766c6249b25df38b0a19c4fe6d6d422",
+      "normalized_path": "docs/models/BaiChuan/01-Baichuan2-7B-chat+FastApi+部署调用.md",
+      "original_path": "models/BaiChuan/01-Baichuan2-7B-chat+FastApi+部署调用.md"
+    },
+    {
+      "byte_count": 5174,
+      "content_sha256": "sha256:7d75d60c843ccb714bdf60d46c0c06166d2a7f7432a10f94c1c786aa59d8a84f",
+      "normalized_path": "docs/models/BaiChuan/02-Baichuan-7B-chat+WebDemo.md",
+      "original_path": "models/BaiChuan/02-Baichuan-7B-chat+WebDemo.md"
+    },
+    {
+      "byte_count": 6256,
+      "content_sha256": "sha256:b87a51d381da8e0e4d8f2f1c2007ab6add011fca6dedaa799f436d1aca9d3876",
+      "normalized_path": "docs/models/BaiChuan/03-Baichuan2-7B-chat接入LangChain框架.md",
+      "original_path": "models/BaiChuan/03-Baichuan2-7B-chat接入LangChain框架.md"
+    },
+    {
+      "byte_count": 8448,
+      "content_sha256": "sha256:f24e7aa15756f84bc58c185f676dd1b3865f7083e423a82dc489659a526c40c5",
+      "normalized_path": "docs/models/BaiChuan/04-Baichuan2-7B-chat+lora+微调.md",
+      "original_path": "models/BaiChuan/04-Baichuan2-7B-chat+lora+微调.md"
+    },
+    {
+      "byte_count": 6646,
+      "content_sha256": "sha256:0b02272df77c9437d25e909459d41471b4cf05afd31cdcfb38afb9e68da5e355",
+      "normalized_path": "docs/models/BlueLM/01-BlueLM-7B-Chat FastApi 部署.md",
+      "original_path": "models/BlueLM/01-BlueLM-7B-Chat FastApi 部署.md"
+    },
+    {
+      "byte_count": 4742,
+      "content_sha256": "sha256:7caf543994b20cab6d3aa8cc539d3eafedf833e30506d487acc70098b8f956d5",
+      "normalized_path": "docs/models/BlueLM/02-BlueLM-7B-Chat langchain 接入.md",
+      "original_path": "models/BlueLM/02-BlueLM-7B-Chat langchain 接入.md"
+    },
+    {
+      "byte_count": 7432,
+      "content_sha256": "sha256:e9b26f1bce870fa6352e157d60a46ee97f67bcb08eace3898115d922b3c6c09e",
+      "normalized_path": "docs/models/BlueLM/03-BlueLM-7B-Chat WebDemo 部署.md",
+      "original_path": "models/BlueLM/03-BlueLM-7B-Chat WebDemo 部署.md"
+    },
+    {
+      "byte_count": 7174,
+      "content_sha256": "sha256:866df51fdbf30a776b48d0dd9e540c37626796fc3e0b1015a7f1e1b004bdf456",
+      "normalized_path": "docs/models/BlueLM/04-BlueLM-7B-Chat Lora 微调.md",
+      "original_path": "models/BlueLM/04-BlueLM-7B-Chat Lora 微调.md"
+    },
+    {
+      "byte_count": 3985,
+      "content_sha256": "sha256:25765b7f2bd963282503df347c7aae0f94d4344c0cc9d2a66adda1989ed5e779",
+      "normalized_path": "docs/models/CharacterGLM/01-CharacterGLM-6B Transformer部署调用.md",
+      "original_path": "models/CharacterGLM/01-CharacterGLM-6B Transformer部署调用.md"
+    },
+    {
+      "byte_count": 7350,
+      "content_sha256": "sha256:174bcc8aae812c56df06db71940b6330b406cc42761a23a5741c52f8255cd758",
+      "normalized_path": "docs/models/CharacterGLM/02-CharacterGLM-6B FastApi部署调用.md",
+      "original_path": "models/CharacterGLM/02-CharacterGLM-6B FastApi部署调用.md"
+    },
+    {
+      "byte_count": 3308,
+      "content_sha256": "sha256:3e211718120748614be05adb3705b9dfd10c12cc84d3d097641fac50356bb1f6",
+      "normalized_path": "docs/models/CharacterGLM/03-CharacterGLM-6B-chat.md",
+      "original_path": "models/CharacterGLM/03-CharacterGLM-6B-chat.md"
+    },
+    {
+      "byte_count": 7993,
+      "content_sha256": "sha256:52c39f0a34903033063cecbee1550f37b6971c5e5aa533bf834762a3cbff898d",
+      "normalized_path": "docs/models/CharacterGLM/04-CharacterGLM-6B Lora微调.md",
+      "original_path": "models/CharacterGLM/04-CharacterGLM-6B Lora微调.md"
+    },
+    {
+      "byte_count": 1,
+      "content_sha256": "sha256:01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+      "normalized_path": "docs/models/CharacterGLM/image/readme.md",
+      "original_path": "models/CharacterGLM/image/readme.md"
+    },
+    {
+      "byte_count": 4856,
+      "content_sha256": "sha256:9d3266b5cf97e8ae21433bb55fc41d1a8f7add7983941ad9570c0ab353ed775c",
+      "normalized_path": "docs/models/CharacterGLM/readme.md",
+      "original_path": "models/CharacterGLM/readme.md"
+    },
+    {
+      "byte_count": 2925,
+      "content_sha256": "sha256:12577c2da5fd93c638ea54a071a15a9509e0d74efaaf14bd2fb3386f522fb261",
+      "normalized_path": "docs/models/ChatGLM/01-ChatGLM3-6B Transformer部署调用.md",
+      "original_path": "models/ChatGLM/01-ChatGLM3-6B Transformer部署调用.md"
+    },
+    {
+      "byte_count": 6085,
+      "content_sha256": "sha256:5ff23f720268ed33342da09d898e10e4a5c1c876d3c495de6abb504575818ab0",
+      "normalized_path": "docs/models/ChatGLM/02-ChatGLM3-6B FastApi部署调用.md",
+      "original_path": "models/ChatGLM/02-ChatGLM3-6B FastApi部署调用.md"
+    },
+    {
+      "byte_count": 2798,
+      "content_sha256": "sha256:d9f91d7ce7a39e96497ba9c2ecb702b2b81826fcd3cf99b65be503534b11e43a",
+      "normalized_path": "docs/models/ChatGLM/03-ChatGLM3-6B-chat.md",
+      "original_path": "models/ChatGLM/03-ChatGLM3-6B-chat.md"
+    },
+    {
+      "byte_count": 2822,
+      "content_sha256": "sha256:5c7abc9f6a75211947ab65ea8ef1238c49c66ba2b7207d5d5253718b03bee85c",
+      "normalized_path": "docs/models/ChatGLM/04-ChatGLM3-6B-Code-Interpreter.md",
+      "original_path": "models/ChatGLM/04-ChatGLM3-6B-Code-Interpreter.md"
+    },
+    {
+      "byte_count": 20130,
+      "content_sha256": "sha256:d79e242ad596dda7ba406b384a7ebc5867bbc232f444a7d0aec2d6b0af81e7e3",
+      "normalized_path": "docs/models/ChatGLM/05-ChatGLM3-6B接入LangChain搭建知识库助手.md",
+      "original_path": "models/ChatGLM/05-ChatGLM3-6B接入LangChain搭建知识库助手.md"
+    },
+    {
+      "byte_count": 10794,
+      "content_sha256": "sha256:047f9258a50e4ea978b4faed493d0723ae4b6110f3463f5857dc877736ce6a6e",
+      "normalized_path": "docs/models/ChatGLM/06-ChatGLM3-6B-Lora微调.md",
+      "original_path": "models/ChatGLM/06-ChatGLM3-6B-Lora微调.md"
+    },
+    {
+      "byte_count": 31113,
+      "content_sha256": "sha256:389e24e7dcdb6eb2bea1e6b1b94d0d17263c532302334819237a33dffd4d7fdb",
+      "normalized_path": "docs/models/ChatGLM/Extra-ChatGLM3-6B-Pipeline.md",
+      "original_path": "models/ChatGLM/Extra-ChatGLM3-6B-Pipeline.md"
+    },
+    {
+      "byte_count": 9072,
+      "content_sha256": "sha256:9a8781b2c8a43963f8942b81872fcfc1bbdab38fd9c1330cdd8b3dda1a47f184",
+      "normalized_path": "docs/models/DeepSeek-Coder-V2/01-DeepSeek-Coder-V2-Lite-Instruct FastApi 部署调用.md",
+      "original_path": "models/DeepSeek-Coder-V2/01-DeepSeek-Coder-V2-Lite-Instruct FastApi 部署调用.md"
+    },
+    {
+      "byte_count": 9350,
+      "content_sha256": "sha256:14c337693474412f5ff952b97b12e9dda723ecd041d35c826f7baa960b601819",
+      "normalized_path": "docs/models/DeepSeek-Coder-V2/02-DeepSeek-Coder-V2-Lite-Instruct 接入 LangChain.md",
+      "original_path": "models/DeepSeek-Coder-V2/02-DeepSeek-Coder-V2-Lite-Instruct 接入 LangChain.md"
+    },
+    {
+      "byte_count": 5369,
+      "content_sha256": "sha256:9afb7d9f770e3b327431f2161af57eb225ef3ed0768ef5aa83c6d8b6b51cd8fa",
+      "normalized_path": "docs/models/DeepSeek-Coder-V2/03-DeepSeek-Coder-V2-Lite-Instruct WebDemo 部署.md",
+      "original_path": "models/DeepSeek-Coder-V2/03-DeepSeek-Coder-V2-Lite-Instruct WebDemo 部署.md"
+    },
+    {
+      "byte_count": 9778,
+      "content_sha256": "sha256:3d55a5efa4b362c24cd09b56c9e535e15a9891a170f84773699d77090ecbc3af",
+      "normalized_path": "docs/models/DeepSeek-Coder-V2/04-DeepSeek-Coder-V2-Lite-Instruct Lora 微调.md",
+      "original_path": "models/DeepSeek-Coder-V2/04-DeepSeek-Coder-V2-Lite-Instruct Lora 微调.md"
+    },
+    {
+      "byte_count": 9484,
+      "content_sha256": "sha256:57024dbb8a547a69a86260f01d9b24515aa3ae8c83a91ca5a1dd9f980602801c",
+      "normalized_path": "docs/models/DeepSeek-R1-Distill-Qwen/01-DeepSeek-R1-Distill-Qwen-7B FastApi 部署调用.md",
+      "original_path": "models/DeepSeek-R1-Distill-Qwen/01-DeepSeek-R1-Distill-Qwen-7B FastApi 部署调用.md"
+    },
+    {
+      "byte_count": 5922,
+      "content_sha256": "sha256:9e132de07922d418efb3e0b1c57107fb0e12db43def5cca7b77fec730e2ed582",
+      "normalized_path": "docs/models/DeepSeek-R1-Distill-Qwen/02-DeepSeek-R1-Distill-Qwen-7B Langchain 接入.md",
+      "original_path": "models/DeepSeek-R1-Distill-Qwen/02-DeepSeek-R1-Distill-Qwen-7B Langchain 接入.md"
+    },
+    {
+      "byte_count": 5884,
+      "content_sha256": "sha256:8c4a65665e0b3496d0b9308906e6f592ce46ee7bc4d601faf40f65667d8ed971",
+      "normalized_path": "docs/models/DeepSeek-R1-Distill-Qwen/03-DeepSeek-R1-Distill-Qwen-7B WebDemo 部署.md",
+      "original_path": "models/DeepSeek-R1-Distill-Qwen/03-DeepSeek-R1-Distill-Qwen-7B WebDemo 部署.md"
+    },
+    {
+      "byte_count": 22948,
+      "content_sha256": "sha256:a8680cbda19adfab0cc737c9a5a24a3a3ebde857a7f3fe026736e082afde79ab",
+      "normalized_path": "docs/models/DeepSeek-R1-Distill-Qwen/04-DeepSeek-R1-Distill-Qwen-7B vLLM 部署调用.md",
+      "original_path": "models/DeepSeek-R1-Distill-Qwen/04-DeepSeek-R1-Distill-Qwen-7B vLLM 部署调用.md"
+    },
+    {
+      "byte_count": 25360,
+      "content_sha256": "sha256:0df1b702ff2bcb35803aa87930a742b71131bb3c267ab3b835379bae38f44427",
+      "normalized_path": "docs/models/DeepSeek-R1-Distill-Qwen/05-DeepSeek-R1-0528-Qwen3-8B-GRPO及swanlab可视化.md",
+      "original_path": "models/DeepSeek-R1-Distill-Qwen/05-DeepSeek-R1-0528-Qwen3-8B-GRPO及swanlab可视化.md"
+    },
+    {
+      "byte_count": 878,
+      "content_sha256": "sha256:46ca9e602e2ea9e225c6897b69378078e1509a1bd83a860def78a8bb85aa8ec0",
+      "normalized_path": "docs/models/DeepSeek-R1-Distill-Qwen/readme.md",
+      "original_path": "models/DeepSeek-R1-Distill-Qwen/readme.md"
+    },
+    {
+      "byte_count": 6100,
+      "content_sha256": "sha256:0afa83cbe7d0299644c275b8ccb9d574bf96a74d784bf64edc65e1e71246c245",
+      "normalized_path": "docs/models/DeepSeek/01-DeepSeek-7B-chat FastApi.md",
+      "original_path": "models/DeepSeek/01-DeepSeek-7B-chat FastApi.md"
+    },
+    {
+      "byte_count": 3073,
+      "content_sha256": "sha256:01f02574aee8f38d386b3f03e81c96d20ccae8b6747503976caa8acacbde25e9",
+      "normalized_path": "docs/models/DeepSeek/02-DeepSeek-7B-chat langchain.md",
+      "original_path": "models/DeepSeek/02-DeepSeek-7B-chat langchain.md"
+    },
+    {
+      "byte_count": 5338,
+      "content_sha256": "sha256:fbe8f68196d6c264ceea8322071ead6148eda3d70a719d924c0a66cd0b5ba2f8",
+      "normalized_path": "docs/models/DeepSeek/03-DeepSeek-7B-chat WebDemo.md",
+      "original_path": "models/DeepSeek/03-DeepSeek-7B-chat WebDemo.md"
+    },
+    {
+      "byte_count": 7568,
+      "content_sha256": "sha256:67ce49b7714931f15cf15229bdaf28e7547f26c3d8c488bdaa3c817a6b97b901",
+      "normalized_path": "docs/models/DeepSeek/04-DeepSeek-7B-chat Lora 微调.md",
+      "original_path": "models/DeepSeek/04-DeepSeek-7B-chat Lora 微调.md"
+    },
+    {
+      "byte_count": 8774,
+      "content_sha256": "sha256:f47bc086ecab1d353df2361885d6a9373f3343729550f3d009a6e0ee569be86a",
+      "normalized_path": "docs/models/DeepSeek/05-DeepSeek-7B-chat 4bits量化 Qlora 微调.md",
+      "original_path": "models/DeepSeek/05-DeepSeek-7B-chat 4bits量化 Qlora 微调.md"
+    },
+    {
+      "byte_count": 6743,
+      "content_sha256": "sha256:5cccb44fb00242f92dd348813b946fc76c200ea3a2a38c1236a6080ce41b11d5",
+      "normalized_path": "docs/models/DeepSeek/06-DeepSeek-MoE-16b-chat FastApi部署调用.md",
+      "original_path": "models/DeepSeek/06-DeepSeek-MoE-16b-chat FastApi部署调用.md"
+    },
+    {
+      "byte_count": 4354,
+      "content_sha256": "sha256:8e35c8db44945749df863663ea768fe6ec9712b1b5178cfd2e50c8dd1b5643ad",
+      "normalized_path": "docs/models/DeepSeek/06-DeepSeek-MoE-16b-chat Transformer部署调用.md",
+      "original_path": "models/DeepSeek/06-DeepSeek-MoE-16b-chat Transformer部署调用.md"
+    },
+    {
+      "byte_count": 17726,
+      "content_sha256": "sha256:10da2534716b6c76f124a92c2a45012a40c7ae347354b2af965f83c049c1672c",
+      "normalized_path": "docs/models/ERNIE-4.5/01-ERNIE-4.5-0.3B-PT Lora 微调及 SwanLab 可视化记录.md",
+      "original_path": "models/ERNIE-4.5/01-ERNIE-4.5-0.3B-PT Lora 微调及 SwanLab 可视化记录.md"
+    },
+    {
+      "byte_count": 14849,
+      "content_sha256": "sha256:c5a8ff08f6927131a95d1069dc15436b5abe74db487b02e7b71118bb087b55e2",
+      "normalized_path": "docs/models/GLM-4.1V-Thinking/01-GLM-4 1V-Thinking vLLM部署调用.md",
+      "original_path": "models/GLM-4.1V-Thinking/01-GLM-4 1V-Thinking vLLM部署调用.md"
+    },
+    {
+      "byte_count": 775,
+      "content_sha256": "sha256:1c7f0644207c7a23f9bf80e52e691b662439df30ae77e202ef2d0df19ee0156e",
+      "normalized_path": "docs/models/GLM-4.1V-Thinking/02-GLM-4 1V-Thinking Gradio部署.md",
+      "original_path": "models/GLM-4.1V-Thinking/02-GLM-4 1V-Thinking Gradio部署.md"
+    },
+    {
+      "byte_count": 11758,
+      "content_sha256": "sha256:32f8659594d9643b83ec06d53020d2da1a0a4955723fde9b4dd436e914678cdf",
+      "normalized_path": "docs/models/GLM-4.1V-Thinking/03-GLM-4 1V-Thinking LoRA 及 SwanLab 可视化记录.md",
+      "original_path": "models/GLM-4.1V-Thinking/03-GLM-4 1V-Thinking LoRA 及 SwanLab 可视化记录.md"
+    },
+    {
+      "byte_count": 20633,
+      "content_sha256": "sha256:8d18db5eef989b54b4da2ffc2e9d38cf9ff1bef19d56d28c565937ad163a2d16",
+      "normalized_path": "docs/models/GLM-4.5-Air/01-GLM-4.5-Air-vLLM 部署调用.md",
+      "original_path": "models/GLM-4.5-Air/01-GLM-4.5-Air-vLLM 部署调用.md"
+    },
+    {
+      "byte_count": 7494,
+      "content_sha256": "sha256:241e349e39b94f1509cc0f13af7eb62181c1993e716f9a0de8c3eee88d90631c",
+      "normalized_path": "docs/models/GLM-4.5-Air/02-GLM-4.5-Air EvalScope 并发测试.md",
+      "original_path": "models/GLM-4.5-Air/02-GLM-4.5-Air EvalScope 并发测试.md"
+    },
+    {
+      "byte_count": 10129,
+      "content_sha256": "sha256:c864c5a18ce74e16c93d9720aa8042103ca5dc5fa5548b6cdcbbe5a625f347b9",
+      "normalized_path": "docs/models/GLM-4.5-Air/03-GLM-4.5-Air-Lora 及 Swanlab 可视化微调.md",
+      "original_path": "models/GLM-4.5-Air/03-GLM-4.5-Air-Lora 及 Swanlab 可视化微调.md"
+    },
+    {
+      "byte_count": 25816,
+      "content_sha256": "sha256:1678541cb1e02802b38a6e4c329232a6bfa12f8f1f9c49e6666b3d2a3ba1eaa1",
+      "normalized_path": "docs/models/GLM-4.7-Flash/01-GLM-4.7-Flash-vLLM 部署调用.md",
+      "original_path": "models/GLM-4.7-Flash/01-GLM-4.7-Flash-vLLM 部署调用.md"
+    },
+    {
+      "byte_count": 34619,
+      "content_sha256": "sha256:457a8504daf21ca5915b2341d21b8bebf2ba769a568289dacc69fb5400f5ec3c",
+      "normalized_path": "docs/models/GLM-4.7-Flash/02-GLM-4.7-Flash SGLang 部署调用.md",
+      "original_path": "models/GLM-4.7-Flash/02-GLM-4.7-Flash SGLang 部署调用.md"
+    },
+    {
+      "byte_count": 10679,
+      "content_sha256": "sha256:ad9566b6c63814f96d8cbf278e7bec45de3ecf919e40c37cbc5ebf273d25b2b6",
+      "normalized_path": "docs/models/GLM-4.7-Flash/03-GLM-4.7-Flash-Lora微调及Docker镜像.md",
+      "original_path": "models/GLM-4.7-Flash/03-GLM-4.7-Flash-Lora微调及Docker镜像.md"
+    },
+    {
+      "byte_count": 7251,
+      "content_sha256": "sha256:d1b46df2454b11f14fb6f55629bb9d23c94bcf0a806269766af7205a8544dffc",
+      "normalized_path": "docs/models/GLM-4/01-GLM-4-9B-chat FastApi 部署调用.md",
+      "original_path": "models/GLM-4/01-GLM-4-9B-chat FastApi 部署调用.md"
+    },
+    {
+      "byte_count": 5141,
+      "content_sha256": "sha256:887dd0761ecbcbef32ed9f0fc3324adf97f546ced4a92f9a67afadc7f356e192",
+      "normalized_path": "docs/models/GLM-4/02-GLM-4-9B-chat langchain 接入.md",
+      "original_path": "models/GLM-4/02-GLM-4-9B-chat langchain 接入.md"
+    },
+    {
+      "byte_count": 5220,
+      "content_sha256": "sha256:f6de68002f5d546187feb6ebeda00b4803076bb92ef59aef116e63089daaa424",
+      "normalized_path": "docs/models/GLM-4/03-GLM-4-9B-Chat WebDemo.md",
+      "original_path": "models/GLM-4/03-GLM-4-9B-Chat WebDemo.md"
+    },
+    {
+      "byte_count": 18919,
+      "content_sha256": "sha256:26ca9aa39ca6be66648ef651a1aa3927f5707a199e3dce26becff56b6b76e344",
+      "normalized_path": "docs/models/GLM-4/04-GLM-4-9B-Chat vLLM 部署调用.md",
+      "original_path": "models/GLM-4/04-GLM-4-9B-Chat vLLM 部署调用.md"
+    },
+    {
+      "byte_count": 9921,
+      "content_sha256": "sha256:96720dca163f1a1440bd0a659662b75689ada63d728b02a4ba7a03d3bc4fd5fd",
+      "normalized_path": "docs/models/GLM-4/05-GLM-4-9B-chat Lora 微调.md",
+      "original_path": "models/GLM-4/05-GLM-4-9B-chat Lora 微调.md"
+    },
+    {
+      "byte_count": 9664,
+      "content_sha256": "sha256:9b9e51dfe6201091d82ca30a85e430eacc80c445d95f74d0f243adfb537b9784",
+      "normalized_path": "docs/models/GLM-4/05-GLM-4-9B-chat-hf Lora 微调.md",
+      "original_path": "models/GLM-4/05-GLM-4-9B-chat-hf Lora 微调.md"
+    },
+    {
+      "byte_count": 5863,
+      "content_sha256": "sha256:b0dddc83629a478ca88d202269928ee5f346dce5d2c4ce619d1ebc9a32127180",
+      "normalized_path": "docs/models/Gemma/01-Gemma-2B-Instruct FastApi 部署调用.md",
+      "original_path": "models/Gemma/01-Gemma-2B-Instruct FastApi 部署调用.md"
+    },
+    {
+      "byte_count": 4264,
+      "content_sha256": "sha256:b40ac62ebaa57139fae27434cf5755f80d91f7b15022bfa0498aecd493adfd1b",
+      "normalized_path": "docs/models/Gemma/02-Gemma-2B-Instruct langchain 接入.md",
+      "original_path": "models/Gemma/02-Gemma-2B-Instruct langchain 接入.md"
+    },
+    {
+      "byte_count": 4619,
+      "content_sha256": "sha256:708a20fd4151be6c7a8e91d91b01261666dc63aacac686561cad74b93db2554a",
+      "normalized_path": "docs/models/Gemma/03-Gemma-2B-Instruct WebDemo 部署.md",
+      "original_path": "models/Gemma/03-Gemma-2B-Instruct WebDemo 部署.md"
+    },
+    {
+      "byte_count": 9404,
+      "content_sha256": "sha256:a7cb81a7bbc3ed1317473bbb5325e229bcb4c9d4d7ef58fe247da36610fb4234",
+      "normalized_path": "docs/models/Gemma/04-Gemma-2B-Instruct Lora微调.md",
+      "original_path": "models/Gemma/04-Gemma-2B-Instruct Lora微调.md"
+    },
+    {
+      "byte_count": 5488,
+      "content_sha256": "sha256:afba8c16869705d211204ecede0340f07e7e073718f33c0d51dab958541c868d",
+      "normalized_path": "docs/models/Gemma2/01-Gemma-2-9b-it FastApi 部署调用.md",
+      "original_path": "models/Gemma2/01-Gemma-2-9b-it FastApi 部署调用.md"
+    },
+    {
+      "byte_count": 4282,
+      "content_sha256": "sha256:90db13b2ba131f76c851cb4c5643a48706f2349ca640aba094999cbe2a0b8f4d",
+      "normalized_path": "docs/models/Gemma2/02-Gemma-2-9b-it langchain 接入.md",
+      "original_path": "models/Gemma2/02-Gemma-2-9b-it langchain 接入.md"
+    },
+    {
+      "byte_count": 4247,
+      "content_sha256": "sha256:937600929e3c675a9029361dddba51a097780d97896e56b3f42cfd4526104cd4",
+      "normalized_path": "docs/models/Gemma2/03-Gemma-2-9b-it WebDemo 部署.md",
+      "original_path": "models/Gemma2/03-Gemma-2-9b-it WebDemo 部署.md"
+    },
+    {
+      "byte_count": 8956,
+      "content_sha256": "sha256:237db00647f003b031572557225f0e113ad949a69a5a74e11177073fc6142411",
+      "normalized_path": "docs/models/Gemma2/04-Gemma-2-9b-it peft lora微调.md",
+      "original_path": "models/Gemma2/04-Gemma-2-9b-it peft lora微调.md"
+    },
+    {
+      "byte_count": 124548,
+      "content_sha256": "sha256:3b8b16a0ceecf39796d6d36760650b452020f505c75560d5c66298ddab83da7c",
+      "normalized_path": "docs/models/Gemma3/01-gemma-3-4b-it FastApi 部署调用.md",
+      "original_path": "models/Gemma3/01-gemma-3-4b-it FastApi 部署调用.md"
+    },
+    {
+      "byte_count": 2875,
+      "content_sha256": "sha256:7deab1ba83da6b6bea66ea1bab2416cc954f6b15173b6724774fde7dd931fb4a",
+      "normalized_path": "docs/models/Gemma3/03-gemma-3-4b-it-ollama + open-webui部署.md",
+      "original_path": "models/Gemma3/03-gemma-3-4b-it-ollama + open-webui部署.md"
+    },
+    {
+      "byte_count": 5722,
+      "content_sha256": "sha256:ab48a7db860340332c031903b767658e72be1511174d7ed78dcc3d3a48ae56be",
+      "normalized_path": "docs/models/Gemma3/04-Gemma3-4b  evalscope智商情商评测.md",
+      "original_path": "models/Gemma3/04-Gemma3-4b  evalscope智商情商评测.md"
+    },
+    {
+      "byte_count": 16773,
+      "content_sha256": "sha256:22d7f088ad2bf15525ded87e6ddf3a5ccb4ec02440899fc8f0e3e29eb02dd81d",
+      "normalized_path": "docs/models/Gemma3/05-gemma-3-4b-it LoRA.md",
+      "original_path": "models/Gemma3/05-gemma-3-4b-it LoRA.md"
+    },
+    {
+      "byte_count": 27882,
+      "content_sha256": "sha256:48c9d087790264fabfb86b5a42f2031373b3f5d5a5f492eb34ce5bff67c81950",
+      "normalized_path": "docs/models/Gemma3/6-gemma3-4B-itGRPO微调及通过swanlab可视化.md",
+      "original_path": "models/Gemma3/6-gemma3-4B-itGRPO微调及通过swanlab可视化.md"
+    },
+    {
+      "byte_count": 4193,
+      "content_sha256": "sha256:f428233bdf56fbda3519b9e403c627cdd88d60d2c874800748a6ac686f9256cd",
+      "normalized_path": "docs/models/Gemma3/7-gemma3-4b-it AMD环境准备.md",
+      "original_path": "models/Gemma3/7-gemma3-4b-it AMD环境准备.md"
+    },
+    {
+      "byte_count": 4911,
+      "content_sha256": "sha256:6095e042ab59a96e914511f82d1c16d0d593ae2246a61037349416428cc6e00f",
+      "normalized_path": "docs/models/Gemma3/8-gemma3-4b-it 模型服务部署.md",
+      "original_path": "models/Gemma3/8-gemma3-4b-it 模型服务部署.md"
+    },
+    {
+      "byte_count": 71021,
+      "content_sha256": "sha256:e030ca94d86fb7db1adb731e42cd833f0cc8a80e3ef6effe423a948ecb2849ef",
+      "normalized_path": "docs/models/Gemma4/01-gemma-4-E4B-it FastApi 部署调用.md",
+      "original_path": "models/Gemma4/01-gemma-4-E4B-it FastApi 部署调用.md"
+    },
+    {
+      "byte_count": 3255,
+      "content_sha256": "sha256:1796dc528360d5365b13a22b8ad2cb43ddc3b4868f4a22eb3201507738a801c4",
+      "normalized_path": "docs/models/Gemma4/03-gemma-4-E4B-it-ollama + open-webui部署.md",
+      "original_path": "models/Gemma4/03-gemma-4-E4B-it-ollama + open-webui部署.md"
+    },
+    {
+      "byte_count": 5972,
+      "content_sha256": "sha256:0e106cb7468223c344454e1c5303f0874fe419e292d486304670d9423c044e18",
+      "normalized_path": "docs/models/Gemma4/04-Gemma4-E4B-it  evalscope智商情商评测.md",
+      "original_path": "models/Gemma4/04-Gemma4-E4B-it  evalscope智商情商评测.md"
+    },
+    {
+      "byte_count": 16780,
+      "content_sha256": "sha256:f46886eab9c164fa7a753fa9a8c2bc9dfea7bbda0a81c3f4d066b2f35bdb1205",
+      "normalized_path": "docs/models/Gemma4/05-gemma-4-E4B-it LoRA.md",
+      "original_path": "models/Gemma4/05-gemma-4-E4B-it LoRA.md"
+    },
+    {
+      "byte_count": 28164,
+      "content_sha256": "sha256:f3db7537137ebcdd6c0b3a78e2ee0b3a1fdb71b5dace47a653aa3b6abce1ddf6",
+      "normalized_path": "docs/models/Gemma4/6-gemma4-E4B-itGRPO微调及通过swanlab可视化.md",
+      "original_path": "models/Gemma4/6-gemma4-E4B-itGRPO微调及通过swanlab可视化.md"
+    },
+    {
+      "byte_count": 4504,
+      "content_sha256": "sha256:be422847dd4314834f2aedb7f30a69a9e4eb029a0d6c19ad05469e890d1d5cb5",
+      "normalized_path": "docs/models/Gemma4/7-gemma4-E4B-it AMD环境准备.md",
+      "original_path": "models/Gemma4/7-gemma4-E4B-it AMD环境准备.md"
+    },
+    {
+      "byte_count": 5122,
+      "content_sha256": "sha256:73501fc670a7901e47351549d54899ed28d2113be4a6d0261941fb9e5f40add6",
+      "normalized_path": "docs/models/Gemma4/8-gemma4-E4B-it 模型服务部署.md",
+      "original_path": "models/Gemma4/8-gemma4-E4B-it 模型服务部署.md"
+    },
+    {
+      "byte_count": 1667,
+      "content_sha256": "sha256:157e0cdd17dc0c27ab75f6322f1cb7e930bd79b560c10cd6710a0a69285650ec",
+      "normalized_path": "docs/models/General-Setting/01-pip、conda换源.md",
+      "original_path": "models/General-Setting/01-pip、conda换源.md"
+    },
+    {
+      "byte_count": 340,
+      "content_sha256": "sha256:d014ee71748ec547cedfd8c3d5879bf772070bbbbdce65939e48e6396e52bd0f",
+      "normalized_path": "docs/models/General-Setting/02-AutoDL开放端口.md",
+      "original_path": "models/General-Setting/02-AutoDL开放端口.md"
+    },
+    {
+      "byte_count": 2605,
+      "content_sha256": "sha256:66b8a89cacb6ad817ea72bf8677aa476f3ac11793b68beb086b78acc8159012b",
+      "normalized_path": "docs/models/General-Setting/03-模型下载.md",
+      "original_path": "models/General-Setting/03-模型下载.md"
+    },
+    {
+      "byte_count": 3966,
+      "content_sha256": "sha256:7d7bb9d920bb9e11a9837588e4cdec0bc1352788705ef49f8b0373cf0eeaf554",
+      "normalized_path": "docs/models/General-Setting/04-Issue&PR&update.md",
+      "original_path": "models/General-Setting/04-Issue&PR&update.md"
+    },
+    {
+      "byte_count": 6251,
+      "content_sha256": "sha256:d7e4f289e0ec6ca0a3a2fdf07fe61a64490b15ffb6c20d806469d8e060d239cc",
+      "normalized_path": "docs/models/Hunyuan-A13B-Instruct/01-Hunyuan-A13B-Instruct 模型架构解析 Blog.md",
+      "original_path": "models/Hunyuan-A13B-Instruct/01-Hunyuan-A13B-Instruct 模型架构解析 Blog.md"
+    },
+    {
+      "byte_count": 34982,
+      "content_sha256": "sha256:d7b849b6f9433916e5596245e62dbe80733e28944e98ccf6befd1f227938ee5d",
+      "normalized_path": "docs/models/Hunyuan-A13B-Instruct/02-Hunyuan-A13B-Instruct-vLLM.md",
+      "original_path": "models/Hunyuan-A13B-Instruct/02-Hunyuan-A13B-Instruct-vLLM.md"
+    },
+    {
+      "byte_count": 31510,
+      "content_sha256": "sha256:71406c350201d87e51f43d7414914f4d58ea32094275bc3d4e877c18f5ab6798",
+      "normalized_path": "docs/models/Hunyuan-A13B-Instruct/03-Hunyuan-A13B-Instruct-SGLang部署调用.md",
+      "original_path": "models/Hunyuan-A13B-Instruct/03-Hunyuan-A13B-Instruct-SGLang部署调用.md"
+    },
+    {
+      "byte_count": 7255,
+      "content_sha256": "sha256:aff36d2b87fcf1c9035115c784b58f5cd7cc182f8bb5aa31f9cf990c0703f20f",
+      "normalized_path": "docs/models/Hunyuan-A13B-Instruct/04-Hunyuan-A13B-Instruct EvalScope 并发测试.md",
+      "original_path": "models/Hunyuan-A13B-Instruct/04-Hunyuan-A13B-Instruct EvalScope 并发测试.md"
+    },
+    {
+      "byte_count": 11556,
+      "content_sha256": "sha256:f19c30d69ee3a9759f18700dbff7c0821ac9fb314fd11464e862f044dac5675f",
+      "normalized_path": "docs/models/Hunyuan-A13B-Instruct/05-Hunyuan-A13B-Instruct-LoRA及SwanLab可视化记录.md",
+      "original_path": "models/Hunyuan-A13B-Instruct/05-Hunyuan-A13B-Instruct-LoRA及SwanLab可视化记录.md"
+    },
+    {
+      "byte_count": 2741,
+      "content_sha256": "sha256:d5b91e62ecc39d6b6130528d2c2a538b082e0de44d97627a3254ea87839cf309",
+      "normalized_path": "docs/models/Hunyuan3D-2/01-Hunyuan3D-2 系列模型部署.md",
+      "original_path": "models/Hunyuan3D-2/01-Hunyuan3D-2 系列模型部署.md"
+    },
+    {
+      "byte_count": 7850,
+      "content_sha256": "sha256:141f6ec2fbb7afb9cb4fe47e13bd1a94011943efc876bf2f9ff6e062849b2716",
+      "normalized_path": "docs/models/Hunyuan3D-2/02-Hunyuan3D-2 系列模型代码调用.md",
+      "original_path": "models/Hunyuan3D-2/02-Hunyuan3D-2 系列模型代码调用.md"
+    },
+    {
+      "byte_count": 2805,
+      "content_sha256": "sha256:4b103840586a03c62e64c3838e67d0f469753cdf7648745788b8c66ff105f77c",
+      "normalized_path": "docs/models/Hunyuan3D-2/03-Hunyuan3D-2 系列模型Gradio部署.md",
+      "original_path": "models/Hunyuan3D-2/03-Hunyuan3D-2 系列模型Gradio部署.md"
+    },
+    {
+      "byte_count": 2305,
+      "content_sha256": "sha256:50f56a7ceba3da05467451843a896ed44b535daf966c96ed0d32342d64060708",
+      "normalized_path": "docs/models/Hunyuan3D-2/04-Hunyuan3D-2 系列模型API Server.md",
+      "original_path": "models/Hunyuan3D-2/04-Hunyuan3D-2 系列模型API Server.md"
+    },
+    {
+      "byte_count": 3819,
+      "content_sha256": "sha256:069f709e7d59f0f85707d475ee666e2c33e81406b42002e609a82f5488c461d7",
+      "normalized_path": "docs/models/InternLM/01-InternLM-Chat-7B Transformers 部署调用.md",
+      "original_path": "models/InternLM/01-InternLM-Chat-7B Transformers 部署调用.md"
+    },
+    {
+      "byte_count": 5891,
+      "content_sha256": "sha256:5ffdd03a44a693d48ded2168bd73072137b1a5f9954b212bf0259a964b288c46",
+      "normalized_path": "docs/models/InternLM/02-internLM-Chat-7B FastApi.md",
+      "original_path": "models/InternLM/02-internLM-Chat-7B FastApi.md"
+    },
+    {
+      "byte_count": 3091,
+      "content_sha256": "sha256:5a11d898595cfc95727cf6694a68683dc857b3ddf9612497686726e4023a9d42",
+      "normalized_path": "docs/models/InternLM/03-InternLM-Chat-7B.md",
+      "original_path": "models/InternLM/03-InternLM-Chat-7B.md"
+    },
+    {
+      "byte_count": 11725,
+      "content_sha256": "sha256:531818386df3d8e6cc0b935f3bffd01f78a94ccdf5ece60e25da7069ba00a81c",
+      "normalized_path": "docs/models/InternLM/04-Lagent+InternLM-Chat-7B-V1.1.md",
+      "original_path": "models/InternLM/04-Lagent+InternLM-Chat-7B-V1.1.md"
+    },
+    {
+      "byte_count": 2197,
+      "content_sha256": "sha256:df104dbb84f7594a6088c27cffdb7f5fcb094f27eb7af24fde550bd0a40457d6",
+      "normalized_path": "docs/models/InternLM/05-浦语灵笔图文理解&创作.md",
+      "original_path": "models/InternLM/05-浦语灵笔图文理解&创作.md"
+    },
+    {
+      "byte_count": 19423,
+      "content_sha256": "sha256:b77383aa15f13bd79d35520e765f78e3dcb32c3a103ca249f74d4aac460a9fd7",
+      "normalized_path": "docs/models/InternLM/06-InternLM接入LangChain搭建知识库助手.md",
+      "original_path": "models/InternLM/06-InternLM接入LangChain搭建知识库助手.md"
+    },
+    {
+      "byte_count": 198,
+      "content_sha256": "sha256:e22d75aef81793ed4e5cd42ef3e399fdf3e502cb77d6c9135e01d2ebb55b6a21",
+      "normalized_path": "docs/models/InternLM/06-InternLM接入LangChain搭建知识库助手/readme.md",
+      "original_path": "models/InternLM/06-InternLM接入LangChain搭建知识库助手/readme.md"
+    },
+    {
+      "byte_count": 6578,
+      "content_sha256": "sha256:20761d1c142733816613a0b8b7d2ddbb82449255fc27473f75498613f271496a",
+      "normalized_path": "docs/models/InternLM2/01-InternLM2-7B-chat FastAPI部署.md",
+      "original_path": "models/InternLM2/01-InternLM2-7B-chat FastAPI部署.md"
+    },
+    {
+      "byte_count": 5381,
+      "content_sha256": "sha256:1c0deea5c675ebb8774507c133d8c6d14a989b7fb3fbf993e5ff7f030fd45bcb",
+      "normalized_path": "docs/models/InternLM2/02-InternLM2-7B-chat langchain 接入.md",
+      "original_path": "models/InternLM2/02-InternLM2-7B-chat langchain 接入.md"
+    },
+    {
+      "byte_count": 4798,
+      "content_sha256": "sha256:d1bd3f2bc097a4e70301f1cc6be025e93ff223a817d63701c3cd267a6c0dce11",
+      "normalized_path": "docs/models/InternLM2/03-InternLM2-7B-chat WebDemo 部署.md",
+      "original_path": "models/InternLM2/03-InternLM2-7B-chat WebDemo 部署.md"
+    },
+    {
+      "byte_count": 10941,
+      "content_sha256": "sha256:07cebee1ba92bb0000c1df2b7d726b84800376ea8c7f70e35598b9e2b5ded2f8",
+      "normalized_path": "docs/models/InternLM2/04-InternLM2-7B-chat Xtuner Qlora 微调.md",
+      "original_path": "models/InternLM2/04-InternLM2-7B-chat Xtuner Qlora 微调.md"
+    },
+    {
+      "byte_count": 8944,
+      "content_sha256": "sha256:f4be6657b2dbd185dd7a78829868fda3ab6ccafb4f7b2f9abbbffacb1e653886",
+      "normalized_path": "docs/models/InternLM3/01-InternLM3-8B-Instruct FastAPI.md",
+      "original_path": "models/InternLM3/01-InternLM3-8B-Instruct FastAPI.md"
+    },
+    {
+      "byte_count": 6084,
+      "content_sha256": "sha256:d7d1e51551075fb748ad02e84ccacef137aa0fdb11e83562cc30a4eb4de65c33",
+      "normalized_path": "docs/models/InternLM3/02-internlm3-8b-Instruct Langchain 接入.md",
+      "original_path": "models/InternLM3/02-internlm3-8b-Instruct Langchain 接入.md"
+    },
+    {
+      "byte_count": 5861,
+      "content_sha256": "sha256:1dbfd2b2bf9e7b826249df796f3e430815fe2f2ca8441b25c9d461c9877a4070",
+      "normalized_path": "docs/models/InternLM3/03-InternLM3-8B-Instruct WebDemo部署.md",
+      "original_path": "models/InternLM3/03-InternLM3-8B-Instruct WebDemo部署.md"
+    },
+    {
+      "byte_count": 15690,
+      "content_sha256": "sha256:12ccb7b933c5ddb681fbf4aa84f5cb4feb9b14baf751c25e0e74d10c548afc00",
+      "normalized_path": "docs/models/InternLM3/04-InternLM3-8B-Instruct LoRA.md",
+      "original_path": "models/InternLM3/04-InternLM3-8B-Instruct LoRA.md"
+    },
+    {
+      "byte_count": 9581,
+      "content_sha256": "sha256:1f2ccc5f5764bc00b99beff0016e44490ea632fcc10ac23e570ed3d3fbe12d43",
+      "normalized_path": "docs/models/InternLM3/05-internlm3-8b-instruct 与o1 .md",
+      "original_path": "models/InternLM3/05-internlm3-8b-instruct 与o1 .md"
+    },
+    {
+      "byte_count": 11354,
+      "content_sha256": "sha256:d07367c0f38d51bb65c7e9420e42ff837c1c062cc6b0775104bca7b7f766b1f1",
+      "normalized_path": "docs/models/Kimi-K2.5/01-Kimi-K2.5-论文解读.md",
+      "original_path": "models/Kimi-K2.5/01-Kimi-K2.5-论文解读.md"
+    },
+    {
+      "byte_count": 24751,
+      "content_sha256": "sha256:16f3b0a6ea529055051fb3cdb565be78072b789a6e9273fda57bf61a5dfeedc5",
+      "normalized_path": "docs/models/Kimi-K2.5/02-Kimi-2.5-vLLM 部署调用.md",
+      "original_path": "models/Kimi-K2.5/02-Kimi-2.5-vLLM 部署调用.md"
+    },
+    {
+      "byte_count": 17407,
+      "content_sha256": "sha256:fb69d1e3a9335e887bcfdad023be42eb37cf1990ef67c2e153e87d80a8028ff4",
+      "normalized_path": "docs/models/Kimi-K2.5/03-Kimi-2.5-SGLang部署应用.md",
+      "original_path": "models/Kimi-K2.5/03-Kimi-2.5-SGLang部署应用.md"
+    },
+    {
+      "byte_count": 20909,
+      "content_sha256": "sha256:7cf00d74f87fa99657ea37dde7be2aad7cd0c4677be4fbdcfe3e64d318623814",
+      "normalized_path": "docs/models/Kimi-VL/01-Kimi-VL-对话助手.md",
+      "original_path": "models/Kimi-VL/01-Kimi-VL-对话助手.md"
+    },
+    {
+      "byte_count": 5516,
+      "content_sha256": "sha256:917906dbaa2fb054f616238ff59615fe31fe8b56a314aa67911d5eff871066bd",
+      "normalized_path": "docs/models/Kimi-VL/01-Kimi-VL-对话助手/app/README.md",
+      "original_path": "models/Kimi-VL/01-Kimi-VL-对话助手/app/README.md"
+    },
+    {
+      "byte_count": 11049,
+      "content_sha256": "sha256:66b36b776a15a4f7f44733d7e00398e022b7813ba69d5df6e121e2f4d53bbc3e",
+      "normalized_path": "docs/models/Kimi-VL/02-Kimi-VL-技术报告解读.md",
+      "original_path": "models/Kimi-VL/02-Kimi-VL-技术报告解读.md"
+    },
+    {
+      "byte_count": 7015,
+      "content_sha256": "sha256:fc7f80adf8aa563314a5c14ae3092abb8c6f84b406c726a19bcbc02c4b321c8f",
+      "normalized_path": "docs/models/LLaMA3/01-LLaMA3-8B-Instruct FastApi 部署调用.md",
+      "original_path": "models/LLaMA3/01-LLaMA3-8B-Instruct FastApi 部署调用.md"
+    },
+    {
+      "byte_count": 5364,
+      "content_sha256": "sha256:e1bc2bb4bee771b053085be066ff6cdc330d0ee095d5e5fccd3d51cfcde1858f",
+      "normalized_path": "docs/models/LLaMA3/02-LLaMA3-8B-Instruct langchain 接入.md",
+      "original_path": "models/LLaMA3/02-LLaMA3-8B-Instruct langchain 接入.md"
+    },
+    {
+      "byte_count": 5779,
+      "content_sha256": "sha256:af7ebb6a943e31fde4ca0fe62d918eae46a6817f2172f27acacff835ba30e936",
+      "normalized_path": "docs/models/LLaMA3/03-LLaMA3-8B-Instruct WebDemo 部署.md",
+      "original_path": "models/LLaMA3/03-LLaMA3-8B-Instruct WebDemo 部署.md"
+    },
+    {
+      "byte_count": 9893,
+      "content_sha256": "sha256:2504a0fe40c46d8da8030f76f7886ebbd602b6ed9f730d5bc3e2c66767a4463d",
+      "normalized_path": "docs/models/LLaMA3/04-LLaMA3-8B-Instruct Lora 微调.md",
+      "original_path": "models/LLaMA3/04-LLaMA3-8B-Instruct Lora 微调.md"
+    },
+    {
+      "byte_count": 5898,
+      "content_sha256": "sha256:1f2ff84ab9673885142ad7336f092203f8f7211021e12edbb28f534107f1249d",
+      "normalized_path": "docs/models/Llama3_1/01-Llama3_1-8B-Instruct FastApi 部署调用.md",
+      "original_path": "models/Llama3_1/01-Llama3_1-8B-Instruct FastApi 部署调用.md"
+    },
+    {
+      "byte_count": 4962,
+      "content_sha256": "sha256:e36da12bfd8dd2f7fcada5bcb559596710bfa1b4a28eb2a870b3a2f71c2fca33",
+      "normalized_path": "docs/models/Llama3_1/02-Llama3_1-8B-Instruct langchain接入.md",
+      "original_path": "models/Llama3_1/02-Llama3_1-8B-Instruct langchain接入.md"
+    },
+    {
+      "byte_count": 4865,
+      "content_sha256": "sha256:1b9149093a590550f354c81759a763e717e1965110711ad5e077224f8c638e74",
+      "normalized_path": "docs/models/Llama3_1/03-Llama3_1-8B-Instruct WebDemo部署.md",
+      "original_path": "models/Llama3_1/03-Llama3_1-8B-Instruct WebDemo部署.md"
+    },
+    {
+      "byte_count": 9726,
+      "content_sha256": "sha256:5763de53f9f4b98171b83c992f7324f2e24a762e9b94ee67a1af545b15b93511",
+      "normalized_path": "docs/models/Llama3_1/04-Llama3_1-8B--Instruct Lora 微调.md",
+      "original_path": "models/Llama3_1/04-Llama3_1-8B--Instruct Lora 微调.md"
+    },
+    {
+      "byte_count": 11804,
+      "content_sha256": "sha256:68a60a9f9712ac8ac1ffcde7b26ed68708009cbe74b1c456125fa81de39d67c4",
+      "normalized_path": "docs/models/Llama3_1/05-Llama3_1-8B-Instruct o1-like 推理链实现.md",
+      "original_path": "models/Llama3_1/05-Llama3_1-8B-Instruct o1-like 推理链实现.md"
+    },
+    {
+      "byte_count": 5362,
+      "content_sha256": "sha256:e7805f4671b219a8f5877683303ec5a3c8c42f7c6d982ab23d03b553a0628ed4",
+      "normalized_path": "docs/models/Llama3_1/动手转换GGUF模型并使用Ollama本地部署.md",
+      "original_path": "models/Llama3_1/动手转换GGUF模型并使用Ollama本地部署.md"
+    },
+    {
+      "byte_count": 31173,
+      "content_sha256": "sha256:7d91cfc6eea312d104f6fd25fa0dc57784c9d1eb771d02a8483c0f6131ff3ece",
+      "normalized_path": "docs/models/Llama4/01-Llama4-对话助手/01-Llama4-对话助手.md",
+      "original_path": "models/Llama4/01-Llama4-对话助手/01-Llama4-对话助手.md"
+    },
+    {
+      "byte_count": 2949,
+      "content_sha256": "sha256:6373b2a834bc3f8dd79e5ebaaf49aac82d0553ae5fd05429b182401d6095730f",
+      "normalized_path": "docs/models/Llama4/01-Llama4-对话助手/app/README.md",
+      "original_path": "models/Llama4/01-Llama4-对话助手/app/README.md"
+    },
+    {
+      "byte_count": 14328,
+      "content_sha256": "sha256:652b541212f1cfc5d40d759fb387b08d0ceff31ab20367b8c13e6b5c5844f859",
+      "normalized_path": "docs/models/MiniCPM-o/01MiniCPM-o 2 6 FastApi部署调用 .md",
+      "original_path": "models/MiniCPM-o/01MiniCPM-o 2 6 FastApi部署调用 .md"
+    },
+    {
+      "byte_count": 7247,
+      "content_sha256": "sha256:3aeaaed53a92040960b1e824fb46f88fa851f8e11c7610d0191d2afcf924c6bf",
+      "normalized_path": "docs/models/MiniCPM-o/02minicpm-o-2.6WebDemo部署.md",
+      "original_path": "models/MiniCPM-o/02minicpm-o-2.6WebDemo部署.md"
+    },
+    {
+      "byte_count": 10706,
+      "content_sha256": "sha256:91f51ede7d3349c27815962d7e410cb6baa0ba2e5b03ecd9d33b8597beb9d1ad",
+      "normalized_path": "docs/models/MiniCPM-o/03-MiniCPM-o-2.6 多模态语音能力.md",
+      "original_path": "models/MiniCPM-o/03-MiniCPM-o-2.6 多模态语音能力.md"
+    },
+    {
+      "byte_count": 19998,
+      "content_sha256": "sha256:fe59c1ff3b9b10a5185fa3905efd99a186b18a75932792e6aa681835c879b352",
+      "normalized_path": "docs/models/MiniCPM-o/04-MiniCPM-0-2.6 Lora微调.md",
+      "original_path": "models/MiniCPM-o/04-MiniCPM-0-2.6 Lora微调.md"
+    },
+    {
+      "byte_count": 6929,
+      "content_sha256": "sha256:0eecbfba53883aa0e89ef39d11937729c9736bd26da33f804223df3c9eeac923",
+      "normalized_path": "docs/models/MiniCPM/MiniCPM-2B-chat FastApi 部署调用.md",
+      "original_path": "models/MiniCPM/MiniCPM-2B-chat FastApi 部署调用.md"
+    },
+    {
+      "byte_count": 8886,
+      "content_sha256": "sha256:b1e7422e73f7ccc56768ef3f9f40338985b58b95ffaf524262448253b7c8dd9e",
+      "normalized_path": "docs/models/MiniCPM/MiniCPM-2B-chat Lora && Full 微调.md",
+      "original_path": "models/MiniCPM/MiniCPM-2B-chat Lora && Full 微调.md"
+    },
+    {
+      "byte_count": 3927,
+      "content_sha256": "sha256:780b4cd61e90d5b2a7a0dd8d170968dd6d45ccbb736b5b078ee26e4186f0b57a",
+      "normalized_path": "docs/models/MiniCPM/MiniCPM-2B-chat WebDemo部署.md",
+      "original_path": "models/MiniCPM/MiniCPM-2B-chat WebDemo部署.md"
+    },
+    {
+      "byte_count": 4844,
+      "content_sha256": "sha256:00aac41b2b015bf099d47f2740b1b22f426e35befac16059201d9299e7756ae7",
+      "normalized_path": "docs/models/MiniCPM/MiniCPM-2B-chat langchain接入.md",
+      "original_path": "models/MiniCPM/MiniCPM-2B-chat langchain接入.md"
+    },
+    {
+      "byte_count": 4170,
+      "content_sha256": "sha256:bdf2c8642ee12814f3bb18dd4347f1721b053e0d87d0f314740eab7406a8dbf4",
+      "normalized_path": "docs/models/MiniCPM/MiniCPM-2B-chat transformers 部署调用.md",
+      "original_path": "models/MiniCPM/MiniCPM-2B-chat transformers 部署调用.md"
+    },
+    {
+      "byte_count": 9616,
+      "content_sha256": "sha256:b75c6694d9e7119c66cf6fd953f8cac6c33a81d52d3c7c99bcd574bc6d4cdd55",
+      "normalized_path": "docs/models/MiniMax-M2.5/1-MiniMax-M2.5-vLLM.md",
+      "original_path": "models/MiniMax-M2.5/1-MiniMax-M2.5-vLLM.md"
+    },
+    {
+      "byte_count": 9119,
+      "content_sha256": "sha256:6de8f7df5cb891bc8e01848b2762055ce8af560c321109e51c2482d7e1075879",
+      "normalized_path": "docs/models/MiniMax-M2.5/2-MiniMax-M2.5-SGLang.md",
+      "original_path": "models/MiniMax-M2.5/2-MiniMax-M2.5-SGLang.md"
+    },
+    {
+      "byte_count": 4171,
+      "content_sha256": "sha256:1e6f0a1b4ad6a96bb48c1bc441afc93e9f3008aa5ce27b5d28ae06dc389ff1e6",
+      "normalized_path": "docs/models/MiniMax-M2.5/3-MiniMax-M2.5-Transformers.md",
+      "original_path": "models/MiniMax-M2.5/3-MiniMax-M2.5-Transformers.md"
+    },
+    {
+      "byte_count": 4112,
+      "content_sha256": "sha256:75665432b5418cf6c3a9919cbde09d3941467f991e0637caf8cb4407dc53ff99",
+      "normalized_path": "docs/models/MiniMax-M2/1-MiniMax-M2-Blog.md",
+      "original_path": "models/MiniMax-M2/1-MiniMax-M2-Blog.md"
+    },
+    {
+      "byte_count": 38711,
+      "content_sha256": "sha256:f233bec271fc9ab1ae9b44ed79f1cb89ba42c174a8d027596fbcdc015df5e7e7",
+      "normalized_path": "docs/models/MiniMax-M2/2-MiniMax-M2-vLLM.md",
+      "original_path": "models/MiniMax-M2/2-MiniMax-M2-vLLM.md"
+    },
+    {
+      "byte_count": 37393,
+      "content_sha256": "sha256:5f0f7660e2d1484cb7cc796bf94f1752d216ca0923eab53f8ee768b7593fc5b0",
+      "normalized_path": "docs/models/MiniMax-M2/3-MiniMax-M2-SGLang.md",
+      "original_path": "models/MiniMax-M2/3-MiniMax-M2-SGLang.md"
+    },
+    {
+      "byte_count": 11955,
+      "content_sha256": "sha256:a2671c1d2ee83e641540c75b23f5e38a53c9eaa2dc1e75a83cbd97e46f680c11",
+      "normalized_path": "docs/models/MiniMax-M2/4-MiniMax-M2-EvalScope.md",
+      "original_path": "models/MiniMax-M2/4-MiniMax-M2-EvalScope.md"
+    },
+    {
+      "byte_count": 10458,
+      "content_sha256": "sha256:10f905b198783d5aebd4c1ed55482b539966c45637ac6862d700968c0f1f5159",
+      "normalized_path": "docs/models/MiniMax-M3/1-MiniMax-M3-vLLM.md",
+      "original_path": "models/MiniMax-M3/1-MiniMax-M3-vLLM.md"
+    },
+    {
+      "byte_count": 10050,
+      "content_sha256": "sha256:59a2bf30893041e2c9a0406ae74c1b9d9b741cdccb4c2f9a3497f0dff4a895b4",
+      "normalized_path": "docs/models/MiniMax-M3/2-MiniMax-M3-SGLang.md",
+      "original_path": "models/MiniMax-M3/2-MiniMax-M3-SGLang.md"
+    },
+    {
+      "byte_count": 4593,
+      "content_sha256": "sha256:03fd6df1ffa8ee07ca5025f31155dda9a0d599de169b06eb69ba84f80b5a68a7",
+      "normalized_path": "docs/models/MiniMax-M3/3-MiniMax-M3-Transformers.md",
+      "original_path": "models/MiniMax-M3/3-MiniMax-M3-Transformers.md"
+    },
+    {
+      "byte_count": 6943,
+      "content_sha256": "sha256:5409886b666d9dba488c6f7dba1d7a288ba138bef740f6f212987a785114ce7a",
+      "normalized_path": "docs/models/OpenELM/01-OpenELM-3B-Instruct FastApi部署调用.md",
+      "original_path": "models/OpenELM/01-OpenELM-3B-Instruct FastApi部署调用.md"
+    },
+    {
+      "byte_count": 8608,
+      "content_sha256": "sha256:67d96207812a827f541408ba6ffb545116ffca9b49181ef242aee13ab0dbf9a8",
+      "normalized_path": "docs/models/OpenELM/02-OpenELM-3B-Instruct Lora微调.md",
+      "original_path": "models/OpenELM/02-OpenELM-3B-Instruct Lora微调.md"
+    },
+    {
+      "byte_count": 2203,
+      "content_sha256": "sha256:0a168e1fd09e7c1a8141d6f40e80d8e962e025377645756c50dbb237a474d506",
+      "normalized_path": "docs/models/OpenELM/README.md",
+      "original_path": "models/OpenELM/README.md"
+    },
+    {
+      "byte_count": 7074,
+      "content_sha256": "sha256:f6adca8db1c348c399946e8eefa91c1029e1786642ac52a7263e72c0f160bd6a",
+      "normalized_path": "docs/models/Qwen-Audio/01-Qwen-Audio-chat FastApi.md",
+      "original_path": "models/Qwen-Audio/01-Qwen-Audio-chat FastApi.md"
+    },
+    {
+      "byte_count": 12990,
+      "content_sha256": "sha256:b7c8a59a3a815346d9e11c9c08ac1d2f541d0da662d420aaa573d9fbe38dff36",
+      "normalized_path": "docs/models/Qwen-Audio/02-Qwen-Audio-chat WebDemo.md",
+      "original_path": "models/Qwen-Audio/02-Qwen-Audio-chat WebDemo.md"
+    },
+    {
+      "byte_count": 3815,
+      "content_sha256": "sha256:a523820b01f2ed030a25b5c613028a5b48d4f31153f7e765b681e2f41b2822d5",
+      "normalized_path": "docs/models/Qwen/01-Qwen-7B-Chat Transformers部署调用.md",
+      "original_path": "models/Qwen/01-Qwen-7B-Chat Transformers部署调用.md"
+    },
+    {
+      "byte_count": 6080,
+      "content_sha256": "sha256:61c630bfe5f639e82d6795d8ce09886d899b85d1611944d8fcdbe5a005a89744",
+      "normalized_path": "docs/models/Qwen/02-Qwen-7B-Chat FastApi 部署调用.md",
+      "original_path": "models/Qwen/02-Qwen-7B-Chat FastApi 部署调用.md"
+    },
+    {
+      "byte_count": 2613,
+      "content_sha256": "sha256:1d5aa4a1612035bf65ebaf7b33196bf06cfa30526e94106d2c734da56d41da30",
+      "normalized_path": "docs/models/Qwen/03-Qwen-7B-Chat WebDemo.md",
+      "original_path": "models/Qwen/03-Qwen-7B-Chat WebDemo.md"
+    },
+    {
+      "byte_count": 9014,
+      "content_sha256": "sha256:c12000c28749fc9b9272cc0c95218031f3e134b38bedde2ec1dc366929115b67",
+      "normalized_path": "docs/models/Qwen/04-Qwen-7B-Chat Lora 微调.md",
+      "original_path": "models/Qwen/04-Qwen-7B-Chat Lora 微调.md"
+    },
+    {
+      "byte_count": 1923,
+      "content_sha256": "sha256:e8accc2493fa1181d51e16ee91286e625615a02b46c263386e3b583e9671d0fb",
+      "normalized_path": "docs/models/Qwen/05-Qwen-7B-Chat Ptuning 微调.md",
+      "original_path": "models/Qwen/05-Qwen-7B-Chat Ptuning 微调.md"
+    },
+    {
+      "byte_count": 8142,
+      "content_sha256": "sha256:e7030b9c36f8009ba78773b56eb70fe6b4c88d5f60b589f2523a4319ffcde564",
+      "normalized_path": "docs/models/Qwen/06-Qwen-7B-chat 全量微调.md",
+      "original_path": "models/Qwen/06-Qwen-7B-chat 全量微调.md"
+    },
+    {
+      "byte_count": 20926,
+      "content_sha256": "sha256:00db1577a5316b69cbee5ab4ebe18ee6fe85f36465915a3662fc254af70177d2",
+      "normalized_path": "docs/models/Qwen/07-Qwen-7B-Chat 接入langchain搭建知识库助手.md",
+      "original_path": "models/Qwen/07-Qwen-7B-Chat 接入langchain搭建知识库助手.md"
+    },
+    {
+      "byte_count": 195,
+      "content_sha256": "sha256:4fc3a59336684d82d559b87f33e0cf6b507f1415b4d5cfb7d625d613995f1ced",
+      "normalized_path": "docs/models/Qwen/07-Qwen-7B-Chat 接入langchain搭建知识库助手/readme.md",
+      "original_path": "models/Qwen/07-Qwen-7B-Chat 接入langchain搭建知识库助手/readme.md"
+    },
+    {
+      "byte_count": 10928,
+      "content_sha256": "sha256:1d403a6b23aa2f22519138f64d69ee264bb90628dda3cba2220a42cf4a3ef05b",
+      "normalized_path": "docs/models/Qwen/08-Qwen-7B-Chat Lora 低精度微调.md",
+      "original_path": "models/Qwen/08-Qwen-7B-Chat Lora 低精度微调.md"
+    },
+    {
+      "byte_count": 5504,
+      "content_sha256": "sha256:b3093e523d5009592b8ba2fa997cf718828cab3b85c173155000b52a37833780",
+      "normalized_path": "docs/models/Qwen/09-Qwen-1_8B-chat CPU 部署 .md",
+      "original_path": "models/Qwen/09-Qwen-1_8B-chat CPU 部署 .md"
+    },
+    {
+      "byte_count": 6078,
+      "content_sha256": "sha256:9fe27c7c6a2acfec59503253ad0d1c023683664172a3032165486ab030a646da",
+      "normalized_path": "docs/models/Qwen1.5/01-Qwen1.5-7B-Chat FastApi 部署调用.md",
+      "original_path": "models/Qwen1.5/01-Qwen1.5-7B-Chat FastApi 部署调用.md"
+    },
+    {
+      "byte_count": 5029,
+      "content_sha256": "sha256:2be8defa5f7cb9819f58c117709f70ac2ecacfcfa21177f36bd6a2ca79b2ee0d",
+      "normalized_path": "docs/models/Qwen1.5/02-Qwen1.5-7B-Chat 接入langchain搭建知识库助手.md",
+      "original_path": "models/Qwen1.5/02-Qwen1.5-7B-Chat 接入langchain搭建知识库助手.md"
+    },
+    {
+      "byte_count": 5720,
+      "content_sha256": "sha256:aa542d6072506700332aa3526ea8b80cb3d29ef5b7890628aa7db47aac6ec296",
+      "normalized_path": "docs/models/Qwen1.5/03-Qwen1.5-7B-Chat WebDemo.md",
+      "original_path": "models/Qwen1.5/03-Qwen1.5-7B-Chat WebDemo.md"
+    },
+    {
+      "byte_count": 8451,
+      "content_sha256": "sha256:b3005817c7bad379aea7764d38283af68f104b1ceeed79471ef305b5d573765b",
+      "normalized_path": "docs/models/Qwen1.5/04-Qwen1.5-7B-chat Lora 微调.md",
+      "original_path": "models/Qwen1.5/04-Qwen1.5-7B-chat Lora 微调.md"
+    },
+    {
+      "byte_count": 7584,
+      "content_sha256": "sha256:47f73392b6058eebb9fb35e904e5363581ac5bd8cbefe01a9e43ca9dacf71760",
+      "normalized_path": "docs/models/Qwen1.5/05-Qwen1.5-7B-Chat-GPTQ-Int4  WebDemo.md",
+      "original_path": "models/Qwen1.5/05-Qwen1.5-7B-Chat-GPTQ-Int4  WebDemo.md"
+    },
+    {
+      "byte_count": 5302,
+      "content_sha256": "sha256:e9f39fc762559c5c6f78e4731eb2dccad45df22d6d477018089293fc2d3b2478",
+      "normalized_path": "docs/models/Qwen1.5/06-Qwen1.5-MoE-A2.7B.md",
+      "original_path": "models/Qwen1.5/06-Qwen1.5-MoE-A2.7B.md"
+    },
+    {
+      "byte_count": 13622,
+      "content_sha256": "sha256:e4d56b8d5c51e0df62e017d6b9d936578bf4ef7ef2df899976902eff43832c06",
+      "normalized_path": "docs/models/Qwen1.5/07-Qwen1.5-7B-Chat vLLM 推理部署调用.md",
+      "original_path": "models/Qwen1.5/07-Qwen1.5-7B-Chat vLLM 推理部署调用.md"
+    },
+    {
+      "byte_count": 10670,
+      "content_sha256": "sha256:7c06891ac111e33d2c00e34276fb30128137e49d512d9d8694c50c1eaf09498a",
+      "normalized_path": "docs/models/Qwen1.5/08-Qwen1.5-7B-chat LoRA微调接入实验管理.md",
+      "original_path": "models/Qwen1.5/08-Qwen1.5-7B-chat LoRA微调接入实验管理.md"
+    },
+    {
+      "byte_count": 9746,
+      "content_sha256": "sha256:a5588012e1de9a61619269a8d924137314812f59bb58e98b3edf755c99b444d7",
+      "normalized_path": "docs/models/Qwen2-VL/01-Qwen2-VL-2B-Instruct FastApi 部署调用.md",
+      "original_path": "models/Qwen2-VL/01-Qwen2-VL-2B-Instruct FastApi 部署调用.md"
+    },
+    {
+      "byte_count": 3696,
+      "content_sha256": "sha256:260e6545fba1e107a043570ea8789728b24db7aaa7dc11fba9d8d6fb2f5ce08d",
+      "normalized_path": "docs/models/Qwen2-VL/02-Qwen2-VL-2B-Instruct Web Demo部署.md",
+      "original_path": "models/Qwen2-VL/02-Qwen2-VL-2B-Instruct Web Demo部署.md"
+    },
+    {
+      "byte_count": 13498,
+      "content_sha256": "sha256:5062ca0685bca5b647900ec96109770f22d6125ea146c598b924006ecb2af042",
+      "normalized_path": "docs/models/Qwen2-VL/03-Qwen2-VL-2B-Instruct vLLM部署调用.md",
+      "original_path": "models/Qwen2-VL/03-Qwen2-VL-2B-Instruct vLLM部署调用.md"
+    },
+    {
+      "byte_count": 15072,
+      "content_sha256": "sha256:bb331411dd1c96cd67d239720b0668013cc0513d51c7499e8e04d6244fb11a23",
+      "normalized_path": "docs/models/Qwen2-VL/04-Qwen2-VL-2B Lora 微调.md",
+      "original_path": "models/Qwen2-VL/04-Qwen2-VL-2B Lora 微调.md"
+    },
+    {
+      "byte_count": 21904,
+      "content_sha256": "sha256:5a0e9611b2d31cdbecbcc695b1014b517b2c92822b7f6ef5faa2188876f50258",
+      "normalized_path": "docs/models/Qwen2-VL/05-Qwen2-VL-2B-Instruct Lora 微调 SwanLab 可视化记录版.md",
+      "original_path": "models/Qwen2-VL/05-Qwen2-VL-2B-Instruct Lora 微调 SwanLab 可视化记录版.md"
+    },
+    {
+      "byte_count": 24446,
+      "content_sha256": "sha256:faa2f83b8b73e7ed9cad72cab3acab2dde87f247e5c78c7bc514bd077a88a188",
+      "normalized_path": "docs/models/Qwen2-VL/06-Qwen2-VL-2B-Instruct Lora 微调案例 - LaTexOCR.md",
+      "original_path": "models/Qwen2-VL/06-Qwen2-VL-2B-Instruct Lora 微调案例 - LaTexOCR.md"
+    },
+    {
+      "byte_count": 11738,
+      "content_sha256": "sha256:354a861790092021e7e2fccc78f0f82f02eba036c1f9f124dc29191a683ed145",
+      "normalized_path": "docs/models/Qwen2.5-Coder/01-Qwen2.5-Coder-7B-Instruct FastApi 部署调用.md",
+      "original_path": "models/Qwen2.5-Coder/01-Qwen2.5-Coder-7B-Instruct FastApi 部署调用.md"
+    },
+    {
+      "byte_count": 5255,
+      "content_sha256": "sha256:b7f160934de954b202a5eda25efa808fff08aba15b36de7a0267b2e647e14d5d",
+      "normalized_path": "docs/models/Qwen2.5-Coder/02-Qwen2.5-7B-Instruct Langchain 接入.md",
+      "original_path": "models/Qwen2.5-Coder/02-Qwen2.5-7B-Instruct Langchain 接入.md"
+    },
+    {
+      "byte_count": 4974,
+      "content_sha256": "sha256:4843e31ccdb3f5c2b7169249daf47d6052bbacef7752b59a33828efddfdd70ea",
+      "normalized_path": "docs/models/Qwen2.5-Coder/03-Qwen2.5-Coder-7B-Instruct WebDemo部署.md",
+      "original_path": "models/Qwen2.5-Coder/03-Qwen2.5-Coder-7B-Instruct WebDemo部署.md"
+    },
+    {
+      "byte_count": 23759,
+      "content_sha256": "sha256:3c869917015398b0661df21b32ba56fc9d8712cecf14915da760cb5cf41bead1",
+      "normalized_path": "docs/models/Qwen2.5-Coder/04-Qwen2.5-Coder-7B-Instruct vLLM 部署调用.md",
+      "original_path": "models/Qwen2.5-Coder/04-Qwen2.5-Coder-7B-Instruct vLLM 部署调用.md"
+    },
+    {
+      "byte_count": 15084,
+      "content_sha256": "sha256:53b2b37a44eb1e4342350f7fe5847736cca8c2008dfb18f39deb3293cb5eb0a9",
+      "normalized_path": "docs/models/Qwen2.5-Coder/05-Qwen2.5-Coder-7B-Instruct Lora 微调 SwanLab 可视化记录版.md",
+      "original_path": "models/Qwen2.5-Coder/05-Qwen2.5-Coder-7B-Instruct Lora 微调 SwanLab 可视化记录版.md"
+    },
+    {
+      "byte_count": 8844,
+      "content_sha256": "sha256:3d4125bd908f29be2d9b00d74bf69df2aebccda6a8aa42d3d838a3185c8bcc8d",
+      "normalized_path": "docs/models/Qwen2.5-Coder/Qwen2.5-Coder-7B-Instruct Lora 微调.md",
+      "original_path": "models/Qwen2.5-Coder/Qwen2.5-Coder-7B-Instruct Lora 微调.md"
+    },
+    {
+      "byte_count": 5988,
+      "content_sha256": "sha256:7f9f7ffb53443b16629a067013860744bb50ba3738d3ec60d448682924b12bc0",
+      "normalized_path": "docs/models/Qwen2.5/01-Qwen2.5-7B-Instruct FastApi 部署调用.md",
+      "original_path": "models/Qwen2.5/01-Qwen2.5-7B-Instruct FastApi 部署调用.md"
+    },
+    {
+      "byte_count": 4944,
+      "content_sha256": "sha256:cf8654e50ad666a019510caf5537a90e5749ce98c09edc6e903b7f553cecec24",
+      "normalized_path": "docs/models/Qwen2.5/02-Qwen2.5-7B-Instruct Langchain 接入.md",
+      "original_path": "models/Qwen2.5/02-Qwen2.5-7B-Instruct Langchain 接入.md"
+    },
+    {
+      "byte_count": 19947,
+      "content_sha256": "sha256:d98df815c173a3d04527d97deb7ece57e750e6943f1085535e6b70462d7368eb",
+      "normalized_path": "docs/models/Qwen2.5/03-Qwen2.5-7B-Instruct vLLM 部署调用.md",
+      "original_path": "models/Qwen2.5/03-Qwen2.5-7B-Instruct vLLM 部署调用.md"
+    },
+    {
+      "byte_count": 5071,
+      "content_sha256": "sha256:2be231eaa68f442c91848138b3f487a910493893e69f6bbf591bde0841fbe0f8",
+      "normalized_path": "docs/models/Qwen2.5/04-Qwen2_5-7B-Instruct WebDemo部署.md",
+      "original_path": "models/Qwen2.5/04-Qwen2_5-7B-Instruct WebDemo部署.md"
+    },
+    {
+      "byte_count": 9129,
+      "content_sha256": "sha256:159831e03349f093da137013bc418b02aa138dd5be9be7c995595ce911025250",
+      "normalized_path": "docs/models/Qwen2.5/05-Qwen2.5-7B-Instruct Lora 微调.md",
+      "original_path": "models/Qwen2.5/05-Qwen2.5-7B-Instruct Lora 微调.md"
+    },
+    {
+      "byte_count": 12362,
+      "content_sha256": "sha256:14ecc365fbb00223ca5915b12fb2c4643ea314f9c3793cdec01bb1bfeb8ad7b9",
+      "normalized_path": "docs/models/Qwen2.5/06-Qwen2.5-7B-Instruct o1-like 推理链实现.md",
+      "original_path": "models/Qwen2.5/06-Qwen2.5-7B-Instruct o1-like 推理链实现.md"
+    },
+    {
+      "byte_count": 15559,
+      "content_sha256": "sha256:a06f150ae58506353e9d73f040aecda2bf2d82a03d91c708f53338419faf3c8a",
+      "normalized_path": "docs/models/Qwen2.5/07-Qwen2.5-7B-Instruct Lora 微调 SwanLab可视化记录版.md",
+      "original_path": "models/Qwen2.5/07-Qwen2.5-7B-Instruct Lora 微调 SwanLab可视化记录版.md"
+    },
+    {
+      "byte_count": 2035,
+      "content_sha256": "sha256:44c0c4aba24f659b52211b9604e72dcd66349fef47607536ca5dd43fd7584f2b",
+      "normalized_path": "docs/models/Qwen2.5/readme.md",
+      "original_path": "models/Qwen2.5/readme.md"
+    },
+    {
+      "byte_count": 6511,
+      "content_sha256": "sha256:5b6e74d9c67ce839fd48ec8bda7278c0fbed5da1f970fc32bd2eb9e25eaa310a",
+      "normalized_path": "docs/models/Qwen2/01-Qwen2-7B-Instruct FastApi 部署调用.md",
+      "original_path": "models/Qwen2/01-Qwen2-7B-Instruct FastApi 部署调用.md"
+    },
+    {
+      "byte_count": 4872,
+      "content_sha256": "sha256:eba233d32a416758b713062afe078d9eccccf4258b7ce314da3630375570ae88",
+      "normalized_path": "docs/models/Qwen2/02-Qwen2-7B-Instruct Langchain 接入.md",
+      "original_path": "models/Qwen2/02-Qwen2-7B-Instruct Langchain 接入.md"
+    },
+    {
+      "byte_count": 5817,
+      "content_sha256": "sha256:2a76264d2515f9a486ba83c0a3d938d5666b9a0f06dedafe23ef2c5710fa93e7",
+      "normalized_path": "docs/models/Qwen2/03-Qwen2-7B-Instruct WebDemo部署.md",
+      "original_path": "models/Qwen2/03-Qwen2-7B-Instruct WebDemo部署.md"
+    },
+    {
+      "byte_count": 18705,
+      "content_sha256": "sha256:46a2a4c95caf1ee0470eecb9d0f285c0799e9cb8e2e3c74219bd9616822fd859",
+      "normalized_path": "docs/models/Qwen2/04-Qwen2-7B-Instruct vLLM 部署调用.md",
+      "original_path": "models/Qwen2/04-Qwen2-7B-Instruct vLLM 部署调用.md"
+    },
+    {
+      "byte_count": 9206,
+      "content_sha256": "sha256:187b88ab904e6ed827a7978665f45561f74c86834f0534d800bd9b9f67871385",
+      "normalized_path": "docs/models/Qwen2/05-Qwen2-7B-Instruct Lora 微调.md",
+      "original_path": "models/Qwen2/05-Qwen2-7B-Instruct Lora 微调.md"
+    },
+    {
+      "byte_count": 4872,
+      "content_sha256": "sha256:38c801c9c8b3fcfea338b68e24ba9959a6abc032d1791ce9c850f56657129770",
+      "normalized_path": "docs/models/Qwen3-VL/01-Qwen3-VL-MoE-模型结构解析-Blog.md",
+      "original_path": "models/Qwen3-VL/01-Qwen3-VL-MoE-模型结构解析-Blog.md"
+    },
+    {
+      "byte_count": 19640,
+      "content_sha256": "sha256:b093bae27006dbeda6cd94c1374b85029123d837040f12fb43610abba7a7b802",
+      "normalized_path": "docs/models/Qwen3-VL/02-Qwen3-VL-4B-Instruct FastApi 部署调用.md",
+      "original_path": "models/Qwen3-VL/02-Qwen3-VL-4B-Instruct FastApi 部署调用.md"
+    },
+    {
+      "byte_count": 16209,
+      "content_sha256": "sha256:b304be03608a45c285a40449ef3952819b7d82aeed8af9c45c9650aabc181c3e",
+      "normalized_path": "docs/models/Qwen3-VL/04-Qwen3-VL-4B-Instruct-vLLM.md",
+      "original_path": "models/Qwen3-VL/04-Qwen3-VL-4B-Instruct-vLLM.md"
+    },
+    {
+      "byte_count": 38382,
+      "content_sha256": "sha256:93123407a3b225638b0ec20bea712120d660e54dd15c0cb009d90f451bf98732",
+      "normalized_path": "docs/models/Qwen3-VL/05-Qwen3-VL-4B-Instruct  Lora 可视化微调案例 - LaTexOCR.md",
+      "original_path": "models/Qwen3-VL/05-Qwen3-VL-4B-Instruct  Lora 可视化微调案例 - LaTexOCR.md"
+    },
+    {
+      "byte_count": 36082,
+      "content_sha256": "sha256:bf3327df17fc54a0fa4569b557590e3c67279af58f03d184dfab5d4d8fc13e96",
+      "normalized_path": "docs/models/Qwen3-VL/Qwen3-VL-4B-Instruct  Lora 可视化微调案例 - LaTexOCR.md",
+      "original_path": "models/Qwen3-VL/Qwen3-VL-4B-Instruct  Lora 可视化微调案例 - LaTexOCR.md"
+    },
+    {
+      "byte_count": 14009,
+      "content_sha256": "sha256:446be8a612ab1f58fcb6b1500d5eb7af10f0ef624e297aa718c2c771493dd5fc",
+      "normalized_path": "docs/models/Qwen3.5/01-Qwen3.5-4B-vLLM 部署调用.md",
+      "original_path": "models/Qwen3.5/01-Qwen3.5-4B-vLLM 部署调用.md"
+    },
+    {
+      "byte_count": 12577,
+      "content_sha256": "sha256:5bfe5a1fb08f55af7e405e3a0a413de74d6247825baca47944338df05af0dabd",
+      "normalized_path": "docs/models/Qwen3.5/02-Qwen3.5-4B-SGLang 部署调用.md",
+      "original_path": "models/Qwen3.5/02-Qwen3.5-4B-SGLang 部署调用.md"
+    },
+    {
+      "byte_count": 16053,
+      "content_sha256": "sha256:e4e9903fc9570a0427990da73540ac634326a6af0e771419c8bb7fa13fc72654",
+      "normalized_path": "docs/models/Qwen3.5/03-Qwen3.5-4B-LoRA及SwanLab可视化记录.md",
+      "original_path": "models/Qwen3.5/03-Qwen3.5-4B-LoRA及SwanLab可视化记录.md"
+    },
+    {
+      "byte_count": 5563,
+      "content_sha256": "sha256:3a5322fe0621dc8f8eb47289995072f44f7b94bb1d025749371cbc2bf21a39b1",
+      "normalized_path": "docs/models/Qwen3/01-Qwen3-模型结构解析-Blog.md",
+      "original_path": "models/Qwen3/01-Qwen3-模型结构解析-Blog.md"
+    },
+    {
+      "byte_count": 29930,
+      "content_sha256": "sha256:84a73db95ba8541221123279743202d1a28fd959e5c84dc3c602ff2bc73fa21a",
+      "normalized_path": "docs/models/Qwen3/02-Qwen3-8B-vLLM 部署调用.md",
+      "original_path": "models/Qwen3/02-Qwen3-8B-vLLM 部署调用.md"
+    },
+    {
+      "byte_count": 8582,
+      "content_sha256": "sha256:87ec4a1760da97b5cc32504fbab3925e72164416fb371c2c46d48d59bf2803da",
+      "normalized_path": "docs/models/Qwen3/03-Qwen3-7B-Instruct Windows LMStudio 部署.md",
+      "original_path": "models/Qwen3/03-Qwen3-7B-Instruct Windows LMStudio 部署.md"
+    },
+    {
+      "byte_count": 7395,
+      "content_sha256": "sha256:aab3416faff6b49f8b43baa00146621f7d45c190254b8e807bed75b74ceba2d3",
+      "normalized_path": "docs/models/Qwen3/04-Qwen3-8B EvalScope智商情商评测.md",
+      "original_path": "models/Qwen3/04-Qwen3-8B EvalScope智商情商评测.md"
+    },
+    {
+      "byte_count": 10707,
+      "content_sha256": "sha256:4dd621561cfe0024ad0135150cd7644db84832f26e2753b8da9679f63979b18f",
+      "normalized_path": "docs/models/Qwen3/05-Qwen3-8B-LoRA及SwanLab可视化记录.md",
+      "original_path": "models/Qwen3/05-Qwen3-8B-LoRA及SwanLab可视化记录.md"
+    },
+    {
+      "byte_count": 19277,
+      "content_sha256": "sha256:989803a16392f8686385dfc9bd2821b51b5bfc299506cd474cb2b7b12d3ecf60",
+      "normalized_path": "docs/models/Qwen3/06-Qwen3-30B-A3B 微调及 SwanLab 可视化记录.md",
+      "original_path": "models/Qwen3/06-Qwen3-30B-A3B 微调及 SwanLab 可视化记录.md"
+    },
+    {
+      "byte_count": 7207,
+      "content_sha256": "sha256:20b6ef896d67e7b0d6cc1ef2cd139c9baf80a6f4d202d0d08b6338abe8b657d3",
+      "normalized_path": "docs/models/Qwen3/07-Qwen3-Think-解密-Blog.md",
+      "original_path": "models/Qwen3/07-Qwen3-Think-解密-Blog.md"
+    },
+    {
+      "byte_count": 14236,
+      "content_sha256": "sha256:ac97fbe552727f3bfc3b05aaac81247d6f741ca2b2e81efea855d6031439034b",
+      "normalized_path": "docs/models/Qwen3/08-Qwen3_0_6B的小模型有什么用.md",
+      "original_path": "models/Qwen3/08-Qwen3_0_6B的小模型有什么用.md"
+    },
+    {
+      "byte_count": 22602,
+      "content_sha256": "sha256:ff3f90e6fdf14b8d4fd5d4c1039e45609b2573e6cc109740a523aeb55e4c4e2c",
+      "normalized_path": "docs/models/Qwen3/09-Qwen3-1.7B-医学推理式对话微调 及 SwanLab 可视化记录.md",
+      "original_path": "models/Qwen3/09-Qwen3-1.7B-医学推理式对话微调 及 SwanLab 可视化记录.md"
+    },
+    {
+      "byte_count": 45030,
+      "content_sha256": "sha256:8d244712ab34f868686585e14f8a1d82c525c0a99d9616f9586138e32ac356f4",
+      "normalized_path": "docs/models/Qwen3/10-Qwen3-8B GRPO微调及通过swanlab可视化.md",
+      "original_path": "models/Qwen3/10-Qwen3-8B GRPO微调及通过swanlab可视化.md"
+    },
+    {
+      "byte_count": 12127,
+      "content_sha256": "sha256:81f8f527a428091a1d904716c54f63cbd2a8479d746562d92df0a8e7845ff55b",
+      "normalized_path": "docs/models/Qwen3/11-Qwen3-8B-AMD部署调用.md",
+      "original_path": "models/Qwen3/11-Qwen3-8B-AMD部署调用.md"
+    },
+    {
+      "byte_count": 5964,
+      "content_sha256": "sha256:d25d34d415f97a8d67f6738976323391805c98e4aba99563498a90aca89f21b7",
+      "normalized_path": "docs/models/SpatialLM/readme.md",
+      "original_path": "models/SpatialLM/readme.md"
+    },
+    {
+      "byte_count": 15627,
+      "content_sha256": "sha256:30373f8333239a0518a61add96e4a7d0b15f76c9daea597cb2200d38264d09d1",
+      "normalized_path": "docs/models/Step-3.5-Flash/01-Step-3.5-Flash-vLLM部署教程.md",
+      "original_path": "models/Step-3.5-Flash/01-Step-3.5-Flash-vLLM部署教程.md"
+    },
+    {
+      "byte_count": 24049,
+      "content_sha256": "sha256:3d92599a29a5e2bf1ca0a4eb79535748563925df930e3eeb05ab552ca1b5a0fe",
+      "normalized_path": "docs/models/Step-3.5-Flash/02-Step-3.5-Flash-SGLang.md",
+      "original_path": "models/Step-3.5-Flash/02-Step-3.5-Flash-SGLang.md"
+    },
+    {
+      "byte_count": 9915,
+      "content_sha256": "sha256:ad3bafb9d8bdff0d8e017fc821398e1a0cda9186641b1185b7d7be1f0827f053",
+      "normalized_path": "docs/models/TransNormerLLM/01-TransNormerLLM-7B FastApi 部署调用.md",
+      "original_path": "models/TransNormerLLM/01-TransNormerLLM-7B FastApi 部署调用.md"
+    },
+    {
+      "byte_count": 4865,
+      "content_sha256": "sha256:b1f8207980c279688c7959e0e84ed881a62955616492834f082c4c11cddfb59b",
+      "normalized_path": "docs/models/TransNormerLLM/02-TransNormerLLM-7B 接入langchain搭建知识库助手.md",
+      "original_path": "models/TransNormerLLM/02-TransNormerLLM-7B 接入langchain搭建知识库助手.md"
+    },
+    {
+      "byte_count": 5166,
+      "content_sha256": "sha256:43be79a77716993eed759feb4683fda752da67e608147a1585330b44d0f4deb9",
+      "normalized_path": "docs/models/TransNormerLLM/03-TransNormerLLM-7B WebDemo.md",
+      "original_path": "models/TransNormerLLM/03-TransNormerLLM-7B WebDemo.md"
+    },
+    {
+      "byte_count": 9979,
+      "content_sha256": "sha256:09c0bf30c1969000cd677fde382b3e431f0f2e7e86e420e13fd00dc51b3a600b",
+      "normalized_path": "docs/models/TransNormerLLM/04-TrasnNormerLLM-7B Lora 微调.md",
+      "original_path": "models/TransNormerLLM/04-TrasnNormerLLM-7B Lora 微调.md"
+    },
+    {
+      "byte_count": 4558,
+      "content_sha256": "sha256:4cde4acdd313e010a00f16676f37e8a082a338ea75de63dec6004f5f1c06c9fd",
+      "normalized_path": "docs/models/XVERSE/01-XVERSE-7B-chat Transformers推理.md",
+      "original_path": "models/XVERSE/01-XVERSE-7B-chat Transformers推理.md"
+    },
+    {
+      "byte_count": 7324,
+      "content_sha256": "sha256:eda9e4a30a9fd0aeb4c5e0653443d08e1a369a81e47ad7350592a8044ff9250c",
+      "normalized_path": "docs/models/XVERSE/02-XVERSE-7B-chat FastAPI部署.md",
+      "original_path": "models/XVERSE/02-XVERSE-7B-chat FastAPI部署.md"
+    },
+    {
+      "byte_count": 7003,
+      "content_sha256": "sha256:074f907feb1262fdeb0b20ac64a5091cda26e4de2d3a0843b2649a4e107dd022",
+      "normalized_path": "docs/models/XVERSE/03-XVERSE-7B-chat langchain 接入.md",
+      "original_path": "models/XVERSE/03-XVERSE-7B-chat langchain 接入.md"
+    },
+    {
+      "byte_count": 7262,
+      "content_sha256": "sha256:353077d508ee328354eb9bc5ed913aaea858fdcd95e8e2d847160bd215608226",
+      "normalized_path": "docs/models/XVERSE/04-XVERSE-7B-chat WebDemo 部署.md",
+      "original_path": "models/XVERSE/04-XVERSE-7B-chat WebDemo 部署.md"
+    },
+    {
+      "byte_count": 7236,
+      "content_sha256": "sha256:30f0d5652837c747e0d05ada48e2b225b9052d4ab12ce9b7b6e2575af7db1468",
+      "normalized_path": "docs/models/XVERSE/05-XVERSE-7B-Chat Lora 微调.md",
+      "original_path": "models/XVERSE/05-XVERSE-7B-Chat Lora 微调.md"
+    },
+    {
+      "byte_count": 6677,
+      "content_sha256": "sha256:dff7e62f7b901ad4deaafed51a9a84725219bc1a8f703009a7bf6f4660b20ba5",
+      "normalized_path": "docs/models/XVERSE/06-XVERSE-MoE-A4.2B.md",
+      "original_path": "models/XVERSE/06-XVERSE-MoE-A4.2B.md"
+    },
+    {
+      "byte_count": 5790,
+      "content_sha256": "sha256:8fecb0886e2620c73940a4ccab0551c55671ccee0d17e09053670cbab5fdde97",
+      "normalized_path": "docs/models/Yi/01-Yi-6B-Chat FastApi 部署调用.md",
+      "original_path": "models/Yi/01-Yi-6B-Chat FastApi 部署调用.md"
+    },
+    {
+      "byte_count": 16241,
+      "content_sha256": "sha256:726870803625b21fee85c52a8a6ddf14e9fefe8c600b607fff7e9ba493b58cf5",
+      "normalized_path": "docs/models/Yi/02-Yi-6B-Chat 接入langchain搭建知识库助手.md",
+      "original_path": "models/Yi/02-Yi-6B-Chat 接入langchain搭建知识库助手.md"
+    },
+    {
+      "byte_count": 5179,
+      "content_sha256": "sha256:a3670ff8481493234f0190075a6aefb50fcf2caae69481e88a71b11346f31ccb",
+      "normalized_path": "docs/models/Yi/03-Yi-6B-chat WebDemo.md",
+      "original_path": "models/Yi/03-Yi-6B-chat WebDemo.md"
+    },
+    {
+      "byte_count": 9715,
+      "content_sha256": "sha256:daf124adddebd3b218ea22a5649689b2018b9467a02eac214807748f9acd6c09",
+      "normalized_path": "docs/models/Yi/04-Yi-6B-Chat Lora 微调.md",
+      "original_path": "models/Yi/04-Yi-6B-Chat Lora 微调.md"
+    },
+    {
+      "byte_count": 6652,
+      "content_sha256": "sha256:536777c900cfa2dfbbec636086bab13a1a8d58c8a3aa342c76c773e29d434b89",
+      "normalized_path": "docs/models/Yuan2.0-M32/01-Yuan2.0-M32 FastApi 部署调用.md",
+      "original_path": "models/Yuan2.0-M32/01-Yuan2.0-M32 FastApi 部署调用.md"
+    },
+    {
+      "byte_count": 5332,
+      "content_sha256": "sha256:9c861b3cd37b3bf11f760f385d697ee6d920eea36d330af6a72955b7ea48697c",
+      "normalized_path": "docs/models/Yuan2.0-M32/02-Yuan2.0-M32 Langchain 接入.md",
+      "original_path": "models/Yuan2.0-M32/02-Yuan2.0-M32 Langchain 接入.md"
+    },
+    {
+      "byte_count": 5962,
+      "content_sha256": "sha256:5f9065ebfdb1b779b9fea5c3761a85a59af5ac2de7f47f620aff59a2de0c1114",
+      "normalized_path": "docs/models/Yuan2.0-M32/03-Yuan2.0-M32 WebDemo部署.md",
+      "original_path": "models/Yuan2.0-M32/03-Yuan2.0-M32 WebDemo部署.md"
+    },
+    {
+      "byte_count": 3908,
+      "content_sha256": "sha256:cdf8a594e26775124503a9d952a6bb2358280562025258118d0cae6850b9c463",
+      "normalized_path": "docs/models/Yuan2.0-M32/README.md",
+      "original_path": "models/Yuan2.0-M32/README.md"
+    },
+    {
+      "byte_count": 5997,
+      "content_sha256": "sha256:bfa9cafc3b1aff3ae444d67c4873806bacbe6a3c301c63e09d9825db0bf57688",
+      "normalized_path": "docs/models/Yuan2.0/01-Yuan2.0-2B FastApi 部署调用.md",
+      "original_path": "models/Yuan2.0/01-Yuan2.0-2B FastApi 部署调用.md"
+    },
+    {
+      "byte_count": 4693,
+      "content_sha256": "sha256:5c9438a7d146c2fd84d9202cdd7155a01ae4c2727d0173ab8d6273bb32a774aa",
+      "normalized_path": "docs/models/Yuan2.0/02-Yuan2.0-2B Langchain 接入.md",
+      "original_path": "models/Yuan2.0/02-Yuan2.0-2B Langchain 接入.md"
+    },
+    {
+      "byte_count": 5331,
+      "content_sha256": "sha256:2243adf6820941197fe3a805e583b4abe153355fe1703bbf0e1ec592376c9520",
+      "normalized_path": "docs/models/Yuan2.0/03-Yuan2.0-2B WebDemo部署.md",
+      "original_path": "models/Yuan2.0/03-Yuan2.0-2B WebDemo部署.md"
+    },
+    {
+      "byte_count": 6230,
+      "content_sha256": "sha256:449f98d685781e8274ab7144e7214b56653d15c13e88ad91d9432bc93810df22",
+      "normalized_path": "docs/models/Yuan2.0/04-Yuan2.0-2B vLLM部署调用.md",
+      "original_path": "models/Yuan2.0/04-Yuan2.0-2B vLLM部署调用.md"
+    },
+    {
+      "byte_count": 2401,
+      "content_sha256": "sha256:1daa05437bee014b2a6fee3e0c9265e51afbf2083dfc996be1fd4a942830c621",
+      "normalized_path": "docs/models/Yuan2.0/05-Yuan2.0-2B Lora微调.md",
+      "original_path": "models/Yuan2.0/05-Yuan2.0-2B Lora微调.md"
+    },
+    {
+      "byte_count": 5599,
+      "content_sha256": "sha256:a9e4664b7ae0a262db349d6935dfce7e5417d4df81aa07198f2d13199c2fe6ae",
+      "normalized_path": "docs/models/Yuan2.0/README.md",
+      "original_path": "models/Yuan2.0/README.md"
+    },
+    {
+      "byte_count": 7511,
+      "content_sha256": "sha256:c1a3538472e1a0852bd9b77492b45600b82f67000547b1ee2d6b51afeba25b5a",
+      "normalized_path": "docs/models/bilibili_Index-1.9B/01-Index-1.9B-chat FastApi 部署调用.md",
+      "original_path": "models/bilibili_Index-1.9B/01-Index-1.9B-chat FastApi 部署调用.md"
+    },
+    {
+      "byte_count": 6704,
+      "content_sha256": "sha256:45f11c9dd0648eed970ab0b14ee7a93fdb8756d2362221047d01000ec22edef8",
+      "normalized_path": "docs/models/bilibili_Index-1.9B/02-Index-1.9B-Chat LangChain 接入.md",
+      "original_path": "models/bilibili_Index-1.9B/02-Index-1.9B-Chat LangChain 接入.md"
+    },
+    {
+      "byte_count": 5267,
+      "content_sha256": "sha256:c6de8e2d91afce9e0271d850daab8092ac469c203e8c81ae7b3a7de48bafdea2",
+      "normalized_path": "docs/models/bilibili_Index-1.9B/03-Index-1.9B-Chat WebDemo 部署.md",
+      "original_path": "models/bilibili_Index-1.9B/03-Index-1.9B-Chat WebDemo 部署.md"
+    },
+    {
+      "byte_count": 9500,
+      "content_sha256": "sha256:5208ec665fc572e7b7323ae05b4ee6fead852bea39ed6a9b55f071d4e0536674",
+      "normalized_path": "docs/models/bilibili_Index-1.9B/04-Index-1.9B-Chat Lora 微调.md",
+      "original_path": "models/bilibili_Index-1.9B/04-Index-1.9B-Chat Lora 微调.md"
+    },
+    {
+      "byte_count": 5626,
+      "content_sha256": "sha256:52fe9ef10dc5a60f8183bbfa1c9a3283cb00422e6a8168874d94d911c3fdc2bd",
+      "normalized_path": "docs/models/gpt-oss/1-gpt-oss-20b vllm 部署调用.md",
+      "original_path": "models/gpt-oss/1-gpt-oss-20b vllm 部署调用.md"
+    },
+    {
+      "byte_count": 12902,
+      "content_sha256": "sha256:81bcb488d7561748f1b81abbb29fd2fe4dc2de4f5865716cd67f9cef900cb842",
+      "normalized_path": "docs/models/gpt-oss/2-gpt-oss-20b Evalscope并发测试.md",
+      "original_path": "models/gpt-oss/2-gpt-oss-20b Evalscope并发测试.md"
+    },
+    {
+      "byte_count": 6710,
+      "content_sha256": "sha256:3d6590b195d008f0479e63097ca5c6359a1e76e29f4e9e8bfd205ca2af631aea",
+      "normalized_path": "docs/models/gpt-oss/3-gpt-oss-20b lmstudio 本地部署调用.md",
+      "original_path": "models/gpt-oss/3-gpt-oss-20b lmstudio 本地部署调用.md"
+    },
+    {
+      "byte_count": 16377,
+      "content_sha256": "sha256:c1c5e1e80f37f454b46459ff5cd28a59330b299da6f2743aa28d893f5fc7f850",
+      "normalized_path": "docs/models/gpt-oss/4-gpt-oss-20b Lora 微调及 SwanLab 可视化记录.md",
+      "original_path": "models/gpt-oss/4-gpt-oss-20b Lora 微调及 SwanLab 可视化记录.md"
+    },
+    {
+      "byte_count": 5007,
+      "content_sha256": "sha256:78c4362ddd8e222df0515061b2c5b897f6efcf4648d1d0b936184c46e431a8a0",
+      "normalized_path": "docs/models/gpt-oss/5-gpt-oss-20b DPO 微调及 SwanLab 可视化记录.md",
+      "original_path": "models/gpt-oss/5-gpt-oss-20b DPO 微调及 SwanLab 可视化记录.md"
+    },
+    {
+      "byte_count": 8718,
+      "content_sha256": "sha256:275cfa8993bfdb7aee291a36732d1656a747a65e07a1d10866be77b1360ed015",
+      "normalized_path": "docs/models/minicpm5/01-MiniCPM5-1B-vLLM 部署调用.md",
+      "original_path": "models/minicpm5/01-MiniCPM5-1B-vLLM 部署调用.md"
+    },
+    {
+      "byte_count": 8317,
+      "content_sha256": "sha256:a37763247b5f45042a3ef6ea995e2131dcca8ab7de63549bb5ae431414125106",
+      "normalized_path": "docs/models/minicpm5/02-MiniCPM5-1B-SGLang 部署调用.md",
+      "original_path": "models/minicpm5/02-MiniCPM5-1B-SGLang 部署调用.md"
+    },
+    {
+      "byte_count": 10281,
+      "content_sha256": "sha256:68eadc7515466de9cb0fb544a282c4e87a73a06a753cb74a6b9b7f3a9d3fbc04",
+      "normalized_path": "docs/models/minicpm5/03-MiniCPM5-1B-LoRA及SwanLab可视化记录.md",
+      "original_path": "models/minicpm5/03-MiniCPM5-1B-LoRA及SwanLab可视化记录.md"
+    },
+    {
+      "byte_count": 5708,
+      "content_sha256": "sha256:d871115b8a2b216344c125af03888b7d14c8dd36d500ce7d5c028f34360762d0",
+      "normalized_path": "docs/models/phi-3/01-Phi-3-mini-4k-instruct FastApi 部署调用.md",
+      "original_path": "models/phi-3/01-Phi-3-mini-4k-instruct FastApi 部署调用.md"
+    },
+    {
+      "byte_count": 4962,
+      "content_sha256": "sha256:b45bab42e714dd2499681d8799b9cb289f6e80569334f10aceb560af7ac9f5ce",
+      "normalized_path": "docs/models/phi-3/02-Phi-3-mini-4k-instruct langchain 接入.md",
+      "original_path": "models/phi-3/02-Phi-3-mini-4k-instruct langchain 接入.md"
+    },
+    {
+      "byte_count": 5468,
+      "content_sha256": "sha256:5758f8f3c655589b3f9ba3eafa34549a222b1da0a18a716dfd8508b82d962afa",
+      "normalized_path": "docs/models/phi-3/03-Phi-3-mini-4k-instruct WebDemo部署.md",
+      "original_path": "models/phi-3/03-Phi-3-mini-4k-instruct WebDemo部署.md"
+    },
+    {
+      "byte_count": 9403,
+      "content_sha256": "sha256:d881a142f04aef27a8e72532a91a13d50d565aaeeabee18070d93560ef08c8fe",
+      "normalized_path": "docs/models/phi-3/04-Phi-3-mini-4k-Instruct Lora 微调.md",
+      "original_path": "models/phi-3/04-Phi-3-mini-4k-Instruct Lora 微调.md"
+    },
+    {
+      "byte_count": 7322,
+      "content_sha256": "sha256:7d3fb54a6ed37631dea63b90816eee2c84c74074b6bb88271a2e65b2daf3fa63",
+      "normalized_path": "docs/models/phi4/01-Phi-4 FastApi 部署调用.md",
+      "original_path": "models/phi4/01-Phi-4 FastApi 部署调用.md"
+    },
+    {
+      "byte_count": 6679,
+      "content_sha256": "sha256:c4525644581d7902576130fbfa017d282305424ccf45ced312866ae15f66648e",
+      "normalized_path": "docs/models/phi4/02-Phi-4-Langchain接入.md",
+      "original_path": "models/phi4/02-Phi-4-Langchain接入.md"
+    },
+    {
+      "byte_count": 4958,
+      "content_sha256": "sha256:a02fbbeba43e16e138989d4d50b2795aa5540484471fdc4e8e6ab1b6227eca89",
+      "normalized_path": "docs/models/phi4/03-Phi-4 WebDemo部署.md",
+      "original_path": "models/phi4/03-Phi-4 WebDemo部署.md"
+    },
+    {
+      "byte_count": 11288,
+      "content_sha256": "sha256:d4701f80d50b1f51752ba8225818679b1babb1d14542f24c5d8eba26498a0cdf",
+      "normalized_path": "docs/models/phi4/04-Phi-4-Lora 微调.md",
+      "original_path": "models/phi4/04-Phi-4-Lora 微调.md"
+    },
+    {
+      "byte_count": 20491,
+      "content_sha256": "sha256:73767d36a5c9a5546b9c54ef8d3b6f3a1a8754dee0a723daa8a94867e7a1479e",
+      "normalized_path": "docs/models/phi4/05-Phi-4-Lora 微调 命名实体识别.md",
+      "original_path": "models/phi4/05-Phi-4-Lora 微调 命名实体识别.md"
+    },
+    {
+      "byte_count": 29251,
+      "content_sha256": "sha256:6aade9b5421a33dda4f62c1cde8ad27b5e92cf1547f2e7ae5c000d3e4fabe6e9",
+      "normalized_path": "docs/models/phi4/06-Phi-4-GRPO及swanlab可视化.md",
+      "original_path": "models/phi4/06-Phi-4-GRPO及swanlab可视化.md"
+    },
+    {
+      "byte_count": 4193,
+      "content_sha256": "sha256:f428233bdf56fbda3519b9e403c627cdd88d60d2c874800748a6ac686f9256cd",
+      "normalized_path": "docs/models_amd/gemma3/1-gemma3-4b-it AMD环境准备.md",
+      "original_path": "models_amd/gemma3/1-gemma3-4b-it AMD环境准备.md"
+    },
+    {
+      "byte_count": 4911,
+      "content_sha256": "sha256:6095e042ab59a96e914511f82d1c16d0d593ae2246a61037349416428cc6e00f",
+      "normalized_path": "docs/models_amd/gemma3/2-gemma3-4b-it 模型服务部署.md",
+      "original_path": "models_amd/gemma3/2-gemma3-4b-it 模型服务部署.md"
+    },
+    {
+      "byte_count": 12127,
+      "content_sha256": "sha256:81f8f527a428091a1d904716c54f63cbd2a8479d746562d92df0a8e7845ff55b",
+      "normalized_path": "docs/models_amd/qwen3/1-Qwen3-8B-AMD部署调用.md",
+      "original_path": "models_amd/qwen3/1-Qwen3-8B-AMD部署调用.md"
+    },
+    {
+      "byte_count": 31255,
+      "content_sha256": "sha256:eecf26d0673b5e17b3dcbf436d92fa8304a87d3113a178bad4401db011c7b74d",
+      "normalized_path": "docs/models_ascend/qwen3.5/3.6/01-Qwen3.6-35B-A3B-vLLM-ascend部署调用.md",
+      "original_path": "models_ascend/qwen3.5\\3.6/01-Qwen3.6-35B-A3B-vLLM-ascend部署调用.md"
+    },
+    {
+      "byte_count": 19225,
+      "content_sha256": "sha256:5030a9ed63b51618728c7a68b41953a81e89fc5e186dafaa5a7ef2c87c8cafd6",
+      "normalized_path": "docs/models_ascend/qwen3/01-Qwen3-8B-MindIE部署调用.md",
+      "original_path": "models_ascend/qwen3/01-Qwen3-8B-MindIE部署调用.md"
+    },
+    {
+      "byte_count": 31125,
+      "content_sha256": "sha256:165a820ffd71b28ee45ed7f330670928674580cba53e1d8aa36ec93073e31b1c",
+      "normalized_path": "docs/models_ascend/qwen3/02-Qwen3-8B-vLLM-ascend部署调用.md",
+      "original_path": "models_ascend/qwen3/02-Qwen3-8B-vLLM-ascend部署调用.md"
+    },
+    {
+      "byte_count": 6132,
+      "content_sha256": "sha256:e763c547016d2a0715f0e8e2851cc5c37ed213182c564778671b9d9d6d46a687",
+      "normalized_path": "docs/models_ascend/qwen3/03-Qwen3-8B-sglang-ascend部署调用.md",
+      "original_path": "models_ascend/qwen3/03-Qwen3-8B-sglang-ascend部署调用.md"
+    },
+    {
+      "byte_count": 4379,
+      "content_sha256": "sha256:35dc99afb9d325df9bfd750e2646f63863203724fca12a0ecfa2bfb8898cc6b7",
+      "normalized_path": "docs/models_mlx/README.md",
+      "original_path": "models_mlx/README.md"
+    },
+    {
+      "byte_count": 4440,
+      "content_sha256": "sha256:e5d0af5cb90fb8b6a6a77dc286a8fe8f89a32ad4f12b94b5f63a42984ae09daa",
+      "normalized_path": "docs/models_mlx/README_en.md",
+      "original_path": "models_mlx/README_en.md"
+    },
+    {
+      "byte_count": 5256,
+      "content_sha256": "sha256:4f0e5388276c5b2a7b42a990f89aaa3a5e7692a47c5a971b30cec6468ef3801a",
+      "normalized_path": "docs/models_mlx/docs/MLX-LM_Intro.md",
+      "original_path": "models_mlx/docs/MLX-LM_Intro.md"
+    },
+    {
+      "byte_count": 37716,
+      "content_sha256": "sha256:7327e7ac340ed9e0af31060966ae5b90e9af0ec841b700943f395fe7c8c71698",
+      "normalized_path": "docs/support_model.md",
+      "original_path": "support_model.md"
+    },
+    {
+      "byte_count": 4322,
+      "content_sha256": "sha256:e4210cfced5188bf785f6cdb5878d98e63aede9a68aa107dd9c222843cc22d4b",
+      "normalized_path": "docs/support_model_Ascend.md",
+      "original_path": "support_model_Ascend.md"
+    },
+    {
+      "byte_count": 3082,
+      "content_sha256": "sha256:33aee00535f885a2b5d5623d29e81dd95d87c45651393ccf401d382c665dfe39",
+      "normalized_path": "docs/support_model_amd.md",
+      "original_path": "support_model_amd.md"
+    }
+  ],
+  "fingerprint": "sha256:8571613c5d16f56c817d004e2c77b7bbb7ef672fca75bbd27376d0397f7e2518",
+  "license": "Apache-2.0",
+  "markdown_file_count": 284,
+  "repository_url": "https://github.com/datawhalechina/self-llm.git",
+  "schema_version": 1
+}

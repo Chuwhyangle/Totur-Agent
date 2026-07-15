@@ -21,6 +21,9 @@ CHROMA_PERSIST_DIR = "chroma_db"
 # 第一版只索引本地 docs 目录下的 Markdown 笔记。
 KNOWLEDGE_SOURCE_DIR = "docs"
 
+# Formal rebuild combines the local notes and the imported self-llm snapshot.
+KNOWLEDGE_SOURCE_DIRS = ("docs", "corpus/self-llm/docs")
+
 # 离线索引脚本调用 embedding 接口时的默认批大小。
 EMBEDDING_BATCH_SIZE = 32
 
