@@ -456,3 +456,9 @@ def test_multiple_source_dirs_are_globally_sorted_and_rebuilt_together(tmp_path)
 def test_single_source_dir_keyword_remains_compatible(tmp_path):
     write_corpus_file(tmp_path, "docs/a.md", "a")
     assert build_knowledge_index(**build_kwargs(tmp_path)).indexed_count == 1
+
+
+def test_formal_rag_sources_include_local_and_self_llm_corpus():
+    from app.services.rag_settings import KNOWLEDGE_SOURCE_DIRS
+
+    assert KNOWLEDGE_SOURCE_DIRS == ("docs", "corpus/self-llm/docs")

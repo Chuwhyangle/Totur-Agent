@@ -16,7 +16,10 @@ from app.config import load_embedding_config
 from app.repositories.knowledge_repository import KnowledgeRepository
 from app.services.index_manifest import ManifestError, write_manifest
 from app.services.knowledge_index_builder import build_knowledge_index
-from app.services.rag_settings import CHROMA_PERSIST_DIR, KNOWLEDGE_SOURCE_DIR
+from app.services.rag_settings import (
+    CHROMA_PERSIST_DIR,
+    KNOWLEDGE_SOURCE_DIRS,
+)
 
 
 class _ManifestTrackingRepository:
@@ -48,8 +51,8 @@ def main() -> int:
         )
         result = build_knowledge_index(
             corpus_root=PROJECT_ROOT,
-            source_dir=Path(KNOWLEDGE_SOURCE_DIR),
-            corpus_label=KNOWLEDGE_SOURCE_DIR,
+            source_dirs=tuple(Path(item) for item in KNOWLEDGE_SOURCE_DIRS),
+            corpus_label="+".join(KNOWLEDGE_SOURCE_DIRS),
             repository=repository,
             embedding_client=EmbeddingClient(config=config),
             embedding_model=config.model,
