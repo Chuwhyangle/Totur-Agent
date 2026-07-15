@@ -15,7 +15,10 @@ from app.services.index_manifest import (
     write_manifest,
 )
 from app.services.knowledge_index_builder import IndexBuildResult
-from app.services.rag_settings import CHROMA_PERSIST_DIR, KNOWLEDGE_SOURCE_DIR
+from app.services.rag_settings import (
+    CHROMA_PERSIST_DIR,
+    KNOWLEDGE_SOURCE_DIRS,
+)
 from scripts import build_knowledge_index, show_index_manifest
 
 
@@ -120,8 +123,10 @@ def test_build_cli_uses_shared_builder_and_persists_successful_manifest(
 
     builder_args = calls["builder"]
     assert builder_args["corpus_root"] == tmp_path
-    assert builder_args["source_dir"] == Path(KNOWLEDGE_SOURCE_DIR)
-    assert builder_args["corpus_label"] == KNOWLEDGE_SOURCE_DIR
+    assert builder_args["source_dirs"] == tuple(
+        Path(item) for item in KNOWLEDGE_SOURCE_DIRS
+    )
+    assert builder_args["corpus_label"] == "+".join(KNOWLEDGE_SOURCE_DIRS)
     tracking_repository = builder_args["repository"]
     assert tracking_repository is not repository
     assert tracking_repository.repository is repository
