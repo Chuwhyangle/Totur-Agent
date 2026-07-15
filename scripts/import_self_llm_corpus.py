@@ -23,7 +23,7 @@ DEFAULT_REF = "42c1bff4334f4c21c33e5791f29e9cdca5d47c61"
 DEFAULT_REPOSITORY_PATH = Path("external/self-llm.git")
 
 
-def run_git(repo: Path, *args: str) -> bytes:
+def run_git(repo: Path, *args: str, input_bytes: bytes | None = None) -> bytes:
     """Run Git against a bare repository, or execute clone before it exists."""
 
     if args and args[0] == "clone":
@@ -34,6 +34,7 @@ def run_git(repo: Path, *args: str) -> bytes:
         command,
         check=False,
         capture_output=True,
+        input=input_bytes,
     )
     if completed.returncode != 0:
         detail = completed.stderr.decode("utf-8", errors="replace").strip()
@@ -59,6 +60,25 @@ def ensure_repository(repo: Path, ref: str, repository_url: str) -> None:
         "--no-checkout",
         repository_url,
         str(repo),
+    )
+
+
+def hydrate_blobs(repo: Path, shas: Iterable[str]) -> None:
+    """Fetch all selected blobs from a partial clone in one request."""
+
+    unique_shas = sorted(set(shas))
+    if not unique_shas:
+        return
+    run_git(
+        repo,
+        "fetch",
+        "origin",
+        "--no-tags",
+        "--no-write-fetch-head",
+        "--recurse-submodules=no",
+        "--filter=blob:none",
+        "--stdin",
+        input_bytes=("\n".join(unique_shas) + "\n").encode("ascii"),
     )
 
 
@@ -130,6 +150,7 @@ def main(argv: Iterable[str] | None = None) -> int:
         ensure_repository(repo, args.ref, args.repository_url)
         commit = resolve_commit(repo, args.ref)
         tree_entries = read_tree_entries(repo, commit)
+        hydrate_blobs(repo, (sha for _, sha in tree_entries))
         entries = [
             GitTreeEntry(path, read_blob(repo, sha))
             for path, sha in tree_entries

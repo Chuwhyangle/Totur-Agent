@@ -11,7 +11,18 @@ def test_cli_fetches_ref_resolves_commit_and_imports_tree(tmp_path, monkeypatch,
         lambda repo, *args: calls.append((repo, args)) or b"x",
     )
     monkeypatch.setattr(cli, "resolve_commit", lambda repo, ref: "d" * 40)
-    monkeypatch.setattr(cli, "read_tree_entries", lambda repo, commit: [])
+    monkeypatch.setattr(
+        cli,
+        "read_tree_entries",
+        lambda repo, commit: [("guide.md", "a" * 40)],
+    )
+    hydrated = []
+    monkeypatch.setattr(
+        cli,
+        "hydrate_blobs",
+        lambda repo, shas: hydrated.append((repo, tuple(shas))),
+    )
+    monkeypatch.setattr(cli, "read_blob", lambda repo, sha: b"guide")
     monkeypatch.setattr(cli, "read_license", lambda repo, commit: b"license")
     monkeypatch.setattr(
         cli,
@@ -33,6 +44,9 @@ def test_cli_fetches_ref_resolves_commit_and_imports_tree(tmp_path, monkeypatch,
         ["--project-root", str(tmp_path), "--ref", "refs/heads/main"]
     ) == 0
     assert any("fetch" in args for _, args in calls)
+    assert hydrated == [
+        (tmp_path / "external/self-llm.git", ("a" * 40,))
+    ]
     assert "commit=" + "d" * 40 in capsys.readouterr().out
 
 
@@ -58,4 +72,35 @@ def test_read_tree_entries_decodes_utf8_and_filters_non_markdown(monkeypatch, tm
 
     assert cli.read_tree_entries(tmp_path / "repo", "d" * 40) == [
         ("README.md", "a" * 40)
+    ]
+
+
+def test_hydrate_blobs_fetches_unique_oids_in_one_request(monkeypatch, tmp_path):
+    cli = importlib.import_module("scripts.import_self_llm_corpus")
+    calls = []
+    monkeypatch.setattr(
+        cli,
+        "run_git",
+        lambda repo, *args, input_bytes=None: calls.append(
+            (repo, args, input_bytes)
+        ) or b"",
+    )
+    repo = tmp_path / "repo"
+
+    cli.hydrate_blobs(repo, ["b" * 40, "a" * 40, "b" * 40])
+
+    assert calls == [
+        (
+            repo,
+            (
+                "fetch",
+                "origin",
+                "--no-tags",
+                "--no-write-fetch-head",
+                "--recurse-submodules=no",
+                "--filter=blob:none",
+                "--stdin",
+            ),
+            (("a" * 40) + "\n" + ("b" * 40) + "\n").encode("ascii"),
+        )
     ]
