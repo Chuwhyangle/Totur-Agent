@@ -312,3 +312,41 @@ def test_show_cli_reports_invalid_manifest(tmp_path, capsys):
     assert captured.out == ""
     assert "读取索引 Manifest 失败" in captured.err
     assert str(path) in captured.err
+
+
+def test_build_cli_passes_valid_existing_manifest_to_builder(
+    tmp_path, monkeypatch
+):
+    manifest_path = tmp_path / CHROMA_PERSIST_DIR / "index_manifest.json"
+    previous = write_fixture(manifest_path)
+    result = IndexBuildResult(indexed_count=3, manifest=make_manifest())
+    calls, _, _, _ = install_build_fakes(monkeypatch, result=result)
+    monkeypatch.setattr(build_knowledge_index, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(build_knowledge_index, "write_manifest", lambda *args: None)
+
+    assert build_knowledge_index.main() == 0
+
+    assert calls["builder"]["previous_manifest"] == previous
+
+
+def test_tracking_repository_invalidates_manifest_before_incremental_mutation(
+    tmp_path
+):
+    manifest_path = tmp_path / "index_manifest.json"
+    manifest_path.write_text("old", encoding="utf-8")
+
+    class Repository:
+        def upsert(self, chunks, embeddings):
+            raise RuntimeError("upsert failed")
+
+    tracking = build_knowledge_index._ManifestTrackingRepository(
+        Repository(), manifest_path
+    )
+
+    try:
+        tracking.upsert([], [])
+    except RuntimeError:
+        pass
+
+    assert tracking.mutation_attempted is True
+    assert not manifest_path.exists()

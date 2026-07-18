@@ -462,3 +462,186 @@ def test_formal_rag_sources_include_local_and_self_llm_corpus():
     from app.services.rag_settings import KNOWLEDGE_SOURCE_DIRS
 
     assert KNOWLEDGE_SOURCE_DIRS == ("docs", "corpus/self-llm/docs")
+
+class IncrementalRepository:
+    """Small in-memory repository used to verify mutation boundaries."""
+
+    def __init__(self):
+        self.chunks = {}
+        self.calls = []
+
+    def rebuild(self, chunks, embeddings):
+        self.calls.append(("rebuild", [chunk.chunk_id for chunk in chunks]))
+        self.chunks = {chunk.chunk_id: chunk for chunk in chunks}
+        return len(chunks)
+
+    def upsert(self, chunks, embeddings):
+        self.calls.append(("upsert", [chunk.chunk_id for chunk in chunks]))
+        self.chunks.update({chunk.chunk_id: chunk for chunk in chunks})
+        return len(chunks)
+
+    def delete(self, ids):
+        self.calls.append(("delete", list(ids)))
+        for chunk_id in ids:
+            self.chunks.pop(chunk_id, None)
+        return len(ids)
+
+    def count(self):
+        return len(self.chunks)
+
+
+def test_unchanged_manifest_skips_chunking_embedding_and_repository_mutation(
+    tmp_path, monkeypatch
+):
+    write_corpus_file(tmp_path, "docs/a.md", "a")
+    repository = IncrementalRepository()
+    first = build_knowledge_index(**build_kwargs(tmp_path, repository=repository))
+    repository.calls.clear()
+    embedding = FakeEmbedding()
+
+    import app.services.knowledge_index_builder as builder_module
+
+    def forbidden_chunk(*args):
+        raise AssertionError("unchanged files must not be chunked")
+
+    monkeypatch.setattr(builder_module, "chunk_markdown", forbidden_chunk)
+    second = build_knowledge_index(
+        **build_kwargs(
+            tmp_path,
+            repository=repository,
+            embedding_client=embedding,
+            previous_manifest=first.manifest,
+        )
+    )
+
+    assert second.mode == "unchanged"
+    assert second.manifest is first.manifest
+    assert embedding.calls == []
+    assert repository.calls == []
+
+
+def test_incremental_build_embeds_and_upserts_only_added_file(tmp_path):
+    write_corpus_file(tmp_path, "docs/a.md", "a")
+    repository = IncrementalRepository()
+    first = build_knowledge_index(**build_kwargs(tmp_path, repository=repository))
+    write_corpus_file(tmp_path, "docs/b.md", "b")
+    repository.calls.clear()
+    embedding = FakeEmbedding()
+
+    result = build_knowledge_index(
+        **build_kwargs(
+            tmp_path,
+            repository=repository,
+            embedding_client=embedding,
+            previous_manifest=first.manifest,
+        )
+    )
+
+    assert embedding.calls == [["b"]]
+    assert repository.calls == [("upsert", ["docs/b.md#0"])]
+    assert result.mode == "incremental"
+    assert result.updated_count == 1
+    assert result.deleted_count == 0
+    assert result.indexed_count == 2
+
+
+def test_modified_file_replaces_chunks_and_deletes_only_stale_tail(
+    tmp_path, monkeypatch
+):
+    import app.services.knowledge_index_builder as builder_module
+
+    def split_chunks(text, source, chunk_size, chunk_overlap):
+        return [
+            KnowledgeChunk(part, source, "", index)
+            for index, part in enumerate(text.split("|"))
+        ]
+
+    monkeypatch.setattr(builder_module, "chunk_markdown", split_chunks)
+    write_corpus_file(tmp_path, "docs/a.md", "old-0|old-1|old-2")
+    repository = IncrementalRepository()
+    first = build_knowledge_index(**build_kwargs(tmp_path, repository=repository))
+    write_corpus_file(tmp_path, "docs/a.md", "new-0")
+    repository.calls.clear()
+    embedding = FakeEmbedding()
+
+    result = build_knowledge_index(
+        **build_kwargs(
+            tmp_path,
+            repository=repository,
+            embedding_client=embedding,
+            previous_manifest=first.manifest,
+        )
+    )
+
+    assert embedding.calls == [["new-0"]]
+    assert repository.calls == [
+        ("upsert", ["docs/a.md#0"]),
+        ("delete", ["docs/a.md#1", "docs/a.md#2"]),
+    ]
+    assert result.updated_count == 1
+    assert result.deleted_count == 2
+    assert set(repository.chunks) == {"docs/a.md#0"}
+
+
+def test_removed_file_deletes_ids_from_old_manifest_without_embedding(tmp_path):
+    write_corpus_file(tmp_path, "docs/a.md", "a")
+    write_corpus_file(tmp_path, "docs/b.md", "b")
+    repository = IncrementalRepository()
+    first = build_knowledge_index(**build_kwargs(tmp_path, repository=repository))
+    (tmp_path / "docs/b.md").unlink()
+    repository.calls.clear()
+    embedding = FakeEmbedding()
+
+    result = build_knowledge_index(
+        **build_kwargs(
+            tmp_path,
+            repository=repository,
+            embedding_client=embedding,
+            previous_manifest=first.manifest,
+        )
+    )
+
+    assert embedding.calls == []
+    assert repository.calls == [("delete", ["docs/b.md#0"])]
+    assert result.deleted_count == 1
+    assert result.indexed_count == 1
+
+
+def test_changed_index_configuration_forces_full_rebuild(tmp_path):
+    write_corpus_file(tmp_path, "docs/a.md", "a")
+    repository = IncrementalRepository()
+    first = build_knowledge_index(**build_kwargs(tmp_path, repository=repository))
+    repository.calls.clear()
+
+    result = build_knowledge_index(
+        **build_kwargs(
+            tmp_path,
+            repository=repository,
+            previous_manifest=first.manifest,
+            chunk_size=256,
+        )
+    )
+
+    assert repository.calls == [("rebuild", ["docs/a.md#0"])]
+    assert result.mode == "full"
+
+
+def test_incremental_dimension_mismatch_fails_before_mutation(tmp_path):
+    write_corpus_file(tmp_path, "docs/a.md", "a")
+    repository = IncrementalRepository()
+    first = build_knowledge_index(**build_kwargs(tmp_path, repository=repository))
+    write_corpus_file(tmp_path, "docs/a.md", "changed")
+    repository.calls.clear()
+    embedding = FakeEmbedding(responses=[[[1.0, 2.0]]])
+
+    with pytest.raises(ValueError, match="dimension"):
+        build_knowledge_index(
+            **build_kwargs(
+                tmp_path,
+                repository=repository,
+                embedding_client=embedding,
+                previous_manifest=first.manifest,
+            )
+        )
+
+    assert repository.calls == []

@@ -14,7 +14,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from app.clients.embedding_client import EmbeddingClient, EmbeddingError
 from app.config import load_embedding_config
 from app.repositories.knowledge_repository import KnowledgeRepository
-from app.services.index_manifest import ManifestError, write_manifest
+from app.services.index_manifest import ManifestError, load_manifest, write_manifest
 from app.services.knowledge_index_builder import build_knowledge_index
 from app.services.rag_settings import (
     CHROMA_PERSIST_DIR,
@@ -23,20 +23,34 @@ from app.services.rag_settings import (
 
 
 class _ManifestTrackingRepository:
-    """Invalidate stale metadata immediately before a destructive rebuild."""
+    """Remove stale metadata immediately before the first index mutation."""
 
     def __init__(self, repository, manifest_path: Path) -> None:
         self.repository = repository
         self.manifest_path = manifest_path
         self.rebuild_attempted = False
+        self.mutation_attempted = False
+
+    def _before_mutation(self) -> None:
+        if not self.mutation_attempted:
+            self.manifest_path.unlink(missing_ok=True)
+            self.mutation_attempted = True
 
     def rebuild(self, chunks, embeddings) -> int:
-        # Once the live collection may change, its previous Manifest must no
-        # longer be queryable as valid metadata.  Preflight/provider failures
-        # never reach this method, so they preserve the existing Manifest.
-        self.manifest_path.unlink(missing_ok=True)
+        self._before_mutation()
         self.rebuild_attempted = True
         return self.repository.rebuild(chunks, embeddings)
+
+    def upsert(self, chunks, embeddings) -> int:
+        self._before_mutation()
+        return self.repository.upsert(chunks, embeddings)
+
+    def delete(self, ids) -> int:
+        self._before_mutation()
+        return self.repository.delete(ids)
+
+    def count(self) -> int:
+        return self.repository.count()
 
 
 def main() -> int:
@@ -45,6 +59,12 @@ def main() -> int:
     manifest_path = PROJECT_ROOT / CHROMA_PERSIST_DIR / "index_manifest.json"
     try:
         config = load_embedding_config()
+        try:
+            previous_manifest = (
+                load_manifest(manifest_path) if manifest_path.exists() else None
+            )
+        except ManifestError:
+            previous_manifest = None
         repository = _ManifestTrackingRepository(
             KnowledgeRepository(),
             manifest_path,
@@ -56,6 +76,7 @@ def main() -> int:
             repository=repository,
             embedding_client=EmbeddingClient(config=config),
             embedding_model=config.model,
+            previous_manifest=previous_manifest,
             progress=lambda source, count: print(f"{source}: {count} chunks"),
         )
         write_manifest(manifest_path, result.manifest)
@@ -73,6 +94,8 @@ def main() -> int:
     print(
         f"索引构建完成：files={result.manifest.file_count} "
         f"chunks={result.indexed_count} "
+        f"mode={result.mode} updated={result.updated_count} "
+        f"deleted={result.deleted_count} "
         f"collection={result.manifest.collection_name} "
         f"fingerprint={result.manifest.fingerprint}"
     )
