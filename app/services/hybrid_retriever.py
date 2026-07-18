@@ -82,7 +82,12 @@ class _BM25Snapshot:
 
 
 class BM25IndexCache:
-    """Cache one corpus snapshot and rebuild it only when its identity changes."""
+    """Cache one corpus snapshot and rebuild it only when its identity changes.
+
+    Concurrent cache misses may rebuild the snapshot more than once. That is
+    safe (no correctness issue) at the current corpus scale; a Lock can be
+    added later if concurrent build cost becomes measurable.
+    """
 
     def __init__(self) -> None:
         self._repository: HybridRepository | None = None

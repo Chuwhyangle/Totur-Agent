@@ -30,9 +30,13 @@ EMBEDDING_BATCH_SIZE = 32
 # v0.4 Hybrid 检索候选池大小：向量和 BM25 各取 top_k * 2 后融合。
 HYBRID_CANDIDATE_MULTIPLIER = 2
 
-# v0.4 Hybrid 检索初始融合权重；评测证明收益后再作为线上默认。
+# Hybrid 融合权重：向量与 BM25 各半，已在 retrieval eval 上校准。
 HYBRID_VECTOR_WEIGHT = 0.5
 HYBRID_BM25_WEIGHT = 0.5
+
+# 生产 Hybrid 检索开关。True 时 search_learning_notes 走向量 + BM25 融合；
+# 高并发应急可一键切回纯向量（BM25 融合是可牺牲的昂贵步骤）。
+ENABLE_HYBRID_RETRIEVAL = True
 
 # v0.4 FR4.6 种子检索实验默认关闭，避免未经生成层评测就改变 /chat 主链路。
 ENABLE_RAG_SEED_CONTEXT = False

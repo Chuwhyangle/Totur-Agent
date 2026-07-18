@@ -2,18 +2,33 @@
 
 from __future__ import annotations
 
+import logging
+from pathlib import Path
 from typing import Any
 
 from app.clients.embedding_client import EmbeddingClient, EmbeddingError
 from app.repositories.knowledge_repository import KnowledgeHit, KnowledgeRepository
-from app.services.rag_settings import RAG_TOP_K, SIMILARITY_THRESHOLD
+from app.services.hybrid_retriever import hybrid_search
+from app.services.index_manifest import ManifestError, load_manifest
+from app.services.rag_settings import (
+    CHROMA_PERSIST_DIR,
+    ENABLE_HYBRID_RETRIEVAL,
+    RAG_TOP_K,
+    SIMILARITY_THRESHOLD,
+)
 
 
 MAX_TOOL_LIMIT = 5
 DEFAULT_TOOL_LIMIT = RAG_TOP_K
+PROJECT_ROOT = Path(__file__).resolve().parents[4]
+MANIFEST_PATH = PROJECT_ROOT / CHROMA_PERSIST_DIR / "index_manifest.json"
+
+logger = logging.getLogger(__name__)
 
 _repository: KnowledgeRepository | None = None
 _embedding_client: EmbeddingClient | None = None
+# Cache (mtime_ns, fingerprint) so a rebuilt index is picked up without restart.
+_manifest_cache: tuple[int, str] | None = None
 
 
 def search_learning_notes(
@@ -38,8 +53,9 @@ def search_learning_notes(
             "message": "请先运行 scripts/build_knowledge_index.py 构建学习笔记索引。",
         }
 
+    stripped_query = query.strip()
     try:
-        query_embedding = _get_embedding_client().embed_texts([query.strip()])[0]
+        query_embedding = _get_embedding_client().embed_texts([stripped_query])[0]
     except (EmbeddingError, IndexError) as exc:
         return {
             "ok": False,
@@ -47,11 +63,14 @@ def search_learning_notes(
             "message": f"embedding failed: {exc}",
         }
 
-    hits = [
-        hit
-        for hit in repository.search(query_embedding=query_embedding, top_k=safe_limit)
-        if hit.similarity >= SIMILARITY_THRESHOLD
-    ]
+    hits = _retrieve_hits(
+        repository=repository,
+        query=stripped_query,
+        query_embedding=query_embedding,
+        top_k=safe_limit,
+    )
+    # hybrid_search 分数已归一化到 0-1；阈值语义与 eval 一致，允许强 lexical 命中通过。
+    hits = [hit for hit in hits if hit.similarity >= SIMILARITY_THRESHOLD]
     items = [_item_from_hit(hit) for hit in hits]
     result: dict[str, Any] = {
         "ok": True,
@@ -70,6 +89,66 @@ def search_learning_notes(
         result["message"] = "未找到相关笔记。"
 
     return result
+
+
+def _retrieve_hits(
+    *,
+    repository: KnowledgeRepository,
+    query: str,
+    query_embedding: list[float],
+    top_k: int,
+) -> list[KnowledgeHit]:
+    """Route to hybrid or pure vector search based on flag + manifest availability."""
+
+    if ENABLE_HYBRID_RETRIEVAL:
+        fingerprint = _get_manifest_fingerprint()
+        if fingerprint is not None:
+            return hybrid_search(
+                repository=repository,
+                query=query,
+                query_embedding=query_embedding,
+                top_k=top_k,
+                fingerprint=fingerprint,
+            )
+
+    return repository.search(query_embedding=query_embedding, top_k=top_k)
+
+
+def _get_manifest_fingerprint() -> str | None:
+    """Load the index fingerprint with mtime-based cache refresh.
+
+    Returns None (and logs a warning) when the manifest is missing or invalid so
+    serving can fall back to pure vector search without crashing.
+    """
+
+    global _manifest_cache
+
+    try:
+        mtime_ns = MANIFEST_PATH.stat().st_mtime_ns
+    except OSError:
+        logger.warning(
+            "index manifest missing at %s; falling back to pure vector search",
+            MANIFEST_PATH,
+        )
+        _manifest_cache = None
+        return None
+
+    if _manifest_cache is not None and _manifest_cache[0] == mtime_ns:
+        return _manifest_cache[1]
+
+    try:
+        fingerprint = load_manifest(MANIFEST_PATH).fingerprint
+    except ManifestError as exc:
+        logger.warning(
+            "index manifest invalid at %s (%s); falling back to pure vector search",
+            MANIFEST_PATH,
+            exc,
+        )
+        _manifest_cache = None
+        return None
+
+    _manifest_cache = (mtime_ns, fingerprint)
+    return fingerprint
 
 
 def _item_from_hit(hit: KnowledgeHit) -> dict[str, Any]:
@@ -126,4 +205,3 @@ def _get_embedding_client() -> EmbeddingClient:
         _embedding_client = EmbeddingClient()
 
     return _embedding_client
-
