@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 from app.repositories.knowledge_repository import KnowledgeEntry, KnowledgeHit
-from app.services.hybrid_retriever import hybrid_search, tokenize_for_bm25
+from app.services.hybrid_retriever import (
+    BM25IndexCache,
+    hybrid_search,
+    tokenize_for_bm25,
+)
 
 
 class FakeHybridRepository:
@@ -16,11 +20,13 @@ class FakeHybridRepository:
     ) -> None:
         self.entries = entries
         self.vector_hits = vector_hits or []
+        self.list_entries_calls = 0
 
     def search(self, query_embedding: list[float], top_k: int) -> list[KnowledgeHit]:
         return self.vector_hits[:top_k]
 
     def list_entries(self, include_embeddings: bool = False) -> list[KnowledgeEntry]:
+        self.list_entries_calls += 1
         return self.entries
 
 
@@ -52,6 +58,7 @@ def test_hybrid_search_adds_bm25_candidates_when_vector_search_misses():
         query="Hybrid BM25 检索",
         query_embedding=[1.0, 0.0],
         top_k=1,
+        fingerprint="fp-1",
     )
 
     assert len(hits) == 1
@@ -83,7 +90,47 @@ def test_hybrid_search_preserves_strong_vector_hit_score():
         query="完全不相关的词面查询",
         query_embedding=[1.0, 0.0],
         top_k=1,
+        fingerprint="fp-1",
     )
 
     assert hits[0].source == "docs/rag.md"
     assert hits[0].similarity == 0.92
+
+
+def test_hybrid_search_reuses_cache_until_fingerprint_changes(monkeypatch):
+    repository = FakeHybridRepository(
+        entries=[
+            KnowledgeEntry(
+                chunk_id="docs/rag.md#0",
+                content="Hybrid retrieval uses BM25.",
+                source="docs/rag.md",
+                title_path="RAG",
+            )
+        ]
+    )
+    builds = 0
+
+    class CountingBM25:
+        def __init__(self, corpus):
+            nonlocal builds
+            builds += 1
+            self.size = len(corpus)
+
+        def get_scores(self, query):
+            return [1.0] * self.size
+
+    monkeypatch.setattr("app.services.hybrid_retriever.BM25Okapi", CountingBM25)
+    cache = BM25IndexCache()
+
+    for fingerprint in ("fp-1", "fp-1", "fp-2"):
+        hybrid_search(
+            repository=repository,
+            query="BM25",
+            query_embedding=[1.0, 0.0],
+            top_k=1,
+            fingerprint=fingerprint,
+            cache=cache,
+        )
+
+    assert repository.list_entries_calls == 2
+    assert builds == 2

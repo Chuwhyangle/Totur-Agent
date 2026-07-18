@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import Counter
+from dataclasses import dataclass
 import math
 import re
 from typing import Protocol
@@ -33,11 +34,92 @@ class HybridRepository(Protocol):
         """List indexed entries."""
 
 
+@dataclass(frozen=True)
+class _FallbackBM25:
+    term_counts: list[Counter]
+    document_lengths: list[int]
+    document_frequencies: Counter
+    average_length: float
+
+    @classmethod
+    def build(cls, corpus: list[list[str]]) -> _FallbackBM25:
+        lengths = [len(document) for document in corpus]
+        return cls(
+            term_counts=[Counter(document) for document in corpus],
+            document_lengths=lengths,
+            document_frequencies=Counter(
+                token for document in corpus for token in set(document)
+            ),
+            average_length=sum(lengths) / len(lengths) if lengths else 0,
+        )
+
+    def get_scores(self, query_tokens: list[str]) -> list[float]:
+        document_count = len(self.term_counts)
+        scores = []
+        for counts, length in zip(self.term_counts, self.document_lengths):
+            score = 0.0
+            for token in query_tokens:
+                frequency = counts.get(token, 0)
+                if frequency:
+                    df = self.document_frequencies[token]
+                    idf = math.log(1 + (document_count - df + 0.5) / (df + 0.5))
+                    denominator = frequency + 1.5 * (
+                        0.25 + 0.75 * length / max(self.average_length, 1)
+                    )
+                    score += idf * (frequency * 2.5) / denominator
+            scores.append(score)
+        return scores
+
+
+@dataclass(frozen=True)
+class _BM25Snapshot:
+    fingerprint: str
+    entries: list[KnowledgeEntry]
+    tokenized_corpus: list[list[str]]
+    bm25: object | None
+    fallback_bm25: _FallbackBM25
+    entry_by_key: dict[tuple[str, str, str], KnowledgeEntry]
+
+
+class BM25IndexCache:
+    """Cache one corpus snapshot and rebuild it only when its identity changes."""
+
+    def __init__(self) -> None:
+        self._repository: HybridRepository | None = None
+        self._snapshot: _BM25Snapshot | None = None
+
+    def get(self, repository: HybridRepository, fingerprint: str) -> _BM25Snapshot:
+        snapshot = self._snapshot
+        if self._repository is repository and snapshot and snapshot.fingerprint == fingerprint:
+            return snapshot
+
+        entries = repository.list_entries(include_embeddings=False)
+        tokenized_corpus = [tokenize_for_bm25(_entry_text(entry)) for entry in entries]
+        snapshot = _BM25Snapshot(
+            fingerprint=fingerprint,
+            entries=entries,
+            tokenized_corpus=tokenized_corpus,
+            bm25=BM25Okapi(tokenized_corpus)
+            if BM25Okapi is not None and any(tokenized_corpus)
+            else None,
+            fallback_bm25=_FallbackBM25.build(tokenized_corpus),
+            entry_by_key={_entry_key(entry): entry for entry in entries},
+        )
+        self._repository = repository
+        self._snapshot = snapshot
+        return snapshot
+
+
+_DEFAULT_BM25_CACHE = BM25IndexCache()
+
+
 def hybrid_search(
     repository: HybridRepository,
     query: str,
     query_embedding: list[float],
     top_k: int,
+    fingerprint: str,
+    cache: BM25IndexCache | None = None,
 ) -> list[KnowledgeHit]:
     """Fuse vector search with BM25 lexical search."""
 
@@ -45,8 +127,8 @@ def hybrid_search(
         return []
 
     candidate_k = max(top_k, top_k * HYBRID_CANDIDATE_MULTIPLIER)
-    entries = repository.list_entries(include_embeddings=False)
-    if not entries:
+    snapshot = (cache or _DEFAULT_BM25_CACHE).get(repository, fingerprint)
+    if not snapshot.entries:
         return []
 
     vector_hits = repository.search(query_embedding=query_embedding, top_k=candidate_k)
@@ -56,13 +138,12 @@ def hybrid_search(
         for hit in vector_hits
     }
 
-    bm25_scores = _bm25_scores(query=query, entries=entries)
+    bm25_scores = _bm25_scores(query=query, snapshot=snapshot)
     bm25_by_key = {
         _entry_key(entry): score
-        for entry, score in zip(entries, _normalize_scores(bm25_scores))
+        for entry, score in zip(snapshot.entries, _normalize_scores(bm25_scores))
         if score > 0
     }
-    entry_by_key = {_entry_key(entry): entry for entry in entries}
 
     candidate_keys = set(vector_scores) | set(_top_bm25_keys(bm25_by_key, candidate_k))
     hits: list[KnowledgeHit] = []
@@ -88,7 +169,7 @@ def hybrid_search(
             )
             continue
 
-        entry = entry_by_key.get(key)
+        entry = snapshot.entry_by_key.get(key)
         if entry is None:
             continue
 
@@ -110,62 +191,19 @@ def tokenize_for_bm25(text: str) -> list[str]:
     return [token.lower() for token in TOKEN_PATTERN.findall(text)]
 
 
-def _bm25_scores(query: str, entries: list[KnowledgeEntry]) -> list[float]:
-    """Calculate raw BM25 scores, preferring rank_bm25 when installed."""
+def _bm25_scores(query: str, snapshot: _BM25Snapshot) -> list[float]:
+    """Score a query against the cached BM25 corpus."""
 
-    tokenized_corpus = [tokenize_for_bm25(_entry_text(entry)) for entry in entries]
     query_tokens = tokenize_for_bm25(query)
     if not query_tokens:
-        return [0.0 for _ in entries]
+        return [0.0 for _ in snapshot.entries]
 
-    if BM25Okapi is not None:
-        bm25 = BM25Okapi(tokenized_corpus)
-        scores = [float(score) for score in bm25.get_scores(query_tokens)]
+    if snapshot.bm25 is not None:
+        scores = [float(score) for score in snapshot.bm25.get_scores(query_tokens)]
         if any(score > 0 for score in scores):
             return scores
 
-    return _fallback_bm25_scores(tokenized_corpus, query_tokens)
-
-
-def _fallback_bm25_scores(
-    tokenized_corpus: list[list[str]],
-    query_tokens: list[str],
-) -> list[float]:
-    """Small BM25 implementation used only when rank_bm25 is unavailable."""
-
-    if not tokenized_corpus:
-        return []
-
-    k1 = 1.5
-    b = 0.75
-    document_count = len(tokenized_corpus)
-    document_lengths = [len(document) for document in tokenized_corpus]
-    average_length = sum(document_lengths) / document_count if document_count else 0
-    document_frequencies = Counter(
-        token
-        for document in tokenized_corpus
-        for token in set(document)
-    )
-
-    scores = []
-    for document, document_length in zip(tokenized_corpus, document_lengths):
-        term_counts = Counter(document)
-        score = 0.0
-        for token in query_tokens:
-            frequency = term_counts.get(token, 0)
-            if frequency == 0:
-                continue
-
-            df = document_frequencies[token]
-            idf = math.log(1 + (document_count - df + 0.5) / (df + 0.5))
-            denominator = frequency + k1 * (
-                1 - b + b * document_length / max(average_length, 1)
-            )
-            score += idf * (frequency * (k1 + 1)) / denominator
-
-        scores.append(score)
-
-    return scores
+    return snapshot.fallback_bm25.get_scores(query_tokens)
 
 
 def _normalize_scores(scores: list[float]) -> list[float]:
