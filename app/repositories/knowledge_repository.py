@@ -56,24 +56,59 @@ class KnowledgeRepository:
         chunks: list[KnowledgeChunk],
         embeddings: list[list[float]],
     ) -> int:
-        """删除并重建学习笔记集合，返回写入的块数量。"""
+        """Replace the collection with the supplied chunks."""
 
+        self._validate_write(chunks, embeddings)
+        self._delete_collection_if_exists()
+        collection = self._create_collection()
+        return self._write(collection, "add", chunks, embeddings)
+
+    def upsert(
+        self,
+        chunks: list[KnowledgeChunk],
+        embeddings: list[list[float]],
+    ) -> int:
+        """Insert or replace chunks without rebuilding the collection."""
+
+        self._validate_write(chunks, embeddings)
+        if not chunks:
+            return 0
+        collection = self._get_collection()
+        if collection is None:
+            collection = self._create_collection()
+        return self._write(collection, "upsert", chunks, embeddings)
+
+    def delete(self, ids: list[str]) -> int:
+        """Delete the specified chunk IDs from the live collection."""
+
+        if not ids:
+            return 0
+        collection = self._get_collection()
+        if collection is None:
+            return 0
+        for start in range(0, len(ids), EMBEDDING_BATCH_SIZE):
+            collection.delete(ids=ids[start : start + EMBEDDING_BATCH_SIZE])
+        return len(ids)
+
+    @staticmethod
+    def _validate_write(
+        chunks: list[KnowledgeChunk], embeddings: list[list[float]]
+    ) -> None:
         if len(chunks) != len(embeddings):
             raise ValueError("chunks and embeddings must have the same length.")
 
-        self._delete_collection_if_exists()
-        collection = self._create_collection()
+    @staticmethod
+    def _write(collection, method, chunks, embeddings) -> int:
         if not chunks:
             return 0
-
         created_at = datetime.now(timezone.utc).isoformat()
+        write = getattr(collection, method)
         for start in range(0, len(chunks), EMBEDDING_BATCH_SIZE):
             batch_chunks = chunks[start : start + EMBEDDING_BATCH_SIZE]
-            batch_embeddings = embeddings[start : start + EMBEDDING_BATCH_SIZE]
-            collection.add(
+            write(
                 ids=[chunk.chunk_id for chunk in batch_chunks],
                 documents=[chunk.content for chunk in batch_chunks],
-                embeddings=batch_embeddings,
+                embeddings=embeddings[start : start + EMBEDDING_BATCH_SIZE],
                 metadatas=[
                     {
                         "source": chunk.source,
@@ -83,7 +118,6 @@ class KnowledgeRepository:
                     for chunk in batch_chunks
                 ],
             )
-
         return len(chunks)
 
     def search(

@@ -200,3 +200,32 @@ def test_search_learning_notes_reports_embedding_failure(monkeypatch):
 
     assert result["ok"] is False
     assert result["error"] == "embedding_failed"
+
+
+def test_knowledge_repository_upsert_replaces_existing_chunk():
+    repository = _repository()
+    repository.rebuild([_chunk(0, "old", "title")], [[1.0, 0.0]])
+
+    count = repository.upsert([_chunk(0, "new", "new title")], [[0.0, 1.0]])
+
+    entries = repository.list_entries(include_embeddings=True)
+    assert count == repository.count() == 1
+    assert entries[0].content == "new"
+    assert entries[0].title_path == "new title"
+    assert entries[0].embedding == [0.0, 1.0]
+
+
+def test_knowledge_repository_delete_removes_only_requested_ids():
+    repository = _repository()
+    repository.rebuild(
+        [_chunk(0, "a", "a"), _chunk(1, "b", "b")],
+        [[1.0, 0.0], [0.0, 1.0]],
+    )
+
+    deleted = repository.delete(["docs/note-0.md#0"])
+
+    assert deleted == 1
+    assert repository.count() == 1
+    assert [entry.chunk_id for entry in repository.list_entries()] == [
+        "docs/note-1.md#1"
+    ]

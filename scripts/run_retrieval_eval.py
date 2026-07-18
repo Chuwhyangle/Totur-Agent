@@ -121,6 +121,7 @@ def main() -> int:
                     query=query,
                     query_embedding=query_embedding,
                     top_k=args.top_k,
+                    fingerprint=manifest.fingerprint,
                 )
             else:
                 hits = repository.search(query_embedding=query_embedding, top_k=args.top_k)
