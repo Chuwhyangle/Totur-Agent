@@ -21,6 +21,7 @@ class RetrievalEvalCase:
     expected_sources: list[str]
     expected_title_keywords: list[str]
     notes: str = ""
+    group: str = "default"
 
     @property
     def is_negative(self) -> bool:
@@ -63,6 +64,7 @@ def load_eval_cases(path: Path) -> list[RetrievalEvalCase]:
                 expected_sources=expected_sources,
                 expected_title_keywords=expected_title_keywords,
                 notes=str(payload.get("notes") or ""),
+                group=str(payload.get("group") or "default").strip() or "default",
             )
         )
 
@@ -117,6 +119,7 @@ def evaluate_cases(
                 "rank": rank,
                 "passed": passed,
                 "negative": case.is_negative,
+                "group": case.group,
             }
         )
 
@@ -131,7 +134,62 @@ def evaluate_cases(
         "negative_accuracy": _safe_divide(negative_correct, negative_total),
         "overall_accuracy": _safe_divide(passed_total, len(cases)),
     }
-    return {"metrics": metrics, "results": results}
+    return {
+        "metrics": metrics,
+        "group_metrics": _evaluate_groups(cases, results, top_k=top_k, threshold=threshold),
+        "results": results,
+    }
+
+
+def _evaluate_groups(
+    cases: list[RetrievalEvalCase],
+    results: list[dict[str, Any]],
+    *,
+    top_k: int,
+    threshold: float,
+) -> dict[str, dict[str, Any]]:
+    """Report equivalent metrics per dataset group."""
+
+    grouped_cases: dict[str, list[RetrievalEvalCase]] = {}
+    grouped_results: dict[str, list[dict[str, Any]]] = {}
+    for case, result in zip(cases, results, strict=True):
+        grouped_cases.setdefault(case.group, []).append(case)
+        grouped_results.setdefault(case.group, []).append(result)
+
+    summaries: dict[str, dict[str, Any]] = {}
+    for group, group_cases in grouped_cases.items():
+        group_results = grouped_results[group]
+        positive_cases = [case for case in group_cases if not case.is_negative]
+        negative_cases = [case for case in group_cases if case.is_negative]
+        positive_hits = sum(
+            result["passed"]
+            for case, result in zip(group_cases, group_results, strict=True)
+            if not case.is_negative
+        )
+        reciprocal_rank_sum = sum(
+            1 / result["rank"]
+            for case, result in zip(group_cases, group_results, strict=True)
+            if not case.is_negative and result["rank"] is not None
+        )
+        negative_correct = sum(
+            result["passed"]
+            for case, result in zip(group_cases, group_results, strict=True)
+            if case.is_negative
+        )
+        summaries[group] = {
+            "total_cases": len(group_cases),
+            "positive_cases": len(positive_cases),
+            "negative_cases": len(negative_cases),
+            "top_k": top_k,
+            "threshold": threshold,
+            "recall_at_k": _safe_divide(positive_hits, len(positive_cases)),
+            "mrr": _safe_divide(reciprocal_rank_sum, len(positive_cases)),
+            "negative_accuracy": _safe_divide(negative_correct, len(negative_cases)),
+            "overall_accuracy": _safe_divide(
+                sum(result["passed"] for result in group_results), len(group_cases)
+            ),
+        }
+    return summaries
 
 
 def cosine_similarity(left: list[float], right: list[float]) -> float:

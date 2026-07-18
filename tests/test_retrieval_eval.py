@@ -103,6 +103,46 @@ def test_evaluate_cases_reports_recall_mrr_and_negative_accuracy():
     assert summary["results"][2]["passed"] is True
 
 
+def test_evaluate_cases_reports_group_metrics():
+    cases = [
+        RetrievalEvalCase(
+            case_id="internal_hit",
+            query="internal",
+            expected_sources=["docs/internal.md"],
+            expected_title_keywords=[],
+            group="internal_project",
+        ),
+        RetrievalEvalCase(
+            case_id="external_miss",
+            query="external",
+            expected_sources=["corpus/external.md"],
+            expected_title_keywords=[],
+            group="external_self_llm",
+        ),
+        RetrievalEvalCase(
+            case_id="negative_hit",
+            query="negative",
+            expected_sources=[],
+            expected_title_keywords=[],
+            group="negative_out_of_scope",
+        ),
+    ]
+
+    def search(query: str, top_k: int) -> list[KnowledgeHit]:
+        hits = {
+            "internal": [KnowledgeHit("right", "docs/internal.md", "", 0.9)],
+            "external": [KnowledgeHit("wrong", "docs/other.md", "", 0.9)],
+            "negative": [KnowledgeHit("unexpected", "docs/other.md", "", 0.9)],
+        }
+        return hits[query][:top_k]
+
+    summary = evaluate_cases(cases, search=search, top_k=3, threshold=0.35)
+
+    assert summary["group_metrics"]["internal_project"]["recall_at_k"] == 1.0
+    assert summary["group_metrics"]["external_self_llm"]["recall_at_k"] == 0.0
+    assert summary["group_metrics"]["negative_out_of_scope"]["negative_accuracy"] == 0.0
+
+
 def test_evaluate_cases_can_require_title_keywords():
     cases = [
         RetrievalEvalCase(
