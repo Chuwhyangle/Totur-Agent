@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 import {
   createInterviewJD,
@@ -14,18 +14,12 @@ import ApiStatus from './components/ApiStatus.jsx'
 import ChatInput from './components/ChatInput.jsx'
 import ChatMessage from './components/ChatMessage.jsx'
 import InterviewJDPanel from './components/InterviewJDPanel.jsx'
-import PersonaBadge from './components/PersonaBadge.jsx'
+import Icon from './components/Icon.jsx'
 import PersonaSelector from './components/PersonaSelector.jsx'
 import SessionSidebar from './components/SessionSidebar.jsx'
 import UserIdInput from './components/UserIdInput.jsx'
 
 const DEFAULT_PERSONA_ID = 'tutor'
-const FALLBACK_PERSONA = {
-  persona_id: DEFAULT_PERSONA_ID,
-  name: '默认导师',
-  description: '后端学习与面试训练的默认人设。',
-}
-
 function createErrorReply() {
   return {
     answer: '这次请求后端失败了，但页面没有崩溃。',
@@ -54,12 +48,11 @@ function App() {
   const [personas, setPersonas] = useState([])
   const [personasStatus, setPersonasStatus] = useState('idle')
   const [selectedPersonaId, setSelectedPersonaId] = useState(DEFAULT_PERSONA_ID)
+  const [isTargetPanelOpen, setIsTargetPanelOpen] = useState(false)
+  const [theme, setTheme] = useState(() => localStorage.getItem('tutor-theme') ?? 'light')
+  const threadRef = useRef(null)
 
   const canSend = draftMessage.trim().length > 0 && userId.trim().length > 0 && !isSending
-  const selectedPersona = personas.find(
-    (persona) => persona.persona_id === selectedPersonaId,
-  ) ?? FALLBACK_PERSONA
-
   const loadPersonas = useCallback(async () => {
     setPersonasStatus('loading')
 
@@ -375,53 +368,43 @@ function App() {
     void loadSessions()
     void loadInterviewJDs()
   }, [checkApiHealth, loadPersonas, loadSessions, loadInterviewJDs])
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme
+    document.documentElement.classList.toggle('dark', theme === 'dark')
+    document.documentElement.style.colorScheme = theme
+    localStorage.setItem('tutor-theme', theme)
+  }, [theme])
 
-  const chatEmptyText = (() => {
-    if (activeSessionStatus === 'loading') {
-      return '正在读取这个会话的历史消息...'
-    }
+  useEffect(() => {
+    threadRef.current?.scrollTo({ top: threadRef.current.scrollHeight, behavior: 'smooth' })
+  }, [messages, isSending])
 
-    if (activeSessionStatus === 'error') {
-      return '这个会话读取失败，请确认后端是否在线。'
-    }
-
-    if (!activeSessionId) {
-      return '选择左侧会话，或点击“新建会话”开始新的学习窗口。'
-    }
-
-    if (messages.length === 0) {
-      return '这个会话还没有消息，发送第一条问题后会自动保存。'
-    }
-
-    return ''
-  })()
+  const activeSession = sessions.find((session) => session.id === activeSessionId)
+  const quickPrompts = [
+    { title: '制定学习计划', text: '根据我的目标，为我制定一份循序渐进的学习计划。', icon: 'target' },
+    { title: '解释一个概念', text: '请用通俗易懂的方式解释一个我正在学习的概念。', icon: 'sparkles' },
+    { title: '模拟面试练习', text: '请围绕我的目标岗位，开始一轮循序渐进的模拟面试。', icon: 'message' },
+  ]
 
   return (
     <main className="app-shell">
-      {/* 顶部区域：显示标题、API 状态、刷新按钮和当前 user_id。 */}
       <header className="app-header">
-        <div>
-          <p className="app-kicker">Tutor Agent</p>
-          <h1>学习对话工作台</h1>
+        <div className="brand-block">
+          <span className="brand-mark"><Icon name="sparkles" size={20} /></span>
+          <div><strong>Tutor Agent</strong><span>AI 学习伙伴</span></div>
+        </div>
+        <div className="header-center">
+          <span className="active-session-title">{activeSession?.title || '新的学习对话'}</span>
+          <ApiStatus status={apiStatus} />
         </div>
         <div className="header-controls">
-          <ApiStatus status={apiStatus} />
-          {/* 刷新按钮会重新请求 GET /health，手动更新 API 状态。 */}
-          <button
-            className="refresh-button"
-            type="button"
-            disabled={apiStatus === 'checking'}
-            onClick={checkApiHealth}
-          >
-            刷新
+          <PersonaSelector personas={personas} selectedPersonaId={selectedPersonaId} status={personasStatus} onPersonaChange={handlePersonaChange} />
+          <button className="header-action-button" type="button" onClick={() => setIsTargetPanelOpen(true)}>
+            <Icon name="target" size={17} /><span>学习目标</span>
           </button>
-          <PersonaSelector
-            personas={personas}
-            selectedPersonaId={selectedPersonaId}
-            status={personasStatus}
-            onPersonaChange={handlePersonaChange}
-          />
-          <UserIdInput userId={userId} onUserIdChange={handleUserIdChange} />
+          <button className="theme-button" type="button" onClick={() => setTheme((current) => current === 'dark' ? 'light' : 'dark')} aria-label="切换明暗主题">
+            <Icon name={theme === 'dark' ? 'sun' : 'moon'} size={18} />
+          </button>
         </div>
       </header>
 
@@ -438,39 +421,55 @@ function App() {
           onSelectSession={loadSessionMessages}
         />
 
-        {/* 聊天区域：发送消息后，用户消息和真实后端回复都会加入 messages。 */}
         <section className="chat-surface" aria-label="聊天工作区">
-          <PersonaBadge persona={selectedPersona} status={personasStatus} />
-          <div className="thread-preview">
-            {chatEmptyText ? <p className="chat-empty">{chatEmptyText}</p> : null}
-            {messages.map((message) => (
-              <ChatMessage
-                key={message.id}
-                role={message.role}
-                text={message.text}
-                reply={message.reply}
-                debug={message.debug}
-              />
-            ))}
+          <div className="mobile-chat-toolbar">
+            <UserIdInput userId={userId} onUserIdChange={handleUserIdChange} />
           </div>
-          <ChatInput
-            message={draftMessage}
-            onMessageChange={setDraftMessage}
-            onSubmit={handleSendMessage}
-            disabled={!canSend}
-            isSending={isSending}
-          />
+          <div className="thread-preview" ref={threadRef}>
+            {messages.length === 0 && activeSessionStatus !== 'loading' ? (
+              <div className="welcome-state">
+                <div className="welcome-orb"><Icon name="sparkles" size={28} /></div>
+                <p className="welcome-kicker">专注 · 清晰 · 循序渐进</p>
+                <h1>今天想学习什么？</h1>
+                <p className="welcome-description">我可以帮你拆解复杂知识、制定学习路径，也能结合目标岗位陪你练习与复盘。</p>
+                <div className="quick-prompt-grid">
+                  {quickPrompts.map((prompt) => (
+                    <button key={prompt.title} type="button" onClick={() => setDraftMessage(prompt.text)}>
+                      <span><Icon name={prompt.icon} size={18} /></span>
+                      <strong>{prompt.title}</strong>
+                      <small>{prompt.text}</small>
+                    </button>
+                  ))}
+                </div>
+                {activeSessionStatus === 'error' ? <p className="inline-error">历史消息读取失败，但你仍可开始新对话。</p> : null}
+              </div>
+            ) : null}
+            {activeSessionStatus === 'loading' ? <div className="thread-loading"><span /><span /><span /><p>正在整理学习记录…</p></div> : null}
+            {messages.map((message) => (
+              <ChatMessage key={message.id} role={message.role} text={message.text} reply={message.reply} debug={message.debug} />
+            ))}
+            {isSending ? (
+              <div className="message-row assistant-row typing-row">
+                <div className="message-avatar assistant-avatar"><Icon name="sparkles" size={17} /></div>
+                <div className="typing-indicator"><span /><span /><span /></div>
+              </div>
+            ) : null}
+          </div>
+          <ChatInput message={draftMessage} onMessageChange={setDraftMessage} onSubmit={handleSendMessage} disabled={!canSend} isSending={isSending} />
         </section>
-
-        <InterviewJDPanel
-          userId={userId}
-          items={interviewJDs}
-          status={interviewJDsStatus}
-          isSaving={isSavingInterviewJD}
-          onRefresh={loadInterviewJDs}
-          onSave={handleSaveInterviewJD}
-        />
       </div>
+
+      <div className="desktop-user-control"><UserIdInput userId={userId} onUserIdChange={handleUserIdChange} /></div>
+      <InterviewJDPanel
+        userId={userId}
+        items={interviewJDs}
+        status={interviewJDsStatus}
+        isSaving={isSavingInterviewJD}
+        onRefresh={loadInterviewJDs}
+        onSave={handleSaveInterviewJD}
+        isOpen={isTargetPanelOpen}
+        onClose={() => setIsTargetPanelOpen(false)}
+      />
     </main>
   )
 }
