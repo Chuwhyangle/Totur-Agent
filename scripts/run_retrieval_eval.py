@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import argparse
 import json
+from collections import defaultdict
 from pathlib import Path
 import sys
+import time
+import statistics
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
@@ -18,6 +21,7 @@ from chromadb.errors import ChromaError
 from app.clients.embedding_client import EmbeddingClient, EmbeddingError
 from app.config import load_embedding_config
 from app.repositories.knowledge_repository import KnowledgeRepository
+from app.services.shard_router import ShardHandle, ShardRouter
 from app.services.hybrid_retriever import hybrid_search
 from app.services.index_manifest import (
     IndexManifest,
@@ -31,6 +35,8 @@ from app.services.knowledge_index_builder import (
 from app.services.rag_settings import (
     CHROMA_PERSIST_DIR,
     KNOWLEDGE_COLLECTION_NAME,
+    collection_name_for_subject,
+    subject_from_source,
     RAG_TOP_K,
     SIMILARITY_THRESHOLD,
 )
@@ -63,6 +69,12 @@ def main() -> int:
         default="vector",
         help="Retrieval mode to evaluate.",
     )
+    parser.add_argument(
+        "--routing",
+        choices=["baseline", "routed", "broadcast"],
+        default="baseline",
+        help="Evaluate the legacy single index, subject routing, or broadcast fan-out.",
+    )
     parser.add_argument("--top-k", type=int, default=RAG_TOP_K)
     parser.add_argument("--threshold", type=float, default=SIMILARITY_THRESHOLD)
     parser.add_argument(
@@ -83,39 +95,72 @@ def main() -> int:
         config = load_embedding_config()
         embedding_client = EmbeddingClient(config=config)
 
+        router = None
+        shard_results = []
         if args.use_existing_index:
             repository = KnowledgeRepository()
-            manifest = load_manifest(DEFAULT_MANIFEST_PATH)
-            validate_existing_index_identity(
-                repository_count=repository.count(),
-                manifest=manifest,
-                embedding_model=config.model,
-            )
+            if args.routing == "baseline":
+                manifest = load_manifest(DEFAULT_MANIFEST_PATH)
+                validate_existing_index_identity(
+                    repository_count=repository.count(),
+                    manifest=manifest,
+                    embedding_model=config.model,
+                )
+            else:
+                router = ShardRouter.from_client(repository.client)
+                if not router.handles:
+                    raise ManifestError("no subject shard collections found for routed evaluation")
+                manifest = _load_first_shard_manifest(router)
+                validate_existing_index_identity(
+                    repository_count=sum(shard.repository.count() for shard in router.handles),
+                    manifest=manifest,
+                    embedding_model=config.model,
+                )
         else:
             repository = KnowledgeRepository(
                 client=chromadb.EphemeralClient(
                     settings=Settings(anonymized_telemetry=False)
                 )
             )
-            result = build_frozen_evaluation_index(
-                corpus_root=args.corpus_root,
-                repository=repository,
-                embedding_client=embedding_client,
-            )
-            manifest = result.manifest
+            if args.routing == "baseline":
+                result = build_frozen_evaluation_index(
+                    corpus_root=args.corpus_root,
+                    repository=repository,
+                    embedding_client=embedding_client,
+                )
+                manifest = result.manifest
+            else:
+                router, shard_results = build_frozen_evaluation_shards(
+                    corpus_root=args.corpus_root,
+                    client=repository.client,
+                    embedding_client=embedding_client,
+                    embedding_model=config.model,
+                )
+                manifest = shard_results[0].manifest
 
         cached_hits = {}
+        latencies_ms: list[float] = []
 
-        def search(query: str, top_k: int):
-            if query in cached_hits:
-                return cached_hits[query][:top_k]
+        def search(query: str, top_k: int, subject: str | None = None):
+            route_subject = subject if args.routing == "routed" else None
+            cache_key = (query, args.routing, route_subject)
+            if cache_key in cached_hits:
+                return cached_hits[cache_key][:top_k]
 
+            started = time.perf_counter()
             query_embedding = embedding_client.embed_texts([query])[0]
             validate_query_embedding_dimensions(
                 query_embedding=query_embedding,
                 manifest=manifest,
             )
-            if args.mode == "hybrid":
+            if router is not None and router.handles:
+                hits = router.search(
+                    query=query,
+                    query_embedding=query_embedding,
+                    top_k=args.top_k,
+                    subject=route_subject,
+                )
+            elif args.mode == "hybrid":
                 hits = hybrid_search(
                     repository=repository,
                     query=query,
@@ -125,7 +170,8 @@ def main() -> int:
                 )
             else:
                 hits = repository.search(query_embedding=query_embedding, top_k=args.top_k)
-            cached_hits[query] = hits
+            latencies_ms.append((time.perf_counter() - started) * 1000)
+            cached_hits[cache_key] = hits
             return hits[:top_k]
 
         summary = evaluate_cases(
@@ -135,7 +181,20 @@ def main() -> int:
             threshold=args.threshold,
         )
         summary["mode"] = args.mode
+        summary["routing"] = args.routing
+        summary["latency_ms"] = _latency_summary(latencies_ms)
         attach_manifest_summary(summary, manifest)
+        if shard_results:
+            summary["shards"] = [
+                {
+                    "subject": result.manifest.corpus_root,
+                    "collection": result.manifest.collection_name,
+                    "fingerprint": result.manifest.fingerprint,
+                    "files": result.manifest.file_count,
+                    "chunks": result.manifest.chunk_count,
+                }
+                for result in shard_results
+            ]
         if args.threshold_sweep:
             summary["threshold_sweep"] = _run_threshold_sweep(
                 cases=cases,
@@ -166,6 +225,64 @@ def main() -> int:
         _print_summary(summary)
 
     return 0
+
+
+def build_frozen_evaluation_shards(
+    *,
+    corpus_root: Path,
+    client,
+    embedding_client: EmbeddingClient,
+    embedding_model: str,
+) -> tuple[ShardRouter, list[IndexBuildResult]]:
+    """Build the frozen corpus into logical subject collections for routing eval."""
+
+    root = Path(corpus_root)
+    groups: dict[str, list[Path]] = defaultdict(list)
+    for path in sorted(root.rglob("*.md")):
+        if path.is_file():
+            source = path.relative_to(root).as_posix()
+            groups[subject_from_source(source)].append(Path(source))
+    if not groups:
+        raise ValueError(f"no markdown files found under {root}")
+
+    handles: list[ShardHandle] = []
+    results: list[IndexBuildResult] = []
+    for subject in sorted(groups):
+        collection_name = collection_name_for_subject(subject)
+        shard_repository = KnowledgeRepository(
+            client=client,
+            collection_name=collection_name,
+        )
+        result = build_knowledge_index(
+            corpus_root=root,
+            source_files=tuple(groups[subject]),
+            corpus_label=subject,
+            repository=shard_repository,
+            embedding_client=embedding_client,
+            embedding_model=embedding_model,
+            collection_name=collection_name,
+        )
+        results.append(result)
+        handles.append(
+            ShardHandle(
+                subject=subject,
+                repository=shard_repository,
+                fingerprint=result.manifest.fingerprint,
+            )
+        )
+
+    return ShardRouter(handles), results
+
+
+def _load_first_shard_manifest(router: ShardRouter) -> IndexManifest:
+    """Load one shard manifest for shared embedding-dimension validation."""
+
+    for shard in router.handles:
+        slug = shard.subject
+        path = PROJECT_ROOT / CHROMA_PERSIST_DIR / f"index_manifest_{slug}.json"
+        if path.exists():
+            return load_manifest(path)
+    raise ManifestError("subject shard manifest is missing")
 
 
 def build_frozen_evaluation_index(
@@ -259,6 +376,19 @@ def _parse_sweep_values(raw_values: str) -> list[float]:
     return values
 
 
+def _latency_summary(values: list[float]) -> dict[str, float | int]:
+    """Return P50/P95 query latency in milliseconds."""
+
+    if not values:
+        return {"count": 0, "p50_ms": 0.0, "p95_ms": 0.0}
+    ordered = sorted(values)
+    return {
+        "count": len(ordered),
+        "p50_ms": round(statistics.median(ordered), 3),
+        "p95_ms": round(ordered[max(0, int(len(ordered) * 0.95) - 1)], 3),
+    }
+
+
 def _run_threshold_sweep(
     cases,
     search,
@@ -322,7 +452,7 @@ def _print_summary(summary: dict) -> None:
 
     metrics = summary["metrics"]
     print("v0.5 frozen retrieval eval")
-    print(f"mode={summary.get('mode', 'vector')}")
+    print(f"mode={summary.get('mode', 'vector')} routing={summary.get('routing', 'baseline')}")
     trace = summary["index_manifest"]
     print(
         "manifest={fingerprint} corpus={corpus} files={files} chunks={chunks} "
@@ -338,6 +468,8 @@ def _print_summary(summary: dict) -> None:
     print(f"MRR={metrics['mrr']:.4f}")
     print(f"negative_accuracy={metrics['negative_accuracy']:.4f}")
     print(f"overall_accuracy={metrics['overall_accuracy']:.4f}")
+    latency = summary.get("latency_ms", {})
+    print(f"latency_ms=P50:{latency.get('p50_ms', 0):.3f} P95:{latency.get('p95_ms', 0):.3f}")
 
     cosine_check = summary.get("manual_cosine_check", {})
     print(

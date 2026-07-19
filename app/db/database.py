@@ -110,6 +110,7 @@ def initialize_database() -> None:
         connection.execute(create_conversations_table_sql)
         # 旧版 chat_sessions 表没有 persona_id，这里会自动补上。
         _ensure_chat_sessions_persona_id_column(connection)
+        _ensure_chat_sessions_subject_column(connection)
         # 每个会话只保留一条滚动摘要，后续由 repository 负责更新它。
         connection.execute(create_session_summaries_table_sql)
         # JD 是用户提供的目标岗位资料，先持久化，再让后续工具检索它。
@@ -126,6 +127,19 @@ def initialize_database() -> None:
         connection.commit()
     finally:
         connection.close()
+
+
+def _ensure_chat_sessions_subject_column(connection: sqlite3.Connection) -> None:
+    """Add the nullable subject column to legacy chat_sessions tables."""
+
+    columns = {
+        row["name"]
+        for row in connection.execute(f"PRAGMA table_info({CHAT_SESSIONS_TABLE})")
+    }
+    if "subject" not in columns:
+        connection.execute(
+            f"ALTER TABLE {CHAT_SESSIONS_TABLE} ADD COLUMN subject TEXT"
+        )
 
 
 def _ensure_conversations_session_id_column(connection: sqlite3.Connection) -> None:

@@ -11,6 +11,7 @@ class CreateSessionRequest(BaseModel):
     user_id: str = Field(..., min_length=1)
     title: str | None = Field(default=None, max_length=100)
     persona_id: str = "tutor"
+    subject: str | None = None
 
 
 class SessionItem(BaseModel):
@@ -22,6 +23,7 @@ class SessionItem(BaseModel):
     persona_id: str
     created_at: str
     updated_at: str
+    subject: str | None = None
 
 
 class SessionListResponse(BaseModel):

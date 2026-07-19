@@ -20,6 +20,7 @@ class ChatSessionRecord:
     persona_id: str
     created_at: str
     updated_at: str
+    subject: str | None = None
 
 
 @dataclass

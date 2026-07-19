@@ -74,6 +74,7 @@ class _FallbackBM25:
 @dataclass(frozen=True)
 class _BM25Snapshot:
     fingerprint: str
+    repository_identity: int
     entries: list[KnowledgeEntry]
     tokenized_corpus: list[list[str]]
     bm25: object | None
@@ -82,26 +83,31 @@ class _BM25Snapshot:
 
 
 class BM25IndexCache:
-    """Cache one corpus snapshot and rebuild it only when its identity changes.
+    """Cache one corpus snapshot per collection and rebuild on fingerprint change.
 
-    Concurrent cache misses may rebuild the snapshot more than once. That is
+    Concurrent cache misses may rebuild a snapshot more than once. That is
     safe (no correctness issue) at the current corpus scale; a Lock can be
     added later if concurrent build cost becomes measurable.
     """
 
     def __init__(self) -> None:
-        self._repository: HybridRepository | None = None
-        self._snapshot: _BM25Snapshot | None = None
+        self._snapshots: dict[str, _BM25Snapshot] = {}
 
     def get(self, repository: HybridRepository, fingerprint: str) -> _BM25Snapshot:
-        snapshot = self._snapshot
-        if self._repository is repository and snapshot and snapshot.fingerprint == fingerprint:
+        collection_name = str(getattr(repository, "collection_name", id(repository)))
+        snapshot = self._snapshots.get(collection_name)
+        if (
+            snapshot is not None
+            and snapshot.repository_identity == id(repository)
+            and snapshot.fingerprint == fingerprint
+        ):
             return snapshot
 
         entries = repository.list_entries(include_embeddings=False)
         tokenized_corpus = [tokenize_for_bm25(_entry_text(entry)) for entry in entries]
         snapshot = _BM25Snapshot(
             fingerprint=fingerprint,
+            repository_identity=id(repository),
             entries=entries,
             tokenized_corpus=tokenized_corpus,
             bm25=BM25Okapi(tokenized_corpus)
@@ -110,8 +116,7 @@ class BM25IndexCache:
             fallback_bm25=_FallbackBM25.build(tokenized_corpus),
             entry_by_key={_entry_key(entry): entry for entry in entries},
         )
-        self._repository = repository
-        self._snapshot = snapshot
+        self._snapshots[collection_name] = snapshot
         return snapshot
 
 

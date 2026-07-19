@@ -102,6 +102,9 @@ class TutorAgentService:
             request_persona_id=request.persona_id,
         )
         persona = get_persona(session.persona_id)
+        set_defaults = getattr(self.tool_executor, "set_default_tool_kwargs", None)
+        if callable(set_defaults):
+            set_defaults({"search_learning_notes": {"subject": session.subject}})
 
         # 先准备模型上下文；具体怎么读历史和摘要交给 MemoryManager。
         context = self.memory_manager.load_context(

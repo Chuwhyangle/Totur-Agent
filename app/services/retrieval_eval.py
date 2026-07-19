@@ -22,6 +22,7 @@ class RetrievalEvalCase:
     expected_title_keywords: list[str]
     notes: str = ""
     group: str = "default"
+    subject: str | None = None
 
     @property
     def is_negative(self) -> bool:
@@ -30,7 +31,7 @@ class RetrievalEvalCase:
         return not self.expected_sources
 
 
-SearchFunc = Callable[[str, int], list[KnowledgeHit]]
+SearchFunc = Callable[..., list[KnowledgeHit]]
 
 
 def load_eval_cases(path: Path) -> list[RetrievalEvalCase]:
@@ -65,6 +66,7 @@ def load_eval_cases(path: Path) -> list[RetrievalEvalCase]:
                 expected_title_keywords=expected_title_keywords,
                 notes=str(payload.get("notes") or ""),
                 group=str(payload.get("group") or "default").strip() or "default",
+                subject=(str(payload["subject"]).strip() or None) if payload.get("subject") is not None else None,
             )
         )
 
@@ -91,7 +93,7 @@ def evaluate_cases(
     results: list[dict[str, Any]] = []
 
     for case in cases:
-        raw_hits = search(case.query, top_k)
+        raw_hits = _search_case(search, case, top_k)
         hits = [hit for hit in raw_hits if hit.similarity >= threshold]
         rank = _first_expected_rank(case, hits)
 
@@ -139,6 +141,20 @@ def evaluate_cases(
         "group_metrics": _evaluate_groups(cases, results, top_k=top_k, threshold=threshold),
         "results": results,
     }
+
+
+def _search_case(search: SearchFunc, case: RetrievalEvalCase, top_k: int) -> list[KnowledgeHit]:
+    """Call both legacy two-argument evaluators and subject-aware evaluators."""
+
+    if case.subject is None:
+        return search(case.query, top_k)
+    try:
+        return search(case.query, top_k, case.subject)
+    except TypeError as exc:
+        # Existing callers may still expose the old SearchFunc signature.
+        if "positional" not in str(exc) and "argument" not in str(exc):
+            raise
+        return search(case.query, top_k)
 
 
 def _evaluate_groups(

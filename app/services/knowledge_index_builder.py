@@ -55,6 +55,7 @@ def build_knowledge_index(
     corpus_root: Path,
     source_dir: Path | None = None,
     source_dirs: Iterable[Path] | None = None,
+    source_files: Iterable[Path] | None = None,
     corpus_label: str,
     repository: IndexRepository,
     embedding_client: EmbeddingProvider,
@@ -74,16 +75,31 @@ def build_knowledge_index(
     _require_nonempty(collection_name, "collection_name")
 
     root = Path(corpus_root)
-    source_paths = _resolve_source_dirs(source_dir, source_dirs)
-    markdown_paths = sorted(
-        {
-            path
-            for source in source_paths
-            for path in (root / source).rglob("*.md")
-            if path.is_file()
-        },
-        key=lambda path: path.relative_to(root).as_posix(),
+    source_paths = (
+        _resolve_source_dirs(source_dir, source_dirs)
+        if source_files is None
+        else ()
     )
+    if source_files is not None and (source_dir is not None or source_dirs is not None):
+        raise ValueError("source_files cannot be combined with source_dir/source_dirs")
+    if source_files is not None:
+        normalized_files = tuple(Path(item) for item in source_files)
+        if not normalized_files or any(path.is_absolute() for path in normalized_files):
+            raise ValueError("source_files must contain relative paths")
+        markdown_paths = sorted(
+            {root / path for path in normalized_files if (root / path).is_file()},
+            key=lambda path: path.relative_to(root).as_posix(),
+        )
+    else:
+        markdown_paths = sorted(
+            {
+                path
+                for source in source_paths
+                for path in (root / source).rglob("*.md")
+                if path.is_file()
+            },
+            key=lambda path: path.relative_to(root).as_posix(),
+        )
     if not markdown_paths:
         raise ValueError(f"no markdown files found under {source_paths}")
 

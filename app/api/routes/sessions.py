@@ -54,6 +54,7 @@ def create_chat_session(request: CreateSessionRequest) -> SessionItem:
         user_id=request.user_id,
         title=request.title,
         persona_id=persona.persona_id,
+        subject=request.subject,
     )
 
     return _session_item_from_record(session)
@@ -117,6 +118,7 @@ def _session_item_from_record(record: ChatSessionRecord) -> SessionItem:
         persona_id=record.persona_id,
         created_at=record.created_at,
         updated_at=record.updated_at,
+        subject=record.subject,
     )
 
 

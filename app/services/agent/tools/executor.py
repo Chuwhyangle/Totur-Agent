@@ -11,8 +11,22 @@ from app.services.agent.tools.registry import ToolRegistry
 class ToolExecutor:
     """Runs registered tools from a model-requested name and arguments."""
 
-    def __init__(self, registry: ToolRegistry | None = None) -> None:
+    def __init__(
+        self,
+        registry: ToolRegistry | None = None,
+        default_tool_kwargs: dict[str, dict[str, Any]] | None = None,
+    ) -> None:
         self.registry = registry or ToolRegistry()
+        self.default_tool_kwargs = {
+            name: dict(kwargs) for name, kwargs in (default_tool_kwargs or {}).items()
+        }
+
+    def set_default_tool_kwargs(self, default_tool_kwargs: dict[str, dict[str, Any]]) -> None:
+        """Replace request-scoped defaults before executing a tool round."""
+
+        self.default_tool_kwargs = {
+            name: dict(kwargs) for name, kwargs in default_tool_kwargs.items()
+        }
 
     def execute(self, name: str, arguments: dict[str, Any] | str) -> dict[str, Any]:
         """Execute one tool call and always return a structured result."""
@@ -33,8 +47,11 @@ class ToolExecutor:
                 "message": "tool arguments must be a JSON object.",
             }
 
+        merged_arguments = dict(self.default_tool_kwargs.get(name, {}))
+        merged_arguments.update(parsed_arguments)
+
         try:
-            return tool(**parsed_arguments)
+            return tool(**merged_arguments)
         except TypeError as exc:
             return {
                 "ok": False,

@@ -32,6 +32,7 @@ def create_session(
     user_id: str,
     title: str | None = None,
     persona_id: str = DEFAULT_PERSONA_ID,
+    subject: str | None = None,
 ) -> ChatSessionRecord:
     """为某个用户创建一个聊天会话。"""
 
@@ -41,15 +42,15 @@ def create_session(
     session_title = title.strip() if title and title.strip() else DEFAULT_SESSION_TITLE
     insert_sql = f"""
     INSERT INTO {CHAT_SESSIONS_TABLE}
-        (user_id, title, persona_id, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?)
+        (user_id, title, persona_id, created_at, updated_at, subject)
+    VALUES (?, ?, ?, ?, ?, ?)
     """
     connection = get_connection()
 
     try:
         cursor = connection.execute(
             insert_sql,
-            (user_id, session_title, persona_id, now, now),
+            (user_id, session_title, persona_id, now, now, subject),
         )
         connection.commit()
         new_id = cursor.lastrowid
@@ -64,6 +65,7 @@ def create_session(
             persona_id=persona_id,
             created_at=now,
             updated_at=now,
+            subject=subject,
         )
     finally:
         connection.close()
@@ -72,12 +74,13 @@ def create_session(
 def get_or_create_default_session(
     user_id: str,
     persona_id: str = DEFAULT_PERSONA_ID,
+    subject: str | None = None,
 ) -> ChatSessionRecord:
     """获取某个用户的默认会话；没有就自动创建。"""
 
     initialize_database()
     select_sql = f"""
-    SELECT id, user_id, title, persona_id, created_at, updated_at
+    SELECT id, user_id, title, persona_id, created_at, updated_at, subject
     FROM {CHAT_SESSIONS_TABLE}
     WHERE user_id = ? AND title = ? AND persona_id = ?
     ORDER BY id ASC
@@ -109,7 +112,7 @@ def get_session(session_id: int) -> ChatSessionRecord | None:
 
     initialize_database()
     select_sql = f"""
-    SELECT id, user_id, title, persona_id, created_at, updated_at
+    SELECT id, user_id, title, persona_id, created_at, updated_at, subject
     FROM {CHAT_SESSIONS_TABLE}
     WHERE id = ?
     """
@@ -131,7 +134,7 @@ def list_sessions(user_id: str, limit: int = 50) -> list[ChatSessionRecord]:
 
     initialize_database()
     select_sql = f"""
-    SELECT id, user_id, title, persona_id, created_at, updated_at
+    SELECT id, user_id, title, persona_id, created_at, updated_at, subject
     FROM {CHAT_SESSIONS_TABLE}
     WHERE user_id = ?
     ORDER BY updated_at DESC, id DESC
@@ -197,4 +200,5 @@ def _session_from_row(row) -> ChatSessionRecord:
         persona_id=row["persona_id"],
         created_at=row["created_at"],
         updated_at=row["updated_at"],
+        subject=row["subject"],
     )

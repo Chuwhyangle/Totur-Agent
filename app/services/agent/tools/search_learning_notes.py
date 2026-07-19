@@ -8,11 +8,13 @@ from typing import Any
 
 from app.clients.embedding_client import EmbeddingClient, EmbeddingError
 from app.repositories.knowledge_repository import KnowledgeHit, KnowledgeRepository
+from app.services.shard_router import ShardRouter
 from app.services.hybrid_retriever import hybrid_search
 from app.services.index_manifest import ManifestError, load_manifest
 from app.services.rag_settings import (
     CHROMA_PERSIST_DIR,
     ENABLE_HYBRID_RETRIEVAL,
+    ENABLE_SUBJECT_SHARDING,
     RAG_TOP_K,
     SIMILARITY_THRESHOLD,
 )
@@ -26,6 +28,7 @@ MANIFEST_PATH = PROJECT_ROOT / CHROMA_PERSIST_DIR / "index_manifest.json"
 logger = logging.getLogger(__name__)
 
 _repository: KnowledgeRepository | None = None
+_router: ShardRouter | None = None
 _embedding_client: EmbeddingClient | None = None
 # Cache (mtime_ns, fingerprint) so a rebuilt index is picked up without restart.
 _manifest_cache: tuple[int, str] | None = None
@@ -34,6 +37,7 @@ _manifest_cache: tuple[int, str] | None = None
 def search_learning_notes(
     query: str,
     limit: int | None = None,
+    subject: str | None = None,
 ) -> dict[str, Any]:
     """检索用户自己的学习笔记，并返回模型友好的结构化结果。"""
 
@@ -45,8 +49,13 @@ def search_learning_notes(
         }
 
     safe_limit = _clamp_limit(limit)
+    router = _get_router() if ENABLE_SUBJECT_SHARDING else None
     repository = _get_repository()
-    if repository.count() == 0:
+    if router is not None:
+        index_count = sum(shard.repository.count() for shard in router.handles)
+    else:
+        index_count = repository.count()
+    if index_count == 0:
         return {
             "ok": False,
             "error": "index_not_built",
@@ -68,6 +77,8 @@ def search_learning_notes(
         query=stripped_query,
         query_embedding=query_embedding,
         top_k=safe_limit,
+        subject=subject,
+        router=router,
     )
     # hybrid_search 分数已归一化到 0-1；阈值语义与 eval 一致，允许强 lexical 命中通过。
     hits = [hit for hit in hits if hit.similarity >= SIMILARITY_THRESHOLD]
@@ -97,8 +108,18 @@ def _retrieve_hits(
     query: str,
     query_embedding: list[float],
     top_k: int,
+    subject: str | None = None,
+    router: ShardRouter | None = None,
 ) -> list[KnowledgeHit]:
-    """Route to hybrid or pure vector search based on flag + manifest availability."""
+    """Route through subject shards when enabled, otherwise preserve single-index behavior."""
+
+    if router is not None:
+        return router.search(
+            query=query,
+            query_embedding=query_embedding,
+            top_k=top_k,
+            subject=subject,
+        )
 
     if ENABLE_HYBRID_RETRIEVAL:
         fingerprint = _get_manifest_fingerprint()
@@ -112,6 +133,26 @@ def _retrieve_hits(
             )
 
     return repository.search(query_embedding=query_embedding, top_k=top_k)
+
+
+def _get_router() -> ShardRouter | None:
+    """Load subject shards lazily; return None when deployment has no shards yet."""
+
+    global _router
+    if _router is not None:
+        return _router
+
+    repository = _get_repository()
+    candidate = ShardRouter.from_client(repository.client)
+    if not candidate.handles:
+        logger.warning(
+            "subject sharding is enabled but no %s collections were found; "
+            "falling back to the legacy single collection",
+            "learning_notes_",
+        )
+        return None
+    _router = candidate
+    return _router
 
 
 def _get_manifest_fingerprint() -> str | None:

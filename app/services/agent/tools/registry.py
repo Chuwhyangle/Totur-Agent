@@ -9,6 +9,7 @@ from typing import Any
 from app.services.agent.tools.interview_jd_search import search_interview_jds
 from app.services.agent.tools.search_learning_notes import search_learning_notes
 from app.services.agent.tools.score_jd_skill_fit import score_jd_skill_fit
+from app.services import rag_settings
 
 
 INTERVIEW_JD_SEARCH_SCHEMA: dict[str, Any] = {
@@ -140,6 +141,13 @@ SEARCH_LEARNING_NOTES_SCHEMA: dict[str, Any] = {
                     "maximum": 5,
                     "default": 3,
                 },
+                "subject": {
+                    "type": ["string", "null"],
+                    "description": (
+                        "Subject shard to search; omit to use the current session subject. "
+                        "Leave null for cross-subject broadcast retrieval."
+                    ),
+                },
             },
             "required": ["query"],
             "additionalProperties": False,
@@ -161,9 +169,16 @@ class ToolRegistry:
     def get_tools_schema(self) -> list[dict[str, Any]]:
         """Return OpenAI-compatible tool schemas."""
 
+        learning_notes_schema = deepcopy(SEARCH_LEARNING_NOTES_SCHEMA)
+        if not rag_settings.ENABLE_SUBJECT_SHARDING:
+            # Preserve the legacy tool contract while the feature flag is off.
+            learning_notes_schema["function"]["parameters"]["properties"].pop(
+                "subject", None
+            )
+
         return [
             deepcopy(INTERVIEW_JD_SEARCH_SCHEMA),
-            deepcopy(SEARCH_LEARNING_NOTES_SCHEMA),
+            learning_notes_schema,
             deepcopy(SCORE_JD_SKILL_FIT_SCHEMA),
         ]
 

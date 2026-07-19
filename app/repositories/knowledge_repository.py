@@ -13,6 +13,7 @@ from app.services.knowledge_chunker import KnowledgeChunk
 from app.services.rag_settings import (
     CHROMA_PERSIST_DIR,
     EMBEDDING_BATCH_SIZE,
+    COLLECTION_PREFIX,
     KNOWLEDGE_COLLECTION_NAME,
 )
 
@@ -44,12 +45,17 @@ class KnowledgeEntry:
 class KnowledgeRepository:
     """隔离 Chroma API，让工具层不直接依赖具体向量库实现。"""
 
-    def __init__(self, client: Any | None = None) -> None:
+    def __init__(
+        self,
+        client: Any | None = None,
+        collection_name: str = KNOWLEDGE_COLLECTION_NAME,
+    ) -> None:
         """默认使用本地持久化 Chroma；测试可注入 EphemeralClient。"""
 
         self.client = client or chromadb.PersistentClient(
             path=str(PROJECT_ROOT / CHROMA_PERSIST_DIR)
         )
+        self.collection_name = collection_name
 
     def rebuild(
         self,
@@ -114,6 +120,7 @@ class KnowledgeRepository:
                         "source": chunk.source,
                         "title_path": chunk.title_path,
                         "created_at": created_at,
+                        "subject": chunk.subject,
                     }
                     for chunk in batch_chunks
                 ],
@@ -205,7 +212,7 @@ class KnowledgeRepository:
         """创建 cosine 距离集合，避免 Chroma 默认 L2 影响阈值语义。"""
 
         return self.client.create_collection(
-            name=KNOWLEDGE_COLLECTION_NAME,
+            name=self.collection_name,
             metadata={"hnsw:space": "cosine"},
         )
 
@@ -213,7 +220,7 @@ class KnowledgeRepository:
         """获取集合；不存在时返回 None，让调用方走结构化错误。"""
 
         try:
-            return self.client.get_collection(KNOWLEDGE_COLLECTION_NAME)
+            return self.client.get_collection(self.collection_name)
         except Exception:
             return None
 
@@ -221,7 +228,7 @@ class KnowledgeRepository:
         """删除旧集合；首次构建时集合不存在是正常情况。"""
 
         try:
-            self.client.delete_collection(KNOWLEDGE_COLLECTION_NAME)
+            self.client.delete_collection(self.collection_name)
         except Exception:
             return
 
@@ -241,3 +248,14 @@ def _embedding_at(raw_embeddings: Any, index: int) -> list[float] | None:
         return None
 
     return [float(value) for value in embedding]
+
+
+def list_knowledge_collections(client: Any) -> list[str]:
+    """List logical subject-shard collections in deterministic order."""
+
+    names: list[str] = []
+    for item in client.list_collections():
+        name = getattr(item, "name", item)
+        if isinstance(name, str) and name.startswith(COLLECTION_PREFIX):
+            names.append(name)
+    return sorted(set(names))

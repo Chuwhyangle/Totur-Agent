@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import re
 
-from app.services.rag_settings import CHUNK_OVERLAP, CHUNK_SIZE
+from app.services.rag_settings import CHUNK_OVERLAP, CHUNK_SIZE, subject_from_source
 
 
 HEADING_PATTERN = re.compile(r"^(#{1,3})\s+(.+?)\s*$")
@@ -20,6 +20,7 @@ class KnowledgeChunk:
     source: str
     title_path: str
     chunk_index: int
+    subject: str = "general"
 
     @property
     def chunk_id(self) -> str:
@@ -33,6 +34,7 @@ def chunk_markdown(
     source: str,
     chunk_size: int = CHUNK_SIZE,
     chunk_overlap: int = CHUNK_OVERLAP,
+    subject: str | None = None,
 ) -> list[KnowledgeChunk]:
     """把 Markdown 文本按标题章节切成 KnowledgeChunk 列表。"""
 
@@ -54,6 +56,7 @@ def chunk_markdown(
                 start_index=len(chunks),
                 chunk_size=chunk_size,
                 chunk_overlap=chunk_overlap,
+                subject=subject or subject_from_source(source),
             )
         )
         section_lines = []
@@ -84,6 +87,7 @@ def _chunks_from_section(
     start_index: int,
     chunk_size: int,
     chunk_overlap: int,
+    subject: str,
 ) -> list[KnowledgeChunk]:
     """把一个标题章节转换成一个或多个分块。"""
 
@@ -112,6 +116,7 @@ def _chunks_from_section(
             source=source,
             title_path=title_path,
             chunk_index=start_index + index,
+            subject=subject,
         )
         for index, piece in enumerate(pieces)
     ]
