@@ -9,6 +9,13 @@ CHUNK_OVERLAP = 50
 # 检索工具默认返回的候选块数量。
 RAG_TOP_K = 3
 
+# v0.6 reranker stays opt-in until quality, latency, privacy, and cost gates pass.
+ENABLE_RERANKING = False
+RERANK_CANDIDATE_K = 10
+RERANK_MAX_TEXT_CHARS = 2000
+RERANK_TIMEOUT_SECONDS = 5
+RERANK_MAX_RETRIES = 0
+
 # 相似度低于该阈值的结果会被丢弃；v0.4 评测集基线校准为 0.45。
 SIMILARITY_THRESHOLD = 0.45
 

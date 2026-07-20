@@ -10,6 +10,7 @@ from app.api.routes.health import router as health_router
 from app.api.routes.interview_jds import router as interview_jds_router
 from app.api.routes.personas import router as personas_router
 from app.api.routes.sessions import router as sessions_router
+from app.clients.reranker_client import close_reranker_client
 from app.clients.web_search_client import close_web_search_client
 
 allowed_origins = [
@@ -29,6 +30,7 @@ async def lifespan(_: FastAPI):
     try:
         yield
     finally:
+        close_reranker_client()
         close_web_search_client()
 
 

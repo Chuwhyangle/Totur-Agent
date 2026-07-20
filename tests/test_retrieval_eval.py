@@ -5,6 +5,10 @@ from __future__ import annotations
 from pathlib import Path
 
 from app.repositories.knowledge_repository import KnowledgeEntry, KnowledgeHit
+from scripts.run_retrieval_eval import (
+    _attach_rerank_case_traces,
+    _rerank_latency_summary,
+)
 from app.services.retrieval_eval import (
     RetrievalEvalCase,
     cosine_similarity,
@@ -216,3 +220,50 @@ def test_default_eval_file_has_required_size_and_negative_cases():
 
     assert 30 <= len(cases) <= 50
     assert len(negative_cases) >= 10
+
+
+def test_rerank_latency_summary_reports_average_and_p95():
+    assert _rerank_latency_summary([]) == {
+        "count": 0,
+        "average_ms": 0.0,
+        "p95_ms": 0.0,
+    }
+    assert _rerank_latency_summary([10.0, 20.0, 30.0, 40.0]) == {
+        "count": 4,
+        "average_ms": 25.0,
+        "p95_ms": 40.0,
+    }
+
+
+def test_eval_report_attaches_before_after_rerank_ranks():
+    case = RetrievalEvalCase(
+        case_id="rerank_case",
+        query="query",
+        expected_sources=["docs/right.md"],
+        expected_title_keywords=["Right"],
+    )
+    wrong = KnowledgeHit("wrong", "docs/wrong.md", "Wrong", 0.9)
+    right = KnowledgeHit("right", "docs/right.md", "Right title", 0.8)
+    summary = {"results": [{"id": "rerank_case"}]}
+    traces = {
+        ("query", None): {
+            "before_hits": [wrong, right],
+            "after_hits": [right, wrong],
+            "applied": True,
+            "fallback_reason": None,
+        }
+    }
+
+    _attach_rerank_case_traces(
+        summary=summary,
+        cases=[case],
+        traces=traces,
+        routing="baseline",
+    )
+
+    row = summary["results"][0]
+    assert row["before_rank"] == 2
+    assert row["after_rank"] == 1
+    assert row["before_sources"] == ["docs/wrong.md", "docs/right.md"]
+    assert row["after_sources"] == ["docs/right.md", "docs/wrong.md"]
+    assert row["rerank_applied"] is True

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 from collections import defaultdict
 from pathlib import Path
 import sys
@@ -23,6 +24,7 @@ from app.config import load_embedding_config
 from app.repositories.knowledge_repository import KnowledgeRepository
 from app.services.shard_router import ShardHandle, ShardRouter
 from app.services.hybrid_retriever import hybrid_search
+from app.services.reranking import RerankingService
 from app.services.index_manifest import (
     IndexManifest,
     ManifestError,
@@ -38,6 +40,7 @@ from app.services.rag_settings import (
     collection_name_for_subject,
     subject_from_source,
     RAG_TOP_K,
+    RERANK_CANDIDATE_K,
     SIMILARITY_THRESHOLD,
 )
 from app.services.retrieval_eval import (
@@ -76,6 +79,17 @@ def main() -> int:
         help="Evaluate the legacy single index, subject routing, or broadcast fan-out.",
     )
     parser.add_argument("--top-k", type=int, default=RAG_TOP_K)
+    parser.add_argument(
+        "--rerank",
+        action="store_true",
+        help="Batch-rerank thresholded retrieval candidates before scoring metrics.",
+    )
+    parser.add_argument(
+        "--rerank-candidate-k",
+        type=int,
+        default=RERANK_CANDIDATE_K,
+        help="Candidate pool size used when --rerank is enabled.",
+    )
     parser.add_argument("--threshold", type=float, default=SIMILARITY_THRESHOLD)
     parser.add_argument(
         "--threshold-sweep",
@@ -138,14 +152,27 @@ def main() -> int:
                 )
                 manifest = shard_results[0].manifest
 
-        cached_hits = {}
-        latencies_ms: list[float] = []
+        if args.top_k <= 0:
+            raise ValueError("top-k must be positive")
+        if args.rerank_candidate_k <= 0:
+            raise ValueError("rerank-candidate-k must be positive")
 
-        def search(query: str, top_k: int, subject: str | None = None):
+        retrieval_top_k = args.rerank_candidate_k if args.rerank else args.top_k
+        cached_hits: dict[tuple[str, str, str | None], list] = {}
+        latencies_ms: list[float] = []
+        rerank_latencies_ms: list[float] = []
+        rerank_fallback_count = 0
+        rerank_applied_count = 0
+        rerank_provider: str | None = None
+        rerank_model: str | None = None
+        rerank_traces: dict[tuple[str, str | None], dict] = {}
+        reranking_service = RerankingService(enabled=True) if args.rerank else None
+
+        def retrieve(query: str, subject: str | None = None):
             route_subject = subject if args.routing == "routed" else None
             cache_key = (query, args.routing, route_subject)
             if cache_key in cached_hits:
-                return cached_hits[cache_key][:top_k]
+                return cached_hits[cache_key]
 
             started = time.perf_counter()
             query_embedding = embedding_client.embed_texts([query])[0]
@@ -157,7 +184,7 @@ def main() -> int:
                 hits = router.search(
                     query=query,
                     query_embedding=query_embedding,
-                    top_k=args.top_k,
+                    top_k=retrieval_top_k,
                     subject=route_subject,
                 )
             elif args.mode == "hybrid":
@@ -165,15 +192,58 @@ def main() -> int:
                     repository=repository,
                     query=query,
                     query_embedding=query_embedding,
-                    top_k=args.top_k,
+                    top_k=retrieval_top_k,
                     fingerprint=manifest.fingerprint,
                 )
             else:
-                hits = repository.search(query_embedding=query_embedding, top_k=args.top_k)
+                hits = repository.search(
+                    query_embedding=query_embedding,
+                    top_k=retrieval_top_k,
+                )
             latencies_ms.append((time.perf_counter() - started) * 1000)
             cached_hits[cache_key] = hits
-            return hits[:top_k]
+            return hits
 
+        def make_search(active_threshold: float, *, collect: bool):
+            def search(query: str, top_k: int, subject: str | None = None):
+                nonlocal rerank_fallback_count
+                nonlocal rerank_applied_count
+                nonlocal rerank_provider
+                nonlocal rerank_model
+
+                raw_hits = retrieve(query, subject)
+                if reranking_service is None:
+                    return raw_hits[:top_k]
+
+                thresholded_hits = [
+                    hit for hit in raw_hits if hit.similarity >= active_threshold
+                ]
+                outcome = reranking_service.rerank(
+                    query,
+                    thresholded_hits,
+                    top_n=top_k,
+                )
+                if collect:
+                    if outcome.latency_ms is not None:
+                        rerank_latencies_ms.append(float(outcome.latency_ms))
+                    if outcome.fallback_reason is not None:
+                        rerank_fallback_count += 1
+                    if outcome.applied:
+                        rerank_applied_count += 1
+                    rerank_provider = outcome.provider or rerank_provider
+                    rerank_model = outcome.model or rerank_model
+                    route_subject = subject if args.routing == "routed" else None
+                    rerank_traces[(query, route_subject)] = {
+                        "before_hits": thresholded_hits,
+                        "after_hits": outcome.hits,
+                        "applied": outcome.applied,
+                        "fallback_reason": outcome.fallback_reason,
+                    }
+                return outcome.hits
+
+            return search
+
+        search = make_search(args.threshold, collect=True)
         summary = evaluate_cases(
             cases=cases,
             search=search,
@@ -183,6 +253,39 @@ def main() -> int:
         summary["mode"] = args.mode
         summary["routing"] = args.routing
         summary["latency_ms"] = _latency_summary(latencies_ms)
+        summary["retrieval_latency_ms"] = summary["latency_ms"]
+        if args.rerank:
+            _attach_rerank_case_traces(
+                summary=summary,
+                cases=cases,
+                traces=rerank_traces,
+                routing=args.routing,
+            )
+            summary["reranking"] = {
+                "enabled": True,
+                "candidate_k": args.rerank_candidate_k,
+                "provider": rerank_provider,
+                "model": rerank_model,
+                "latency_ms": _rerank_latency_summary(rerank_latencies_ms),
+                "applied_count": rerank_applied_count,
+                "fallback_count": rerank_fallback_count,
+                "cost": {
+                    "currency": "USD",
+                    "per_request": None,
+                    "total": None,
+                    "note": "provider usage/cost was not supplied by the generic protocol",
+                },
+            }
+        else:
+            summary["reranking"] = {
+                "enabled": False,
+                "candidate_k": None,
+                "provider": None,
+                "model": None,
+                "latency_ms": _rerank_latency_summary([]),
+                "applied_count": 0,
+                "fallback_count": 0,
+            }
         attach_manifest_summary(summary, manifest)
         if shard_results:
             summary["shards"] = [
@@ -201,6 +304,11 @@ def main() -> int:
                 search=search,
                 top_k=args.top_k,
                 sweep_values=_parse_sweep_values(args.sweep_values),
+                search_factory=(
+                    (lambda threshold: make_search(threshold, collect=False))
+                    if args.rerank
+                    else None
+                ),
             )
         summary["manual_cosine_check"] = _run_manual_cosine_check(
             cases=cases,
@@ -389,19 +497,68 @@ def _latency_summary(values: list[float]) -> dict[str, float | int]:
     }
 
 
+def _rerank_latency_summary(values: list[float]) -> dict[str, float | int]:
+    """Return average/P95 rerank latency in milliseconds."""
+
+    if not values:
+        return {"count": 0, "average_ms": 0.0, "p95_ms": 0.0}
+    ordered = sorted(values)
+    return {
+        "count": len(ordered),
+        "average_ms": round(statistics.fmean(ordered), 3),
+        "p95_ms": round(ordered[max(0, math.ceil(len(ordered) * 0.95) - 1)], 3),
+    }
+
+
+def _attach_rerank_case_traces(*, summary, cases, traces, routing: str) -> None:
+    """Attach before/after rank evidence without changing core metric semantics."""
+
+    results_by_id = {row["id"]: row for row in summary.get("results", [])}
+    for case in cases:
+        row = results_by_id.get(case.case_id)
+        if row is None:
+            continue
+        route_subject = case.subject if routing == "routed" else None
+        trace = traces.get((case.query, route_subject))
+        if trace is None:
+            continue
+        before_hits = trace["before_hits"]
+        after_hits = trace["after_hits"]
+        row["before_sources"] = [hit.source for hit in before_hits]
+        row["after_sources"] = [hit.source for hit in after_hits]
+        row["before_rank"] = _expected_rank(case, before_hits)
+        row["after_rank"] = _expected_rank(case, after_hits)
+        row["rerank_applied"] = trace["applied"]
+        row["rerank_fallback_reason"] = trace["fallback_reason"]
+
+
+def _expected_rank(case, hits) -> int | None:
+    for index, hit in enumerate(hits, 1):
+        if hit.source not in case.expected_sources:
+            continue
+        if case.expected_title_keywords:
+            haystack = f"{hit.title_path}\n{hit.content}".lower()
+            if not all(keyword.lower() in haystack for keyword in case.expected_title_keywords):
+                continue
+        return index
+    return None
+
+
 def _run_threshold_sweep(
     cases,
     search,
     top_k: int,
     sweep_values: list[float],
+    search_factory=None,
 ) -> list[dict]:
-    """Run metric calculation for several thresholds using cached search hits."""
+    """Run metric calculation for several thresholds using cached retrieval hits."""
 
     rows = []
     for threshold in sweep_values:
+        active_search = search_factory(threshold) if search_factory is not None else search
         metrics = evaluate_cases(
             cases=cases,
-            search=search,
+            search=active_search,
             top_k=top_k,
             threshold=threshold,
         )["metrics"]
@@ -451,7 +608,7 @@ def _print_summary(summary: dict) -> None:
     """Print a compact human-readable eval report."""
 
     metrics = summary["metrics"]
-    print("v0.5 frozen retrieval eval")
+    print("v0.6 frozen retrieval eval")
     print(f"mode={summary.get('mode', 'vector')} routing={summary.get('routing', 'baseline')}")
     trace = summary["index_manifest"]
     print(
@@ -468,8 +625,25 @@ def _print_summary(summary: dict) -> None:
     print(f"MRR={metrics['mrr']:.4f}")
     print(f"negative_accuracy={metrics['negative_accuracy']:.4f}")
     print(f"overall_accuracy={metrics['overall_accuracy']:.4f}")
-    latency = summary.get("latency_ms", {})
-    print(f"latency_ms=P50:{latency.get('p50_ms', 0):.3f} P95:{latency.get('p95_ms', 0):.3f}")
+    latency = summary.get("retrieval_latency_ms", summary.get("latency_ms", {}))
+    print(
+        f"retrieval_latency_ms=P50:{latency.get('p50_ms', 0):.3f} "
+        f"P95:{latency.get('p95_ms', 0):.3f}"
+    )
+    reranking = summary.get("reranking", {})
+    rerank_latency = reranking.get("latency_ms", {})
+    print(
+        "rerank={enabled} candidate_k={candidate_k} provider={provider} model={model} "
+        "average_ms={average:.3f} p95_ms={p95:.3f} fallbacks={fallbacks}".format(
+            enabled=reranking.get("enabled", False),
+            candidate_k=reranking.get("candidate_k"),
+            provider=reranking.get("provider"),
+            model=reranking.get("model"),
+            average=rerank_latency.get("average_ms", 0),
+            p95=rerank_latency.get("p95_ms", 0),
+            fallbacks=reranking.get("fallback_count", 0),
+        )
+    )
 
     cosine_check = summary.get("manual_cosine_check", {})
     print(

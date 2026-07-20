@@ -11,11 +11,14 @@ from app.repositories.knowledge_repository import KnowledgeHit, KnowledgeReposit
 from app.services.shard_router import ShardRouter
 from app.services.hybrid_retriever import hybrid_search
 from app.services.index_manifest import ManifestError, load_manifest
+from app.services.reranking import RerankingService
 from app.services.rag_settings import (
     CHROMA_PERSIST_DIR,
     ENABLE_HYBRID_RETRIEVAL,
+    ENABLE_RERANKING,
     ENABLE_SUBJECT_SHARDING,
     RAG_TOP_K,
+    RERANK_CANDIDATE_K,
     SIMILARITY_THRESHOLD,
 )
 
@@ -30,6 +33,7 @@ logger = logging.getLogger(__name__)
 _repository: KnowledgeRepository | None = None
 _router: ShardRouter | None = None
 _embedding_client: EmbeddingClient | None = None
+_reranking_service: RerankingService | None = None
 # Cache (mtime_ns, fingerprint) so a rebuilt index is picked up without restart.
 _manifest_cache: tuple[int, str] | None = None
 
@@ -72,28 +76,58 @@ def search_learning_notes(
             "message": f"embedding failed: {exc}",
         }
 
+    candidate_k = RERANK_CANDIDATE_K if ENABLE_RERANKING else safe_limit
     hits = _retrieve_hits(
         repository=repository,
         query=stripped_query,
         query_embedding=query_embedding,
-        top_k=safe_limit,
+        top_k=candidate_k,
         subject=subject,
         router=router,
     )
-    # hybrid_search 分数已归一化到 0-1；阈值语义与 eval 一致，允许强 lexical 命中通过。
+    # Hybrid scores are normalized to 0-1; keep threshold semantics aligned with eval.
     hits = [hit for hit in hits if hit.similarity >= SIMILARITY_THRESHOLD]
-    items = [_item_from_hit(hit) for hit in hits]
+
+    summary: dict[str, Any]
+    if ENABLE_RERANKING:
+        original_indices = {id(hit): index for index, hit in enumerate(hits)}
+        outcome = _get_reranking_service().rerank(
+            stripped_query,
+            hits,
+            top_n=min(safe_limit, RAG_TOP_K),
+        )
+        items = [
+            _item_from_hit(
+                hit,
+                rerank_score=outcome.scores_by_index.get(original_indices[id(hit)])
+                if outcome.applied
+                else None,
+            )
+            for hit in outcome.hits
+        ]
+        summary = {
+            "returned_count": len(items),
+            "candidate_count": len(hits),
+            "rerank_applied": outcome.applied,
+            "rerank_provider": outcome.provider,
+            "rerank_model": outcome.model,
+            "rerank_latency_ms": outcome.latency_ms,
+            "rerank_fallback_reason": outcome.fallback_reason,
+        }
+    else:
+        # Preserve the pre-v0.6 response shape and ranking while the feature is off.
+        items = [_item_from_hit(hit) for hit in hits]
+        summary = {"returned_count": len(items)}
+
     result: dict[str, Any] = {
         "ok": True,
         "found": bool(items),
         "query": query,
         "count": len(items),
         "results": items,
-        # 现有 ReAct trace 读取 items；保留 results 语义的同时给它一个兼容别名。
+        # Existing ReAct traces read items; keep it as a compatibility alias for results.
         "items": items,
-        "summary": {
-            "returned_count": len(items),
-        },
+        "summary": summary,
     }
 
     if not items:
@@ -192,11 +226,15 @@ def _get_manifest_fingerprint() -> str | None:
     return fingerprint
 
 
-def _item_from_hit(hit: KnowledgeHit) -> dict[str, Any]:
-    """把 repository 命中结果压缩成工具 observation。"""
+def _item_from_hit(
+    hit: KnowledgeHit,
+    *,
+    rerank_score: float | None = None,
+) -> dict[str, Any]:
+    """Convert a repository hit into a compact tool observation."""
 
     title = hit.title_path or hit.source
-    return {
+    item = {
         "title": title,
         "content": hit.content,
         "source": hit.source,
@@ -205,6 +243,9 @@ def _item_from_hit(hit: KnowledgeHit) -> dict[str, Any]:
         "match_score": round(hit.similarity * 100),
         "raw_text_excerpt": _excerpt(hit.content),
     }
+    if rerank_score is not None:
+        item["rerank_score"] = round(rerank_score, 6)
+    return item
 
 
 def _excerpt(content: str, max_length: int = 140) -> str:
@@ -246,3 +287,12 @@ def _get_embedding_client() -> EmbeddingClient:
         _embedding_client = EmbeddingClient()
 
     return _embedding_client
+
+
+def _get_reranking_service() -> RerankingService:
+    """Create the service lazily only after the feature flag is enabled."""
+
+    global _reranking_service
+    if _reranking_service is None:
+        _reranking_service = RerankingService(enabled=True)
+    return _reranking_service

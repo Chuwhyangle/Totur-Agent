@@ -34,6 +34,17 @@ class WebSearchConfig:
     timeout_seconds: float
 
 
+@dataclass(frozen=True)
+class RerankerConfig:
+    """External reranker provider configuration."""
+
+    provider: str
+    api_key: str
+    base_url: str
+    model: str
+    timeout_seconds: float
+
+
 def load_llm_config() -> LLMConfig:
     """Load and validate model configuration from environment variables."""
 
@@ -117,5 +128,41 @@ def load_web_search_config() -> WebSearchConfig:
         provider=provider,
         api_key=api_key,
         base_url=base_url,
+        timeout_seconds=timeout_seconds,
+    )
+
+
+def load_reranker_config() -> RerankerConfig:
+    """Load reranker configuration only when reranking is requested."""
+
+    load_dotenv()
+
+    provider = os.getenv("RERANK_PROVIDER", "").strip().lower()
+    api_key = os.getenv("RERANK_API_KEY", "").strip()
+    base_url = os.getenv("RERANK_BASE_URL", "").strip().rstrip("/")
+    model = os.getenv("RERANK_MODEL", "").strip()
+
+    raw_timeout = os.getenv("RERANK_TIMEOUT_SECONDS", "5").strip()
+    try:
+        timeout_seconds = float(raw_timeout)
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError("invalid reranker timeout") from exc
+
+    if not provider:
+        raise RuntimeError("reranker provider is not configured")
+    if not api_key:
+        raise RuntimeError("reranker api key is not configured")
+    if not base_url:
+        raise RuntimeError("reranker base url is not configured")
+    if not model:
+        raise RuntimeError("reranker model is not configured")
+    if timeout_seconds <= 0:
+        raise RuntimeError("invalid reranker timeout")
+
+    return RerankerConfig(
+        provider=provider,
+        api_key=api_key,
+        base_url=base_url,
+        model=model,
         timeout_seconds=timeout_seconds,
     )
