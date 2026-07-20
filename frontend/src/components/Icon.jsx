@@ -12,6 +12,7 @@ function Icon({ name, size = 20, strokeWidth = 1.8, className = '' }) {
     check: <path d="m5 12 4 4L19 6" />,
     user: <><path d="M20 21a8 8 0 0 0-16 0" /><circle cx="12" cy="7" r="4" /></>,
     panel: <><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M9 4v16" /></>,
+    globe: <><circle cx="12" cy="12" r="9" /><path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18" /></>,
   }
 
   return (

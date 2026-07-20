@@ -126,7 +126,13 @@ class TutorAgentService:
             update_session_title(session.id, make_title_from_message(message))
 
         messages = self.prompt_builder.build_messages(context, persona=persona)
-        raw_reply, tool_trace = self.react_orchestrator.run(messages)
+        if request.force_web_search:
+            raw_reply, tool_trace = self.react_orchestrator.run(
+                messages,
+                force_web_search=True,
+            )
+        else:
+            raw_reply, tool_trace = self.react_orchestrator.run(messages)
         reply = self.response_parser.parse_model_reply(raw_reply)
         reply = self._finalize_reply_sources(reply, tool_trace)
 

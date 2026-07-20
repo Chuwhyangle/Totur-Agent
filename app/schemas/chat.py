@@ -12,6 +12,7 @@ class ChatRequest(BaseModel):
     session_id: int | None = None
     message: str = Field(..., min_length=1)
     persona_id: str | None = None
+    force_web_search: bool = False
 
 
 class Source(BaseModel):

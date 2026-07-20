@@ -713,6 +713,41 @@ def test_chat_returns_structured_reply(monkeypatch, tmp_path):
     assert len(reply["checkpoints"]) == 3
 
 
+def test_chat_passes_user_selected_web_search_to_orchestrator(monkeypatch, tmp_path):
+    use_temp_database(monkeypatch, tmp_path)
+    force_flags: list[bool] = []
+    raw_model_reply = json.dumps(
+        {
+            "answer": "Checked current public sources.",
+            "next_task": "Review the result.",
+            "exercise": "Compare two sources.",
+            "checkpoints": ["Web Search was requested."],
+        }
+    )
+
+    def fake_run(messages, force_web_search=False):
+        force_flags.append(force_web_search)
+        return raw_model_reply, ToolTrace(used=False)
+
+    monkeypatch.setattr(
+        chat_route.tutor_agent_service.react_orchestrator,
+        "run",
+        fake_run,
+    )
+
+    response = client.post(
+        "/chat",
+        json={
+            "user_id": "web-option-user",
+            "message": "Check the latest FastAPI release.",
+            "force_web_search": True,
+        },
+    )
+
+    assert response.status_code == 200
+    assert force_flags == [True]
+
+
 def test_chat_finalizes_web_sources_before_response_and_persistence(monkeypatch, tmp_path):
     use_temp_database(monkeypatch, tmp_path)
 

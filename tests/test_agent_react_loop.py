@@ -530,6 +530,7 @@ def test_react_loop_trace_keeps_a_stable_public_shape():
 def web_search_tool(query: str) -> dict[str, Any]:
     """Return one deterministic public Web result for budget tests."""
 
+    safe_path = query.replace(" ", "-")
     return {
         "ok": True,
         "found": True,
@@ -537,13 +538,57 @@ def web_search_tool(query: str) -> dict[str, Any]:
         "items": [
             {
                 "title": f"Source for {query}",
-                "url": f"https://example.com/{query}",
+                "url": f"https://example.com/{safe_path}",
                 "snippet": "evidence",
                 "domain": "untrusted-provider-domain.example",
             }
         ],
         "summary": {"returned_count": 1, "provider": "stub"},
     }
+
+
+def test_user_selected_web_search_executes_before_model_routing():
+    """The explicit UI option must deterministically execute Web Search once."""
+
+    executed_queries: list[str] = []
+
+    def captured_web_search(query: str) -> dict[str, Any]:
+        executed_queries.append(query)
+        return web_search_tool(query)
+
+    orchestrator = make_orchestrator(
+        StubToolRegistry({"web_search": captured_web_search})
+    )
+    messages_seen_by_model: list[dict[str, Any]] = []
+
+    def fake_call_model_with_tools(messages):
+        messages_seen_by_model.extend(messages)
+        return final_message()
+
+    orchestrator._call_model_with_tools = fake_call_model_with_tools
+
+    raw_reply, tool_trace = orchestrator.run(
+        [
+            {"role": "user", "content": "Earlier question"},
+            {"role": "assistant", "content": "Earlier answer"},
+            {"role": "user", "content": "Search the latest FastAPI release"},
+        ],
+        force_web_search=True,
+    )
+
+    assert raw_reply == FINAL_REPLY
+    assert executed_queries == ["Search the latest FastAPI release"]
+    assert tool_trace.used is True
+    assert len(tool_trace.calls) == 1
+    assert tool_trace.calls[0].name == "web_search"
+    assert tool_trace.calls[0].round == 1
+    assert tool_trace.calls[0].ok is True
+    tool_messages = [
+        message for message in messages_seen_by_model if message["role"] == "tool"
+    ]
+    assert len(tool_messages) == 1
+    observation = json.loads(tool_messages[0]["content"])
+    assert observation["items"][0]["evidence_id"] == "web_1"
 
 
 def test_web_search_budget_blocks_the_third_executor_call():

@@ -6,6 +6,8 @@ function ChatInput({
   onSubmit,
   disabled = false,
   isSending = false,
+  webSearchEnabled = false,
+  onWebSearchEnabledChange,
   placeholder = '向 AI 导师提问，或让它为你制定学习计划…',
 }) {
   function handleKeyDown(event) {
@@ -30,6 +32,19 @@ function ChatInput({
           {isSending ? <span className="send-loader" /> : <Icon name="send" size={18} />}
         </button>
       </form>
+      <div className="composer-options">
+        <button
+          className={`web-search-toggle${webSearchEnabled ? ' is-active' : ''}`}
+          type="button"
+          aria-pressed={webSearchEnabled}
+          disabled={isSending}
+          onClick={() => onWebSearchEnabledChange?.(!webSearchEnabled)}
+        >
+          <Icon name="globe" size={15} />
+          <span>联网搜索</span>
+          <small>{webSearchEnabled ? '本轮强制使用' : '自动判断'}</small>
+        </button>
+      </div>
       <p className="composer-hint">Enter 发送 · Shift + Enter 换行 · AI 可能会犯错，请核对重要信息</p>
     </div>
   )
