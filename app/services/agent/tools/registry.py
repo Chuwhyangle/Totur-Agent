@@ -9,6 +9,7 @@ from typing import Any
 from app.services.agent.tools.interview_jd_search import search_interview_jds
 from app.services.agent.tools.search_learning_notes import search_learning_notes
 from app.services.agent.tools.score_jd_skill_fit import score_jd_skill_fit
+from app.services.agent.tools.web_search import web_search
 from app.services import rag_settings
 
 
@@ -156,6 +157,48 @@ SEARCH_LEARNING_NOTES_SCHEMA: dict[str, Any] = {
 }
 
 
+WEB_SEARCH_SCHEMA: dict[str, Any] = {
+    "type": "function",
+    "function": {
+        "name": "web_search",
+        "description": (
+            "Search public web sources for current or external information. "
+            "Use it for recent changes, current versions, news, policies, "
+            "prices, schedules, or facts unavailable in local notes."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": (
+                        "A concise standalone query without chat history, "
+                        "secrets, or private user data."
+                    ),
+                },
+                "max_results": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 5,
+                    "default": 5,
+                },
+                "freshness_days": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 3650,
+                    "description": (
+                        "Optional recency window in days. Omit when recency "
+                        "is not required."
+                    ),
+                },
+            },
+            "required": ["query"],
+            "additionalProperties": False,
+        },
+    },
+}
+
+
 class ToolRegistry:
     """Keeps tool schemas and Python callables in one small boundary."""
 
@@ -164,6 +207,7 @@ class ToolRegistry:
             "interview_jd_search": search_interview_jds,
             "search_learning_notes": search_learning_notes,
             "score_jd_skill_fit": score_jd_skill_fit,
+            "web_search": web_search,
         }
 
     def get_tools_schema(self) -> list[dict[str, Any]]:
@@ -180,6 +224,7 @@ class ToolRegistry:
             deepcopy(INTERVIEW_JD_SEARCH_SCHEMA),
             learning_notes_schema,
             deepcopy(SCORE_JD_SKILL_FIT_SCHEMA),
+            deepcopy(WEB_SEARCH_SCHEMA),
         ]
 
     def has_tool(self, name: str) -> bool:

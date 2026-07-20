@@ -1,0 +1,40 @@
+﻿{"id":"web_route_001","question":"FastAPI 当前最新稳定版本是什么？","expected_route":"web","requires_freshness":true,"notes":"当前版本必须联网核对"}
+{"id":"web_route_002","question":"Python 最近一个稳定版有哪些主要变化？","expected_route":"web","requires_freshness":true,"notes":"版本与变更具有时效性"}
+{"id":"web_route_003","question":"OpenAI API 当前推荐的新项目接口是什么？","expected_route":"web","requires_freshness":true,"notes":"产品接口可能更新"}
+{"id":"web_route_004","question":"今天美元兑人民币汇率是多少？","expected_route":"web","requires_freshness":true,"notes":"实时金融数据"}
+{"id":"web_route_005","question":"最近一周 AI Agent 行业有哪些重要发布？","expected_route":"web","requires_freshness":true,"notes":"近期新闻"}
+{"id":"web_route_006","question":"北京明天的天气适合户外跑步吗？","expected_route":"web","requires_freshness":true,"notes":"未来天气"}
+{"id":"web_route_007","question":"Tavily Search API 当前支持哪些时间过滤参数？","expected_route":"web","requires_freshness":true,"notes":"外部 API 文档可能变化"}
+{"id":"web_route_008","question":"LangGraph 当前最新版本是否有 breaking changes？","expected_route":"web","requires_freshness":true,"notes":"外部框架版本"}
+{"id":"web_route_009","question":"最近发布的 FastAPI 安全公告有哪些？","expected_route":"web","requires_freshness":true,"notes":"近期安全信息"}
+{"id":"web_route_010","question":"目前 Tavily basic 和 advanced 搜索的官方差异是什么？","expected_route":"web","requires_freshness":true,"notes":"当前供应商文档"}
+{"id":"web_route_011","question":"什么是依赖注入？","expected_route":"none","requires_freshness":false,"notes":"稳定基础概念"}
+{"id":"web_route_012","question":"解释 Python 装饰器的执行顺序。","expected_route":"none","requires_freshness":false,"notes":"代码概念"}
+{"id":"web_route_013","question":"为什么二分查找的时间复杂度是 O(log n)？","expected_route":"none","requires_freshness":false,"notes":"纯推理"}
+{"id":"web_route_014","question":"帮我把这段话改得更简洁。","expected_route":"none","requires_freshness":false,"notes":"写作任务"}
+{"id":"web_route_015","question":"设计一个线程安全的单例需要考虑什么？","expected_route":"none","requires_freshness":false,"notes":"通用设计问题"}
+{"id":"web_route_016","question":"计算 128 乘以 64。","expected_route":"none","requires_freshness":false,"notes":"确定性计算"}
+{"id":"web_route_017","question":"解释 REST 中 PUT 和 PATCH 的语义区别。","expected_route":"none","requires_freshness":false,"notes":"稳定协议概念"}
+{"id":"web_route_018","question":"给我一道简单的动态规划练习题。","expected_route":"none","requires_freshness":false,"notes":"教学生成"}
+{"id":"web_route_019","question":"这段 Python 报错可能是什么原因：TypeError: unhashable type list？","expected_route":"none","requires_freshness":false,"notes":"常见代码解释"}
+{"id":"web_route_020","question":"不要联网，解释一下 RAG 的基本流程。","expected_route":"none","requires_freshness":false,"notes":"用户明确禁止联网"}
+{"id":"web_route_021","question":"我之前的 RAG 分块设计是什么？","expected_route":"local","requires_freshness":false,"notes":"自己的项目资料"}
+{"id":"web_route_022","question":"我的 search_learning_notes 在索引没构建时返回什么？","expected_route":"local","requires_freshness":false,"notes":"本地实现细节"}
+{"id":"web_route_023","question":"复述我在 v0.4 复盘里记录的主要问题。","expected_route":"local","requires_freshness":false,"notes":"个人复盘"}
+{"id":"web_route_024","question":"我给 Tutor Agent 设计的最多工具轮次是多少？","expected_route":"local","requires_freshness":false,"notes":"项目配置"}
+{"id":"web_route_025","question":"我之前为什么把 Embedding 配置和聊天模型配置分开？","expected_route":"local","requires_freshness":false,"notes":"项目决策"}
+{"id":"web_route_026","question":"根据我保存的 JD，AI Agent 岗位最看重哪些技能？","expected_route":"local","requires_freshness":false,"notes":"本地 JD 工具"}
+{"id":"web_route_027","question":"我之前的 frozen corpus manifest 是怎么设计的？","expected_route":"local","requires_freshness":false,"notes":"项目设计文档"}
+{"id":"web_route_028","question":"根据我的学习笔记给我安排下一步任务。","expected_route":"local","requires_freshness":false,"notes":"个人学习资料"}
+{"id":"web_route_029","question":"我保存的 Vue 全栈 JD 有哪些面试重点？","expected_route":"local","requires_freshness":false,"notes":"本地结构化 JD"}
+{"id":"web_route_030","question":"我在项目里为什么选择 Chroma cosine？","expected_route":"local","requires_freshness":false,"notes":"内部架构原因"}
+{"id":"web_route_031","question":"对比我当前的 ReAct 实现和工业界最新 Agent 编排方式。","expected_route":"local_then_web","requires_freshness":true,"notes":"先读本地实现再核对外部现状"}
+{"id":"web_route_032","question":"我的 RAG 分片方案与当前主流框架的做法有哪些差距？","expected_route":"local_then_web","requires_freshness":true,"notes":"项目与行业对比"}
+{"id":"web_route_033","question":"结合我的 FastAPI 项目，检查当前最新版迁移风险。","expected_route":"local_then_web","requires_freshness":true,"notes":"本地依赖与当前版本结合"}
+{"id":"web_route_034","question":"根据我的学习记录和今年的 AI Agent 岗位需求制定复习计划。","expected_route":"local_then_web","requires_freshness":true,"notes":"个人资料与近期行业需求"}
+{"id":"web_route_035","question":"对照我保存的 JD 和最近公开岗位，技能要求发生了什么变化？","expected_route":"local_then_web","requires_freshness":true,"notes":"本地 JD 与外部岗位对比"}
+{"id":"web_route_036","question":"我的缓存设计能否应对当前 Tavily 的限流建议？","expected_route":"local_then_web","requires_freshness":true,"notes":"本地设计与当前供应商建议"}
+{"id":"web_route_037","question":"结合我项目现有依赖，哪些库现在已经过时？","expected_route":"local_then_web","requires_freshness":true,"notes":"读取本地依赖后查询当前版本"}
+{"id":"web_route_038","question":"我的 Web Search 规格与 Tavily 当前官方接口是否一致？","expected_route":"local_then_web","requires_freshness":true,"notes":"本地规格与外部文档核对"}
+{"id":"web_route_039","question":"根据我的面试准备记录，补充最近常见的 Agent 安全问题。","expected_route":"local_then_web","requires_freshness":true,"notes":"本地记录与近期主题结合"}
+{"id":"web_route_040","question":"比较我的 ToolRegistry 设计与当前主流 Agent SDK 的工具设计。","expected_route":"local_then_web","requires_freshness":true,"notes":"本地代码与外部框架对比"}

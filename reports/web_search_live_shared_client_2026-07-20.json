@@ -1,0 +1,108 @@
+{
+  "generated_at": "2026-07-20T04:10:43.076100+00:00",
+  "external_call_count": 12,
+  "results": [
+    {
+      "scenario": "shared_2",
+      "workers": 2,
+      "records": [
+        {
+          "index": 0,
+          "ok": true,
+          "error": null,
+          "latency_ms": 1553,
+          "provider_latency_ms": 1552
+        },
+        {
+          "index": 1,
+          "ok": true,
+          "error": null,
+          "latency_ms": 2385,
+          "provider_latency_ms": 2385
+        },
+        {
+          "index": 2,
+          "ok": true,
+          "error": null,
+          "latency_ms": 1890,
+          "provider_latency_ms": 1890
+        },
+        {
+          "index": 3,
+          "ok": true,
+          "error": null,
+          "latency_ms": 1245,
+          "provider_latency_ms": 1245
+        }
+      ]
+    },
+    {
+      "scenario": "shared_3",
+      "workers": 3,
+      "records": [
+        {
+          "index": 0,
+          "ok": true,
+          "error": null,
+          "latency_ms": 1522,
+          "provider_latency_ms": 1521
+        },
+        {
+          "index": 1,
+          "ok": true,
+          "error": null,
+          "latency_ms": 1698,
+          "provider_latency_ms": 1697
+        },
+        {
+          "index": 2,
+          "ok": true,
+          "error": null,
+          "latency_ms": 2153,
+          "provider_latency_ms": 2152
+        },
+        {
+          "index": 3,
+          "ok": true,
+          "error": null,
+          "latency_ms": 2561,
+          "provider_latency_ms": 2560
+        }
+      ]
+    },
+    {
+      "scenario": "shared_4",
+      "workers": 4,
+      "records": [
+        {
+          "index": 1,
+          "ok": true,
+          "error": null,
+          "latency_ms": 1453,
+          "provider_latency_ms": 1453
+        },
+        {
+          "index": 0,
+          "ok": true,
+          "error": null,
+          "latency_ms": 1629,
+          "provider_latency_ms": 1629
+        },
+        {
+          "index": 3,
+          "ok": true,
+          "error": null,
+          "latency_ms": 2714,
+          "provider_latency_ms": 2713
+        },
+        {
+          "index": 2,
+          "ok": true,
+          "error": null,
+          "latency_ms": 2716,
+          "provider_latency_ms": 2715
+        }
+      ]
+    }
+  ]
+}

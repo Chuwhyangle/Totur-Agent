@@ -1,10 +1,13 @@
 """Tests for the Tutor Agent tool registry and executor."""
 
+from types import SimpleNamespace
+
 from app.db import database
 from app.repositories.interview_jd_repository import create_interview_jd
 from app.services.agent.tools.executor import ToolExecutor
 from app.services.agent.tools.registry import ToolRegistry
 from app.services.agent.tools.score_jd_skill_fit import score_jd_skill_fit
+import app.services.agent.tools.web_search as web_search_module
 
 
 def use_temp_database(monkeypatch, tmp_path):
@@ -38,6 +41,7 @@ def test_tool_registry_exposes_score_jd_skill_fit_schema():
         "interview_jd_search",
         "search_learning_notes",
         "score_jd_skill_fit",
+        "web_search",
     ]
     assert tool["type"] == "function"
     assert set(parameters["properties"]) == {"target_role", "skills"}
@@ -65,6 +69,27 @@ def test_tool_registry_exposes_search_learning_notes_schema():
     assert set(parameters["properties"]) == {"query", "limit"}
     assert parameters["required"] == ["query"]
     assert parameters["properties"]["limit"]["maximum"] == 5
+
+
+def test_tool_registry_exposes_web_search_schema():
+    registry = ToolRegistry()
+
+    tools = registry.get_tools_schema()
+    tool = next(tool for tool in tools if tool["function"]["name"] == "web_search")
+    parameters = tool["function"]["parameters"]
+    freshness_days = parameters["properties"]["freshness_days"]
+
+    assert tool["type"] == "function"
+    assert registry.has_tool("web_search") is True
+    assert set(parameters["properties"]) == {
+        "query",
+        "max_results",
+        "freshness_days",
+    }
+    assert parameters["required"] == ["query"]
+    assert parameters["additionalProperties"] is False
+    assert freshness_days["type"] == "integer"
+    assert "freshness_days" not in parameters["required"]
 
 
 def test_score_jd_skill_fit_calculates_weighted_fit_score():
@@ -227,6 +252,67 @@ def test_tool_executor_runs_score_jd_skill_fit():
     assert result["target_role"] == "AI Agent"
     assert result["fit_score"] == 50
     assert result["top_gaps"] == ["RAG"]
+
+
+def test_tool_executor_runs_web_search_with_dict_and_default_kwargs(monkeypatch):
+    calls = []
+
+    def search(query, max_results, freshness_days):
+        calls.append((query, max_results, freshness_days))
+        return SimpleNamespace(
+            items=[],
+            provider="mock",
+            provider_latency_ms=4,
+            cached=False,
+        )
+
+    monkeypatch.setattr(
+        web_search_module,
+        "get_web_search_client",
+        lambda: SimpleNamespace(search=search),
+    )
+    executor = ToolExecutor(
+        default_tool_kwargs={
+            "web_search": {"max_results": 2, "freshness_days": 30}
+        }
+    )
+
+    result = executor.execute("web_search", {"query": "latest FastAPI changes"})
+
+    assert result["ok"] is True
+    assert calls == [("latest FastAPI changes", 2, 30)]
+
+
+def test_tool_executor_runs_web_search_with_json_string_arguments(monkeypatch):
+    calls = []
+
+    def search(query, max_results, freshness_days):
+        calls.append((query, max_results, freshness_days))
+        return SimpleNamespace(
+            items=[],
+            provider="mock",
+            provider_latency_ms=5,
+            cached=False,
+        )
+
+    monkeypatch.setattr(
+        web_search_module,
+        "get_web_search_client",
+        lambda: SimpleNamespace(search=search),
+    )
+    executor = ToolExecutor(
+        default_tool_kwargs={
+            "web_search": {"max_results": 2, "freshness_days": 30}
+        }
+    )
+
+    result = executor.execute(
+        "web_search",
+        '{"query": "Python release schedule", "max_results": 4}',
+    )
+
+    assert result["ok"] is True
+    assert calls == [("Python release schedule", 4, 30)]
 
 
 def test_tool_executor_returns_structured_error_for_unknown_tool():

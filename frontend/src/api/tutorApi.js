@@ -1,3 +1,20 @@
+/**
+ * @typedef {Object} TutorSource
+ * @property {string} id
+ * @property {string} title
+ * @property {string} url
+ * @property {string | null | undefined} domain
+ */
+
+/**
+ * @typedef {Object} TutorReply
+ * @property {string} answer
+ * @property {string} next_task
+ * @property {string} exercise
+ * @property {string[]} checkpoints
+ * @property {TutorSource[] | undefined} sources Legacy replies may omit this field.
+ */
+
 const API_BASE_URL = 'http://127.0.0.1:8001'
 const CHAT_URL = `${API_BASE_URL}/chat`
 const INTERVIEW_JDS_URL = `${API_BASE_URL}/interview-jds`

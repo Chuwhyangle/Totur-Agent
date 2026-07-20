@@ -1,0 +1,944 @@
+{
+  "generated_at": "2026-07-20T04:07:48.252332+00:00",
+  "external_call_count": 30,
+  "planned_external_call_limit": 100,
+  "case_count": 30,
+  "summary": {
+    "success_count": 18,
+    "failure_count": 12,
+    "contract_issue_count": 12,
+    "official_domain_hit_count": 8,
+    "official_domain_case_count": 8,
+    "published_at_present_count": 0,
+    "total_item_count": 67,
+    "wall_latency_ms": {
+      "min": 264,
+      "median": 2282,
+      "p95_nearest_rank": 5009,
+      "max": 7011
+    },
+    "provider_latency_ms": {
+      "min": 263,
+      "median": 1394,
+      "max": 2574
+    },
+    "safety_cases_blocked_without_external_call": true
+  },
+  "safety_results": [
+    {
+      "ok": false,
+      "error": "invalid_arguments",
+      "message": "query must be a non-empty string."
+    },
+    {
+      "ok": false,
+      "error": "sensitive_query_rejected",
+      "message": "query appears to contain a sensitive credential"
+    },
+    {
+      "ok": false,
+      "error": "sensitive_query_rejected",
+      "message": "query appears to contain a sensitive credential"
+    },
+    {
+      "ok": false,
+      "error": "invalid_arguments",
+      "message": "query must be at most 300 characters."
+    }
+  ],
+  "records": [
+    {
+      "category": "relevance",
+      "query": "FastAPI official release notes",
+      "max_results": 5,
+      "freshness_days": null,
+      "ok": true,
+      "found": true,
+      "error": null,
+      "wall_latency_ms": 2035,
+      "provider_latency_ms": 2034,
+      "returned_count": 5,
+      "expected_domain_hit": true,
+      "issues": [],
+      "items": [
+        {
+          "title": "FastAPI Updates by Tiangolo - July 2026 - Releasebot",
+          "domain": "releasebot.io",
+          "url": "https://releasebot.io/updates/tiangolo/fastapi",
+          "published_at": null
+        },
+        {
+          "title": "Release Notes - FastAPI",
+          "domain": "fastapi.tiangolo.com",
+          "url": "https://fastapi.tiangolo.com/release-notes",
+          "published_at": null
+        },
+        {
+          "title": "Release Notes - FastAPI Utilities",
+          "domain": "fastapi-utils.davidmontague.xyz",
+          "url": "https://fastapi-utils.davidmontague.xyz/release-notes",
+          "published_at": null
+        },
+        {
+          "title": "fastapi-cli/release-notes.md at main",
+          "domain": "github.com",
+          "url": "https://github.com/fastapi/fastapi-cli/blob/main/release-notes.md",
+          "published_at": null
+        },
+        {
+          "title": "Releases · fastapi/fastapi",
+          "domain": "github.com",
+          "url": "https://github.com/fastapi/fastapi/releases",
+          "published_at": null
+        }
+      ]
+    },
+    {
+      "category": "relevance",
+      "query": "Python 3.14 release schedule official",
+      "max_results": 5,
+      "freshness_days": null,
+      "ok": true,
+      "found": true,
+      "error": null,
+      "wall_latency_ms": 2288,
+      "provider_latency_ms": 2287,
+      "returned_count": 5,
+      "expected_domain_hit": true,
+      "issues": [],
+      "items": [
+        {
+          "title": "Python 3.14 Released and Other Python News for ...",
+          "domain": "realpython.com",
+          "url": "https://realpython.com/python-news-november-2025",
+          "published_at": null
+        },
+        {
+          "title": "Python 3.14 Release Schedule Details | PDF",
+          "domain": "www.scribd.com",
+          "url": "https://www.scribd.com/document/875941669/pep-0745-rst",
+          "published_at": null
+        },
+        {
+          "title": "What's new in Python 3.14 — Python 3.14.6 documentation",
+          "domain": "docs.python.org",
+          "url": "https://docs.python.org/3/whatsnew/3.14.html",
+          "published_at": null
+        },
+        {
+          "title": "Status of Python versions",
+          "domain": "devguide.python.org",
+          "url": "https://devguide.python.org/versions",
+          "published_at": null
+        },
+        {
+          "title": "Python Release Python 3.14.3 | Python.org",
+          "domain": "www.python.org",
+          "url": "https://www.python.org/downloads/release/python-3143",
+          "published_at": null
+        }
+      ]
+    },
+    {
+      "category": "relevance",
+      "query": "Pydantic latest release official documentation",
+      "max_results": 5,
+      "freshness_days": null,
+      "ok": true,
+      "found": true,
+      "error": null,
+      "wall_latency_ms": 1385,
+      "provider_latency_ms": 1384,
+      "returned_count": 5,
+      "expected_domain_hit": true,
+      "issues": [],
+      "items": [
+        {
+          "title": "Changelog | Pydantic Docs",
+          "domain": "pydantic.dev",
+          "url": "https://pydantic.dev/docs/validation/latest/get-started/changelog",
+          "published_at": null
+        },
+        {
+          "title": "Pydantic",
+          "domain": "pypi.org",
+          "url": "https://pypi.org/project/pydantic",
+          "published_at": null
+        },
+        {
+          "title": "Migration Guide | Pydantic Docs",
+          "domain": "pydantic.dev",
+          "url": "https://pydantic.dev/docs/validation/dev/get-started/migration",
+          "published_at": null
+        },
+        {
+          "title": "Announcement: Pydantic v2.10 Release",
+          "domain": "pydantic.dev",
+          "url": "https://pydantic.dev/articles/pydantic-v2-10-release",
+          "published_at": null
+        },
+        {
+          "title": "Releases · pydantic/pydantic",
+          "domain": "github.com",
+          "url": "https://github.com/pydantic/pydantic/releases",
+          "published_at": null
+        }
+      ]
+    },
+    {
+      "category": "relevance",
+      "query": "Tavily Search API official documentation",
+      "max_results": 5,
+      "freshness_days": null,
+      "ok": true,
+      "found": true,
+      "error": null,
+      "wall_latency_ms": 1011,
+      "provider_latency_ms": 1010,
+      "returned_count": 5,
+      "expected_domain_hit": true,
+      "issues": [],
+      "items": [
+        {
+          "title": "Introduction - Tavily Docs",
+          "domain": "docs.tavily.com",
+          "url": "https://docs.tavily.com/documentation/api-reference/introduction",
+          "published_at": null
+        },
+        {
+          "title": "Tavily Search",
+          "domain": "docs.tavily.com",
+          "url": "https://docs.tavily.com/documentation/api-reference/endpoint/search",
+          "published_at": null
+        },
+        {
+          "title": "Tavily Docs: Welcome",
+          "domain": "docs.tavily.com",
+          "url": "https://docs.tavily.com/welcome",
+          "published_at": null
+        },
+        {
+          "title": "Tavily search integration - Docs by LangChain",
+          "domain": "docs.langchain.com",
+          "url": "https://docs.langchain.com/oss/javascript/integrations/tools/tavily_search",
+          "published_at": null
+        },
+        {
+          "title": "Create Research Task",
+          "domain": "docs.tavily.com",
+          "url": "https://docs.tavily.com/documentation/api-reference/endpoint/research",
+          "published_at": null
+        }
+      ]
+    },
+    {
+      "category": "relevance",
+      "query": "HTTPX official timeouts documentation",
+      "max_results": 5,
+      "freshness_days": null,
+      "ok": true,
+      "found": true,
+      "error": null,
+      "wall_latency_ms": 2332,
+      "provider_latency_ms": 2331,
+      "returned_count": 5,
+      "expected_domain_hit": true,
+      "issues": [],
+      "items": [
+        {
+          "title": "Timeouts - HTTPX",
+          "domain": "www.python-httpx.org",
+          "url": "https://www.python-httpx.org/advanced/timeouts",
+          "published_at": null
+        },
+        {
+          "title": "QuickStart",
+          "domain": "www.python-httpx.org",
+          "url": "https://www.python-httpx.org/quickstart",
+          "published_at": null
+        },
+        {
+          "title": "httpx 0.23.2",
+          "domain": "pypi.org",
+          "url": "https://pypi.org/project/httpx/0.23.2",
+          "published_at": null
+        },
+        {
+          "title": "Httpx requests timing out when it shouldn't",
+          "domain": "stackoverflow.com",
+          "url": "https://stackoverflow.com/questions/78287675/httpx-requests-timing-out-when-it-shouldnt",
+          "published_at": null
+        },
+        {
+          "title": "Add/document way to stream request without read timeout",
+          "domain": "github.com",
+          "url": "https://github.com/encode/httpx/discussions/2203",
+          "published_at": null
+        }
+      ]
+    },
+    {
+      "category": "relevance",
+      "query": "FastAPI ????????",
+      "max_results": 5,
+      "freshness_days": null,
+      "ok": true,
+      "found": true,
+      "error": null,
+      "wall_latency_ms": 1242,
+      "provider_latency_ms": 1242,
+      "returned_count": 5,
+      "expected_domain_hit": true,
+      "issues": [],
+      "items": [
+        {
+          "title": "FastAPI - Wikipedia",
+          "domain": "en.wikipedia.org",
+          "url": "https://en.wikipedia.org/wiki/FastAPI",
+          "published_at": null
+        },
+        {
+          "title": "FastAPI - FastAPI",
+          "domain": "fastapi.tiangolo.com",
+          "url": "https://fastapi.tiangolo.com",
+          "published_at": null
+        },
+        {
+          "title": "Get Started With FastAPI – Real Python",
+          "domain": "realpython.com",
+          "url": "https://realpython.com/get-started-with-fastapi",
+          "published_at": null
+        },
+        {
+          "title": "Introduction to FastAPI - GeeksforGeeks",
+          "domain": "www.geeksforgeeks.org",
+          "url": "https://www.geeksforgeeks.org/python/introduction-to-fastapi",
+          "published_at": null
+        },
+        {
+          "title": "FastAPI Handbook – How to Develop, Test, and Deploy APIs",
+          "domain": "www.freecodecamp.org",
+          "url": "https://www.freecodecamp.org/news/fastapi-quickstart",
+          "published_at": null
+        }
+      ]
+    },
+    {
+      "category": "relevance",
+      "query": "React official useEffect reference",
+      "max_results": 5,
+      "freshness_days": null,
+      "ok": true,
+      "found": true,
+      "error": null,
+      "wall_latency_ms": 2070,
+      "provider_latency_ms": 2069,
+      "returned_count": 5,
+      "expected_domain_hit": true,
+      "issues": [],
+      "items": [
+        {
+          "title": "useEffect",
+          "domain": "react.dev",
+          "url": "https://react.dev/reference/react/useEffect",
+          "published_at": null
+        },
+        {
+          "title": "React's useEffect and useRef Explained for Mortals",
+          "domain": "leewarrick.com",
+          "url": "https://leewarrick.com/blog/react-use-effect-explained",
+          "published_at": null
+        },
+        {
+          "title": "Mastering the Basics of React's useEffect: A Beginner's Guide",
+          "domain": "medium.com",
+          "url": "https://medium.com/@eric_abell/mastering-the-basics-of-reacts-useeffect-a-beginner-s-guide-3173c399b9e1",
+          "published_at": null
+        },
+        {
+          "title": "what do you actually use useEffect for? : r/reactjs",
+          "domain": "www.reddit.com",
+          "url": "https://www.reddit.com/r/reactjs/comments/11yr541/what_do_you_actually_use_useeffect_for",
+          "published_at": null
+        },
+        {
+          "title": "React useEffect Hooks",
+          "domain": "www.w3schools.com",
+          "url": "https://www.w3schools.com/react/react_useeffect.asp",
+          "published_at": null
+        }
+      ]
+    },
+    {
+      "category": "relevance",
+      "query": "PostgreSQL current version official release notes",
+      "max_results": 5,
+      "freshness_days": null,
+      "ok": true,
+      "found": true,
+      "error": null,
+      "wall_latency_ms": 1113,
+      "provider_latency_ms": 1113,
+      "returned_count": 5,
+      "expected_domain_hit": true,
+      "issues": [],
+      "items": [
+        {
+          "title": "PostgreSQL: Release Notes",
+          "domain": "www.postgresql.org",
+          "url": "https://www.postgresql.org/docs/release/14.0",
+          "published_at": null
+        },
+        {
+          "title": "PostgreSQL: Release Notes",
+          "domain": "www.postgresql.org",
+          "url": "https://www.postgresql.org/docs/release/17.0",
+          "published_at": null
+        },
+        {
+          "title": "Release Notes",
+          "domain": "www.postgresql.org",
+          "url": "https://www.postgresql.org/docs/release",
+          "published_at": null
+        },
+        {
+          "title": "PostgreSQL: Release Notes",
+          "domain": "www.postgresql.org",
+          "url": "https://www.postgresql.org/docs/release/15.0",
+          "published_at": null
+        },
+        {
+          "title": "PostgreSQL: Release Notes",
+          "domain": "www.postgresql.org",
+          "url": "https://www.postgresql.org/docs/release/18.0",
+          "published_at": null
+        }
+      ]
+    },
+    {
+      "category": "freshness",
+      "query": "latest artificial intelligence industry news",
+      "max_results": 3,
+      "freshness_days": 1,
+      "ok": true,
+      "found": true,
+      "error": null,
+      "wall_latency_ms": 2276,
+      "provider_latency_ms": 2275,
+      "returned_count": 3,
+      "expected_domain_hit": null,
+      "issues": [],
+      "items": [
+        {
+          "title": "Artificial Intelligence (AI) News Updates: Latest News About ...",
+          "domain": "ai.economictimes.com",
+          "url": "https://ai.economictimes.com",
+          "published_at": null
+        },
+        {
+          "title": "Artificial intelligence took centre stage at one of China's ...",
+          "domain": "www.instagram.com",
+          "url": "https://www.instagram.com/p/Da-ZUA1oFqr",
+          "published_at": null
+        },
+        {
+          "title": "TechNewsWorld - Technology News and Information",
+          "domain": "www.technewsworld.com",
+          "url": "https://www.technewsworld.com",
+          "published_at": null
+        }
+      ]
+    },
+    {
+      "category": "freshness",
+      "query": "latest Python release news",
+      "max_results": 3,
+      "freshness_days": 7,
+      "ok": true,
+      "found": false,
+      "error": null,
+      "wall_latency_ms": 1169,
+      "provider_latency_ms": 1168,
+      "returned_count": 0,
+      "expected_domain_hit": null,
+      "issues": [],
+      "items": []
+    },
+    {
+      "category": "freshness",
+      "query": "latest FastAPI release notes",
+      "max_results": 3,
+      "freshness_days": 30,
+      "ok": true,
+      "found": true,
+      "error": null,
+      "wall_latency_ms": 2575,
+      "provider_latency_ms": 2574,
+      "returned_count": 3,
+      "expected_domain_hit": null,
+      "issues": [],
+      "items": [
+        {
+          "title": "Changelog - The Arthur Platform",
+          "domain": "docs.arthur.ai",
+          "url": "https://docs.arthur.ai/changelog",
+          "published_at": null
+        },
+        {
+          "title": "Posit Connect Release Notes",
+          "domain": "docs.posit.co",
+          "url": "https://docs.posit.co/connect/news",
+          "published_at": null
+        },
+        {
+          "title": "Releases · fastapi/fastapi",
+          "domain": "github.com",
+          "url": "https://github.com/fastapi/fastapi/releases",
+          "published_at": null
+        }
+      ]
+    },
+    {
+      "category": "freshness",
+      "query": "recent PostgreSQL release news",
+      "max_results": 3,
+      "freshness_days": 365,
+      "ok": true,
+      "found": true,
+      "error": null,
+      "wall_latency_ms": 1406,
+      "provider_latency_ms": 1405,
+      "returned_count": 3,
+      "expected_domain_hit": null,
+      "issues": [],
+      "items": [
+        {
+          "title": "News Archive",
+          "domain": "www.postgresql.org",
+          "url": "https://www.postgresql.org/about/newsarchive",
+          "published_at": null
+        },
+        {
+          "title": "PostgreSQL 18.4, 17.10, 16.14, 15.18, and 14.23 Released!",
+          "domain": "www.postgresql.org",
+          "url": "https://www.postgresql.org/about/news/postgresql-184-1710-1614-1518-and-1423-released-3297",
+          "published_at": null
+        },
+        {
+          "title": "PostgreSQL 18: A Comprehensive Guide to New Features for DBAs and Developers | by Virinchi T | Towards Dev",
+          "domain": "medium.com",
+          "url": "https://medium.com/towardsdev/postgresql-18-a-comprehensive-guide-to-new-features-for-dbas-and-developers-b355e48023bf",
+          "published_at": null
+        }
+      ]
+    },
+    {
+      "category": "max_results",
+      "query": "official Python documentation",
+      "max_results": 1,
+      "freshness_days": null,
+      "ok": true,
+      "found": true,
+      "error": null,
+      "wall_latency_ms": 1812,
+      "provider_latency_ms": 1811,
+      "returned_count": 1,
+      "expected_domain_hit": null,
+      "issues": [],
+      "items": [
+        {
+          "title": "3.14.6 Documentation",
+          "domain": "docs.python.org",
+          "url": "https://docs.python.org",
+          "published_at": null
+        }
+      ]
+    },
+    {
+      "category": "max_results",
+      "query": "official Python documentation",
+      "max_results": 5,
+      "freshness_days": null,
+      "ok": true,
+      "found": true,
+      "error": null,
+      "wall_latency_ms": 1159,
+      "provider_latency_ms": 1158,
+      "returned_count": 5,
+      "expected_domain_hit": null,
+      "issues": [],
+      "items": [
+        {
+          "title": "3.14.6 Documentation",
+          "domain": "docs.python.org",
+          "url": "https://docs.python.org",
+          "published_at": null
+        },
+        {
+          "title": "Python Official Documentation in book/hardcopy form : r/Python",
+          "domain": "www.reddit.com",
+          "url": "https://www.reddit.com/r/Python/comments/16u23sf/python_official_documentation_in_bookhardcopy_form",
+          "published_at": null
+        },
+        {
+          "title": "Our Documentation",
+          "domain": "www.python.org",
+          "url": "https://www.python.org/doc",
+          "published_at": null
+        },
+        {
+          "title": "Python documentation by version",
+          "domain": "www.python.org",
+          "url": "https://www.python.org/doc/versions",
+          "published_at": null
+        },
+        {
+          "title": "Python Developer's Guide",
+          "domain": "devguide.python.org",
+          "url": "https://devguide.python.org",
+          "published_at": null
+        }
+      ]
+    },
+    {
+      "category": "repeat",
+      "query": "FastAPI official documentation",
+      "max_results": 3,
+      "freshness_days": null,
+      "ok": true,
+      "found": true,
+      "error": null,
+      "wall_latency_ms": 1127,
+      "provider_latency_ms": 1127,
+      "returned_count": 3,
+      "expected_domain_hit": null,
+      "issues": [],
+      "items": [
+        {
+          "title": "FastAPI documentation",
+          "domain": "devdocs.io",
+          "url": "https://devdocs.io/fastapi",
+          "published_at": null
+        },
+        {
+          "title": "FastAPI - FastAPI",
+          "domain": "fastapi.tiangolo.com",
+          "url": "https://fastapi.tiangolo.com",
+          "published_at": null
+        },
+        {
+          "title": "Introduction to FastAPI",
+          "domain": "www.geeksforgeeks.org",
+          "url": "https://www.geeksforgeeks.org/python/introduction-to-fastapi",
+          "published_at": null
+        }
+      ]
+    },
+    {
+      "category": "repeat",
+      "query": "FastAPI official documentation",
+      "max_results": 3,
+      "freshness_days": null,
+      "ok": true,
+      "found": true,
+      "error": null,
+      "wall_latency_ms": 264,
+      "provider_latency_ms": 263,
+      "returned_count": 3,
+      "expected_domain_hit": null,
+      "issues": [],
+      "items": [
+        {
+          "title": "FastAPI documentation",
+          "domain": "devdocs.io",
+          "url": "https://devdocs.io/fastapi",
+          "published_at": null
+        },
+        {
+          "title": "FastAPI - FastAPI",
+          "domain": "fastapi.tiangolo.com",
+          "url": "https://fastapi.tiangolo.com",
+          "published_at": null
+        },
+        {
+          "title": "Introduction to FastAPI",
+          "domain": "www.geeksforgeeks.org",
+          "url": "https://www.geeksforgeeks.org/python/introduction-to-fastapi",
+          "published_at": null
+        }
+      ]
+    },
+    {
+      "category": "repeat",
+      "query": "FastAPI official documentation",
+      "max_results": 3,
+      "freshness_days": null,
+      "ok": true,
+      "found": true,
+      "error": null,
+      "wall_latency_ms": 831,
+      "provider_latency_ms": 830,
+      "returned_count": 3,
+      "expected_domain_hit": null,
+      "issues": [],
+      "items": [
+        {
+          "title": "FastAPI documentation",
+          "domain": "devdocs.io",
+          "url": "https://devdocs.io/fastapi",
+          "published_at": null
+        },
+        {
+          "title": "FastAPI - FastAPI",
+          "domain": "fastapi.tiangolo.com",
+          "url": "https://fastapi.tiangolo.com",
+          "published_at": null
+        },
+        {
+          "title": "Introduction to FastAPI",
+          "domain": "www.geeksforgeeks.org",
+          "url": "https://www.geeksforgeeks.org/python/introduction-to-fastapi",
+          "published_at": null
+        }
+      ]
+    },
+    {
+      "category": "repeat",
+      "query": "FastAPI official documentation",
+      "max_results": 3,
+      "freshness_days": null,
+      "ok": true,
+      "found": true,
+      "error": null,
+      "wall_latency_ms": 2234,
+      "provider_latency_ms": 2234,
+      "returned_count": 3,
+      "expected_domain_hit": null,
+      "issues": [],
+      "items": [
+        {
+          "title": "FastAPI documentation",
+          "domain": "devdocs.io",
+          "url": "https://devdocs.io/fastapi",
+          "published_at": null
+        },
+        {
+          "title": "FastAPI - FastAPI",
+          "domain": "fastapi.tiangolo.com",
+          "url": "https://fastapi.tiangolo.com",
+          "published_at": null
+        },
+        {
+          "title": "Introduction to FastAPI",
+          "domain": "www.geeksforgeeks.org",
+          "url": "https://www.geeksforgeeks.org/python/introduction-to-fastapi",
+          "published_at": null
+        }
+      ]
+    },
+    {
+      "category": "concurrency",
+      "query": "HTTPX official async documentation",
+      "max_results": 2,
+      "freshness_days": null,
+      "ok": false,
+      "found": null,
+      "error": "provider_error",
+      "wall_latency_ms": 3011,
+      "provider_latency_ms": null,
+      "returned_count": null,
+      "expected_domain_hit": null,
+      "issues": [
+        "provider_failure:provider_error"
+      ],
+      "items": []
+    },
+    {
+      "category": "concurrency",
+      "query": "FastAPI official security documentation",
+      "max_results": 2,
+      "freshness_days": null,
+      "ok": false,
+      "found": null,
+      "error": "provider_error",
+      "wall_latency_ms": 3013,
+      "provider_latency_ms": null,
+      "returned_count": null,
+      "expected_domain_hit": null,
+      "issues": [
+        "provider_failure:provider_error"
+      ],
+      "items": []
+    },
+    {
+      "category": "concurrency",
+      "query": "Pydantic official validators documentation",
+      "max_results": 2,
+      "freshness_days": null,
+      "ok": false,
+      "found": null,
+      "error": "provider_error",
+      "wall_latency_ms": 5009,
+      "provider_latency_ms": null,
+      "returned_count": null,
+      "expected_domain_hit": null,
+      "issues": [
+        "provider_failure:provider_error"
+      ],
+      "items": []
+    },
+    {
+      "category": "concurrency",
+      "query": "Python official asyncio documentation",
+      "max_results": 2,
+      "freshness_days": null,
+      "ok": false,
+      "found": null,
+      "error": "search_timeout",
+      "wall_latency_ms": 7011,
+      "provider_latency_ms": null,
+      "returned_count": null,
+      "expected_domain_hit": null,
+      "issues": [
+        "provider_failure:search_timeout"
+      ],
+      "items": []
+    },
+    {
+      "category": "concurrency",
+      "query": "React official hooks documentation",
+      "max_results": 2,
+      "freshness_days": null,
+      "ok": false,
+      "found": null,
+      "error": "provider_error",
+      "wall_latency_ms": 5003,
+      "provider_latency_ms": null,
+      "returned_count": null,
+      "expected_domain_hit": null,
+      "issues": [
+        "provider_failure:provider_error"
+      ],
+      "items": []
+    },
+    {
+      "category": "concurrency",
+      "query": "PostgreSQL official JSON documentation",
+      "max_results": 2,
+      "freshness_days": null,
+      "ok": false,
+      "found": null,
+      "error": "provider_error",
+      "wall_latency_ms": 5004,
+      "provider_latency_ms": null,
+      "returned_count": null,
+      "expected_domain_hit": null,
+      "issues": [
+        "provider_failure:provider_error"
+      ],
+      "items": []
+    },
+    {
+      "category": "concurrency",
+      "query": "GitHub Actions official documentation",
+      "max_results": 2,
+      "freshness_days": null,
+      "ok": false,
+      "found": null,
+      "error": "provider_error",
+      "wall_latency_ms": 3003,
+      "provider_latency_ms": null,
+      "returned_count": null,
+      "expected_domain_hit": null,
+      "issues": [
+        "provider_failure:provider_error"
+      ],
+      "items": []
+    },
+    {
+      "category": "concurrency",
+      "query": "Docker official compose documentation",
+      "max_results": 2,
+      "freshness_days": null,
+      "ok": false,
+      "found": null,
+      "error": "provider_error",
+      "wall_latency_ms": 5005,
+      "provider_latency_ms": null,
+      "returned_count": null,
+      "expected_domain_hit": null,
+      "issues": [
+        "provider_failure:provider_error"
+      ],
+      "items": []
+    },
+    {
+      "category": "concurrency",
+      "query": "Kubernetes official deployment documentation",
+      "max_results": 2,
+      "freshness_days": null,
+      "ok": false,
+      "found": null,
+      "error": "provider_error",
+      "wall_latency_ms": 5003,
+      "provider_latency_ms": null,
+      "returned_count": null,
+      "expected_domain_hit": null,
+      "issues": [
+        "provider_failure:provider_error"
+      ],
+      "items": []
+    },
+    {
+      "category": "concurrency",
+      "query": "Redis official persistence documentation",
+      "max_results": 2,
+      "freshness_days": null,
+      "ok": false,
+      "found": null,
+      "error": "provider_error",
+      "wall_latency_ms": 5004,
+      "provider_latency_ms": null,
+      "returned_count": null,
+      "expected_domain_hit": null,
+      "issues": [
+        "provider_failure:provider_error"
+      ],
+      "items": []
+    },
+    {
+      "category": "concurrency",
+      "query": "SQLite official JSON documentation",
+      "max_results": 2,
+      "freshness_days": null,
+      "ok": false,
+      "found": null,
+      "error": "provider_error",
+      "wall_latency_ms": 5004,
+      "provider_latency_ms": null,
+      "returned_count": null,
+      "expected_domain_hit": null,
+      "issues": [
+        "provider_failure:provider_error"
+      ],
+      "items": []
+    },
+    {
+      "category": "concurrency",
+      "query": "Tavily official search API documentation",
+      "max_results": 2,
+      "freshness_days": null,
+      "ok": false,
+      "found": null,
+      "error": "provider_error",
+      "wall_latency_ms": 5003,
+      "provider_latency_ms": null,
+      "returned_count": null,
+      "expected_domain_hit": null,
+      "issues": [
+        "provider_failure:provider_error"
+      ],
+      "items": []
+    }
+  ]
+}

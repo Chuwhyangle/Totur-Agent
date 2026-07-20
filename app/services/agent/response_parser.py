@@ -22,6 +22,15 @@ class ResponseParser:
 
         try:
             data = json.loads(cleaned_reply)
+            if not isinstance(data, dict):
+                raise TypeError("model reply must be a JSON object")
+
+            raw_source_ids = data.get("source_ids", [])
+            data["source_ids"] = (
+                [item for item in raw_source_ids if isinstance(item, str)]
+                if isinstance(raw_source_ids, list)
+                else []
+            )
             return TutorReply.model_validate(data)
         except (json.JSONDecodeError, ValueError, TypeError):
             return TutorReply(

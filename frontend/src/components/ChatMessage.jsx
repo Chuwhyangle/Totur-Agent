@@ -1,5 +1,30 @@
 import DebugDetails from './DebugDetails.jsx'
 import Icon from './Icon.jsx'
+import SourceCards from './SourceCards.jsx'
+import { sourceCardId } from '../utils/sourceLinks.js'
+
+function AnswerWithCitations({ answer, sources }) {
+  const sourceIds = new Set(
+    (Array.isArray(sources) ? sources : []).map((source) => String(source?.id ?? '')),
+  )
+  const parts = String(answer).split(/(\[web_\d+\])/g)
+
+  return parts.map((part, index) => {
+    const match = /^\[(web_\d+)\]$/.exec(part)
+    if (!match || !sourceIds.has(match[1])) return part
+
+    return (
+      <a
+        className="source-citation"
+        href={`#${sourceCardId(match[1])}`}
+        key={`${match[1]}-${index}`}
+        aria-label={`查看来源 ${match[1]}`}
+      >
+        {part}
+      </a>
+    )
+  })
+}
 
 function joinValues(values) {
   return Array.isArray(values) && values.length > 0 ? values.join('、') : ''
@@ -69,6 +94,7 @@ function ChatMessage({ role, text, reply, debug }) {
   const nextTask = reply?.next_task ?? '请稍后重试，或换一个更具体的问题。'
   const exercise = reply?.exercise ?? '用一句话描述你刚才想问的问题。'
   const checkpoints = Array.isArray(reply?.checkpoints) ? reply.checkpoints : []
+  const sources = Array.isArray(reply?.sources) ? reply.sources : []
   const toolTrace = debug?.responseBody?.tool_trace
 
   return (
@@ -83,7 +109,7 @@ function ChatMessage({ role, text, reply, debug }) {
         </div>
         {reply ? (
           <div className="structured-reply">
-            <p className="answer-text">{answer}</p>
+            <p className="answer-text"><AnswerWithCitations answer={answer} sources={sources} /></p>
             <div className="reply-grid">
               <section className="reply-section reply-next">
                 <span className="reply-icon"><Icon name="chevron" size={15} /></span>
@@ -102,6 +128,7 @@ function ChatMessage({ role, text, reply, debug }) {
                 </ul>
               </section>
             ) : null}
+            <SourceCards sources={sources} />
           </div>
         ) : <p className="user-text">{text}</p>}
         <ToolTraceSummary trace={toolTrace} />

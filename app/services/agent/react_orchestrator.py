@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
+from dataclasses import dataclass, field
 from typing import Any
+from urllib.parse import urlsplit, urlunsplit
 
 from openai import OpenAI
 from openai.types.chat import ChatCompletionMessageParam
 
 from app.config import LLMConfig
-from app.schemas.chat import ToolCallTrace, ToolTrace
+from app.schemas.chat import Source, ToolCallTrace, ToolTrace
 from app.services.memory_settings import (
     MAX_TOOL_FAILURES,
     MAX_TOOL_ROUNDS,
@@ -17,6 +20,20 @@ from app.services.memory_settings import (
 )
 from app.services.agent.tools.executor import ToolExecutor
 from app.services.agent.tools.registry import ToolRegistry
+from app.services.web_search_settings import WEB_SEARCH_MAX_CALLS_PER_CHAT
+
+
+WEB_SEARCH_TOOL_NAME = "web_search"
+
+
+@dataclass
+class _RunState:
+    """Request-scoped Web Search budget and evidence state."""
+
+    web_search_calls: int = 0
+    next_evidence_number: int = 1
+    ledger: dict[str, Source] = field(default_factory=dict)
+    evidence_id_by_url: dict[str, str] = field(default_factory=dict)
 
 
 class ReactOrchestrator:
@@ -50,6 +67,7 @@ class ReactOrchestrator:
 
         working_messages: list[ChatCompletionMessageParam] = [*messages]
         tool_call_traces: list[ToolCallTrace] = []
+        run_state = _RunState()
         failure_count = 0
 
         for round_number in range(1, self.max_steps + 1):
@@ -64,6 +82,7 @@ class ReactOrchestrator:
                 return raw_reply, ToolTrace(
                     used=bool(tool_call_traces),
                     calls=tool_call_traces,
+                    ledger=run_state.ledger,
                 )
 
             working_messages, step_traces = self._build_messages_with_tool_results(
@@ -71,6 +90,7 @@ class ReactOrchestrator:
                 first_message=model_message,
                 tool_calls=tool_calls,
                 round_number=round_number,
+                run_state=run_state,
             )
             tool_call_traces.extend(step_traces)
             failure_count += sum(1 for trace in step_traces if not trace.ok)
@@ -85,6 +105,7 @@ class ReactOrchestrator:
         return raw_reply, ToolTrace(
             used=bool(tool_call_traces),
             calls=tool_call_traces,
+            ledger=run_state.ledger,
         )
 
     def _call_model_with_tools(self, messages: list[ChatCompletionMessageParam]):
@@ -112,6 +133,7 @@ class ReactOrchestrator:
         first_message,
         tool_calls: list[Any],
         round_number: int,
+        run_state: _RunState,
     ) -> tuple[list[ChatCompletionMessageParam], list[ToolCallTrace]]:
         """把模型 tool call 和工具执行结果追加到下一步模型输入里。"""
 
@@ -124,10 +146,28 @@ class ReactOrchestrator:
         for index, tool_call in enumerate(tool_calls):
             tool_name = self._tool_call_name(tool_call)
             tool_arguments = self._tool_call_arguments(tool_call)
-            tool_result = self.tool_executor.execute(
-                tool_name,
-                tool_arguments,
-            )
+            if tool_name == WEB_SEARCH_TOOL_NAME:
+                run_state.web_search_calls += 1
+                if run_state.web_search_calls > WEB_SEARCH_MAX_CALLS_PER_CHAT:
+                    tool_result = {
+                        "ok": False,
+                        "error": "web_search_budget_exceeded",
+                        "message": "web search call budget exceeded",
+                    }
+                else:
+                    tool_result = self.tool_executor.execute(
+                        tool_name,
+                        tool_arguments,
+                    )
+                    tool_result = self._prepare_web_search_result(
+                        tool_result,
+                        run_state,
+                    )
+            else:
+                tool_result = self.tool_executor.execute(
+                    tool_name,
+                    tool_arguments,
+                )
             tool_messages.append(
                 {
                     "role": "tool",
@@ -145,6 +185,110 @@ class ReactOrchestrator:
             )
 
         return tool_messages, traces
+
+    def _prepare_web_search_result(
+        self,
+        tool_result: dict[str, Any],
+        run_state: _RunState,
+    ) -> dict[str, Any]:
+        """Filter Web results, assign server-owned IDs, and update the ledger."""
+
+        if not isinstance(tool_result, dict) or not tool_result.get("ok"):
+            return tool_result
+
+        prepared_result = dict(tool_result)
+        safe_items: list[dict[str, Any]] = []
+        items = tool_result.get("items")
+
+        if isinstance(items, list):
+            for item in items:
+                source = self._source_from_web_item(item, run_state)
+                if source is None:
+                    continue
+
+                safe_item = dict(item)
+                safe_item.update(
+                    {
+                        "evidence_id": source.id,
+                        "title": source.title,
+                        "url": source.url,
+                        "domain": source.domain,
+                    }
+                )
+                safe_items.append(safe_item)
+
+        prepared_result["items"] = safe_items
+        prepared_result["found"] = bool(safe_items)
+        summary = prepared_result.get("summary")
+        if isinstance(summary, dict):
+            prepared_summary = dict(summary)
+            prepared_summary["returned_count"] = len(safe_items)
+            prepared_result["summary"] = prepared_summary
+
+        return prepared_result
+
+    def _source_from_web_item(
+        self,
+        item: Any,
+        run_state: _RunState,
+    ) -> Source | None:
+        """Return a ledger source for one safe Web Search item."""
+
+        if not isinstance(item, dict):
+            return None
+
+        title = item.get("title")
+        url = item.get("url")
+        if not isinstance(title, str) or not title.strip() or not isinstance(url, str):
+            return None
+
+        normalized = self._normalize_safe_web_url(url)
+        if normalized is None:
+            return None
+
+        normalized_url, domain = normalized
+        evidence_id = run_state.evidence_id_by_url.get(normalized_url)
+        if evidence_id is None:
+            evidence_id = f"web_{run_state.next_evidence_number}"
+            run_state.next_evidence_number += 1
+            run_state.evidence_id_by_url[normalized_url] = evidence_id
+            run_state.ledger[evidence_id] = Source(
+                id=evidence_id,
+                title=title.strip(),
+                url=normalized_url,
+                domain=domain,
+            )
+
+        return run_state.ledger[evidence_id]
+
+    def _normalize_safe_web_url(self, url: str) -> tuple[str, str] | None:
+        """Normalize an HTTPS URL without changing its path or query semantics."""
+
+        candidate = url.strip()
+        if not candidate or any(character.isspace() for character in candidate):
+            return None
+
+        try:
+            parsed = urlsplit(candidate)
+            port = parsed.port
+        except ValueError:
+            return None
+
+        if (
+            parsed.scheme.lower() != "https"
+            or not parsed.hostname
+            or parsed.username is not None
+            or parsed.password is not None
+        ):
+            return None
+
+        domain = parsed.hostname.lower()
+        host = f"[{domain}]" if ":" in domain else domain
+        netloc = host if port in (None, 443) else f"{host}:{port}"
+        normalized_url = urlunsplit(
+            ("https", netloc, parsed.path, parsed.query, "")
+        )
+        return normalized_url, domain
 
     def _tool_observation_content(self, tool_result: dict[str, Any]) -> str:
         """把工具结果序列化成 observation，并按配置截断超长内容。"""
@@ -201,7 +345,7 @@ class ReactOrchestrator:
         return ToolCallTrace(
             round=round_number,
             name=name,
-            arguments=self._trace_arguments(arguments),
+            arguments=self._trace_arguments(name, arguments),
             ok=bool(result.get("ok")) if isinstance(result, dict) else False,
             returned_count=(
                 summary.get("returned_count")
@@ -223,8 +367,32 @@ class ReactOrchestrator:
 
         if name == "score_jd_skill_fit":
             return self._skill_fit_result_preview(result)
+        if name == WEB_SEARCH_TOOL_NAME:
+            return self._web_search_result_preview(items)
 
         return self._tool_result_preview(items)
+
+    def _web_search_result_preview(self, items: Any) -> list[dict[str, Any]]:
+        """Expose only lightweight, non-snippet Web Search trace fields."""
+
+        if not isinstance(items, list):
+            return []
+
+        preview: list[dict[str, Any]] = []
+        for item in items[:3]:
+            if not isinstance(item, dict) or not item.get("title"):
+                continue
+
+            preview.append(
+                {
+                    "evidence_id": str(item.get("evidence_id") or ""),
+                    "title": str(item["title"]),
+                    "domain": str(item.get("domain") or ""),
+                    "published_at": item.get("published_at"),
+                }
+            )
+
+        return preview
 
     def _skill_fit_result_preview(self, result: dict[str, Any]) -> list[dict[str, Any]]:
         """把技能匹配工具结果压缩成前端可读的调试预览。"""
@@ -295,8 +463,8 @@ class ReactOrchestrator:
 
         return [item for item in value if isinstance(item, str)]
 
-    def _trace_arguments(self, arguments: str) -> dict[str, Any]:
-        """把模型传来的 JSON 参数字符串解析成 trace 可展示的 dict。"""
+    def _trace_arguments(self, name: str, arguments: str) -> dict[str, Any]:
+        """Parse trace arguments while redacting Web Search query text."""
 
         try:
             parsed = json.loads(arguments)
@@ -305,8 +473,22 @@ class ReactOrchestrator:
 
         if not isinstance(parsed, dict):
             return {}
+        if name != WEB_SEARCH_TOOL_NAME:
+            return parsed
 
-        return parsed
+        trace_arguments = {
+            key: parsed[key]
+            for key in ("max_results", "freshness_days")
+            if key in parsed
+        }
+        query = parsed.get("query")
+        if isinstance(query, str):
+            trace_arguments["query_hash"] = hashlib.sha256(
+                query.encode("utf-8")
+            ).hexdigest()[:12]
+            trace_arguments["query_chars"] = len(query)
+
+        return trace_arguments
 
     def _assistant_tool_call_message(
         self,
