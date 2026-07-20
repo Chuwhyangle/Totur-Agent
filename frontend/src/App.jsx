@@ -40,6 +40,7 @@ function App() {
   const [apiStatus, setApiStatus] = useState('checking')
   const [userId, setUserId] = useState('demo-user')
   const [draftMessage, setDraftMessage] = useState('')
+  const [forceWebSearch, setForceWebSearch] = useState(false)
   // 聊天消息从空数组开始，页面启动时不再显示固定示例回复。
   const [messages, setMessages] = useState([])
   const [isSending, setIsSending] = useState(false)
@@ -298,6 +299,7 @@ function App() {
       session_id: activeSessionId,
       persona_id: selectedPersonaId,
       message: trimmedMessage,
+      force_web_search: forceWebSearch,
     }
     const userMessage = {
       id: `message-user-${Date.now()}`,
@@ -459,6 +461,8 @@ function App() {
             onSubmit={handleSendMessage}
             disabled={!canSend}
             isSending={isSending}
+            webSearchEnabled={forceWebSearch}
+            onWebSearchEnabledChange={setForceWebSearch}
           />
         </section>
 

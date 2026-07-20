@@ -62,6 +62,7 @@ class ReactOrchestrator:
     def run(
         self,
         messages: list[ChatCompletionMessageParam],
+        force_web_search: bool = False,
     ) -> tuple[str, ToolTrace]:
         """执行最多 max_steps 步的 ReAct 工具循环。"""
 
@@ -69,8 +70,18 @@ class ReactOrchestrator:
         tool_call_traces: list[ToolCallTrace] = []
         run_state = _RunState()
         failure_count = 0
+        first_model_round = 1
 
-        for round_number in range(1, self.max_steps + 1):
+        if force_web_search:
+            working_messages, forced_trace = self._execute_forced_web_search(
+                working_messages,
+                run_state,
+            )
+            tool_call_traces.append(forced_trace)
+            failure_count += int(not forced_trace.ok)
+            first_model_round = 2
+
+        for round_number in range(first_model_round, self.max_steps + 1):
             model_message = self._call_model_with_tools(working_messages)
             tool_calls = self._message_tool_calls(model_message)
 
@@ -107,6 +118,65 @@ class ReactOrchestrator:
             calls=tool_call_traces,
             ledger=run_state.ledger,
         )
+
+    def _execute_forced_web_search(
+        self,
+        messages: list[ChatCompletionMessageParam],
+        run_state: _RunState,
+    ) -> tuple[list[ChatCompletionMessageParam], ToolCallTrace]:
+        """Execute one user-requested Web Search before normal model routing."""
+
+        arguments = {"query": self._latest_user_message(messages)}
+        serialized_arguments = json.dumps(arguments, ensure_ascii=False)
+        run_state.web_search_calls += 1
+        tool_result = self.tool_executor.execute(
+            WEB_SEARCH_TOOL_NAME,
+            serialized_arguments,
+        )
+        tool_result = self._prepare_web_search_result(tool_result, run_state)
+        tool_call_id = "forced_web_search_1"
+        working_messages: list[ChatCompletionMessageParam] = [
+            *messages,
+            {
+                "role": "assistant",
+                "tool_calls": [
+                    {
+                        "id": tool_call_id,
+                        "type": "function",
+                        "function": {
+                            "name": WEB_SEARCH_TOOL_NAME,
+                            "arguments": serialized_arguments,
+                        },
+                    }
+                ],
+            },
+            {
+                "role": "tool",
+                "tool_call_id": tool_call_id,
+                "content": self._tool_observation_content(tool_result),
+            },
+        ]
+        trace = self._tool_call_trace(
+            round_number=1,
+            name=WEB_SEARCH_TOOL_NAME,
+            arguments=serialized_arguments,
+            result=tool_result,
+        )
+        return working_messages, trace
+
+    def _latest_user_message(
+        self,
+        messages: list[ChatCompletionMessageParam],
+    ) -> str:
+        """Return the current user text used as the forced search query."""
+
+        for message in reversed(messages):
+            role = message.get("role") if isinstance(message, dict) else None
+            content = message.get("content") if isinstance(message, dict) else None
+            if role == "user" and isinstance(content, str) and content.strip():
+                return content.strip()
+
+        return ""
 
     def _call_model_with_tools(self, messages: list[ChatCompletionMessageParam]):
         """调用模型并提供工具 schema，让模型选择是否请求工具。"""

@@ -5,6 +5,8 @@ function ChatInput({
   onSubmit,
   disabled = false,
   isSending = false,
+  webSearchEnabled = false,
+  onWebSearchEnabledChange,
   placeholder = '输入你想学习的问题...',
 }) {
   return (
@@ -18,6 +20,15 @@ function ChatInput({
       />
       <button className="send-button" type="submit" disabled={disabled}>
         {isSending ? '发送中' : '发送'}
+      </button>
+      <button
+        className={`web-search-toggle${webSearchEnabled ? ' is-active' : ''}`}
+        type="button"
+        aria-pressed={webSearchEnabled}
+        disabled={isSending}
+        onClick={() => onWebSearchEnabledChange?.(!webSearchEnabled)}
+      >
+        联网搜索（{webSearchEnabled ? '本轮强制使用' : '自动判断'}）
       </button>
     </form>
   )

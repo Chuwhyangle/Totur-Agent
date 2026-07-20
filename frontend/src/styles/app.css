@@ -1117,3 +1117,23 @@ h1 {
 }
 .source-card-arrow { flex: 0 0 auto; color: var(--primary); font-size: 15px; font-weight: 700; }
 
+/* User-controlled Web Search option. */
+.web-search-toggle {
+  margin-left: 8px;
+  padding: 6px 9px;
+  color: var(--sub);
+  font: inherit;
+  font-size: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  cursor: pointer;
+}
+.web-search-toggle:hover:not(:disabled),
+.web-search-toggle.is-active {
+  color: var(--primary);
+  border-color: var(--primary);
+  background: var(--soft);
+}
+.web-search-toggle:disabled { cursor: not-allowed; opacity: 0.55; }
+

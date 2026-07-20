@@ -254,7 +254,7 @@ def test_tool_executor_runs_score_jd_skill_fit():
     assert result["top_gaps"] == ["RAG"]
 
 
-def test_tool_executor_runs_web_search_with_dict_and_default_kwargs(monkeypatch):
+def test_tool_executor_runs_web_search_with_dict_arguments(monkeypatch):
     calls = []
 
     def search(query, max_results, freshness_days):
@@ -271,13 +271,12 @@ def test_tool_executor_runs_web_search_with_dict_and_default_kwargs(monkeypatch)
         "get_web_search_client",
         lambda: SimpleNamespace(search=search),
     )
-    executor = ToolExecutor(
-        default_tool_kwargs={
-            "web_search": {"max_results": 2, "freshness_days": 30}
-        }
-    )
+    executor = ToolExecutor()
 
-    result = executor.execute("web_search", {"query": "latest FastAPI changes"})
+    result = executor.execute(
+        "web_search",
+        {"query": "latest FastAPI changes", "max_results": 2, "freshness_days": 30},
+    )
 
     assert result["ok"] is True
     assert calls == [("latest FastAPI changes", 2, 30)]
@@ -300,15 +299,11 @@ def test_tool_executor_runs_web_search_with_json_string_arguments(monkeypatch):
         "get_web_search_client",
         lambda: SimpleNamespace(search=search),
     )
-    executor = ToolExecutor(
-        default_tool_kwargs={
-            "web_search": {"max_results": 2, "freshness_days": 30}
-        }
-    )
+    executor = ToolExecutor()
 
     result = executor.execute(
         "web_search",
-        '{"query": "Python release schedule", "max_results": 4}',
+        '{"query": "Python release schedule", "max_results": 4, "freshness_days": 30}',
     )
 
     assert result["ok"] is True
