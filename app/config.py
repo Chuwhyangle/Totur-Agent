@@ -148,8 +148,6 @@ def load_reranker_config() -> RerankerConfig:
     except (TypeError, ValueError) as exc:
         raise RuntimeError("invalid reranker timeout") from exc
 
-    if not provider:
-        raise RuntimeError("reranker provider is not configured")
     if not api_key:
         raise RuntimeError("reranker api key is not configured")
     if not base_url:

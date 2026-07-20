@@ -6,6 +6,7 @@ from dataclasses import dataclass
 import math
 from threading import Lock
 from typing import Any
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -83,15 +84,12 @@ class RerankerClient:
         if self.is_closed:
             raise RerankerError("rerank_provider_error", "reranker client is closed")
 
-        payload = {
-            "model": self.config.model,
-            "query": normalized_query,
-            "documents": [candidate.text for candidate in candidates],
-            # The service performs the final stable Top-N selection. Asking the
-            # provider for every score prevents missing-index ambiguity.
-            "top_n": len(candidates),
-            "return_documents": False,
-        }
+        endpoint, payload = _request_spec(
+            self.config.base_url,
+            self.config.model,
+            normalized_query,
+            candidates,
+        )
         headers = {
             "Authorization": f"Bearer {self.config.api_key}",
             "Content-Type": "application/json",
@@ -99,7 +97,7 @@ class RerankerClient:
 
         try:
             response = self._http_client.post(
-                _rerank_endpoint(self.config.base_url),
+                endpoint,
                 headers=headers,
                 json=payload,
             )
@@ -156,13 +154,19 @@ def _parse_scores(
     body: Any,
     candidates: list[RerankCandidate],
 ) -> list[RerankScore]:
-    if not isinstance(body, dict) or not isinstance(body.get("results"), list):
+    if not isinstance(body, dict):
+        raise RerankerError("rerank_invalid_response")
+
+    results = body.get("results")
+    if results is None and isinstance(body.get("output"), dict):
+        results = body["output"].get("results")
+    if not isinstance(results, list):
         raise RerankerError("rerank_invalid_response")
 
     expected_indices = {candidate.index for candidate in candidates}
     scores: list[RerankScore] = []
     seen: set[int] = set()
-    for item in body["results"]:
+    for item in results:
         if not isinstance(item, dict):
             raise RerankerError("rerank_invalid_response")
         index = item.get("index")
@@ -184,11 +188,58 @@ def _parse_scores(
     return scores
 
 
+def _request_spec(
+    base_url: str,
+    model: str,
+    query: str,
+    candidates: list[RerankCandidate],
+) -> tuple[str, dict[str, Any]]:
+    """Build the request for a generic Cohere-compatible or DashScope API."""
+
+    endpoint = _rerank_endpoint(base_url)
+    if _is_dashscope_endpoint(endpoint):
+        return endpoint, {
+            "model": model,
+            "input": {
+                "query": {"text": query},
+                "documents": [{"text": candidate.text} for candidate in candidates],
+            },
+            "parameters": {
+                # The service performs final stable Top-N selection after all
+                # provider scores have been validated.
+                "top_n": len(candidates),
+                "return_documents": False,
+            },
+        }
+
+    return endpoint, {
+        "model": model,
+        "query": query,
+        "documents": [candidate.text for candidate in candidates],
+        # The service performs the final stable Top-N selection. Asking the
+        # provider for every score prevents missing-index ambiguity.
+        "top_n": len(candidates),
+        "return_documents": False,
+    }
+
+
 def _rerank_endpoint(base_url: str) -> str:
     normalized = base_url.rstrip("/")
+    parsed = urlsplit(normalized)
+    hostname = (parsed.hostname or "").lower()
+    if hostname == "dashscope.aliyuncs.com" or hostname.endswith(".dashscope.aliyuncs.com"):
+        # DashScope's qwen reranker uses its native text-rerank endpoint;
+        # ignore a copied /compatible-mode/v1 suffix in the base URL.
+        return f"{parsed.scheme}://{parsed.netloc}/api/v1/services/rerank/text-rerank/text-rerank"
     if normalized.endswith("/rerank"):
         return normalized
     return f"{normalized}/rerank"
+
+
+def _is_dashscope_endpoint(endpoint: str) -> bool:
+    parsed = urlsplit(endpoint)
+    hostname = (parsed.hostname or "").lower()
+    return hostname == "dashscope.aliyuncs.com" or hostname.endswith(".dashscope.aliyuncs.com")
 
 
 _client_lock = Lock()

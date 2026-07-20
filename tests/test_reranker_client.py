@@ -70,6 +70,51 @@ def test_reranker_client_sends_one_batch_and_parses_all_scores():
     assert [(score.index, score.score) for score in scores] == [(1, 0.95), (0, 0.25)]
 
 
+def test_dashscope_native_endpoint_sends_native_payload_and_parses_output():
+    requests = []
+    config = RerankerConfig(
+        provider="",
+        api_key="secret-key",
+        base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+        model="qwen3-vl-rerank",
+        timeout_seconds=5.0,
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        payload = json.loads(request.content)
+        assert request.url == (
+            "https://dashscope.aliyuncs.com/api/v1/services/rerank/"
+            "text-rerank/text-rerank"
+        )
+        assert payload == {
+            "model": "qwen3-vl-rerank",
+            "input": {
+                "query": {"text": "how to rank"},
+                "documents": [{"text": "A\nfirst body"}, {"text": "B\nsecond body"}],
+            },
+            "parameters": {"top_n": 2, "return_documents": False},
+        }
+        return httpx.Response(
+            200,
+            json={
+                "output": {
+                    "results": [
+                        {"index": 1, "relevance_score": 0.95},
+                        {"index": 0, "relevance_score": 0.25},
+                    ]
+                }
+            },
+        )
+
+    client = RerankerClient(config, http_client=httpx.Client(transport=httpx.MockTransport(handler)))
+    with client:
+        scores = client.rerank(" how to rank ", _candidates(), top_n=2)
+
+    assert len(requests) == 1
+    assert [(score.index, score.score) for score in scores] == [(1, 0.95), (0, 0.25)]
+
+
 @pytest.mark.parametrize(
     ("status_code", "expected_code"),
     [
@@ -192,10 +237,22 @@ def test_load_reranker_config_reads_independent_environment(monkeypatch):
     )
 
 
-def test_load_reranker_config_rejects_missing_configuration(monkeypatch):
+def test_load_reranker_config_allows_missing_provider(monkeypatch):
+    monkeypatch.setattr(config_module, "load_dotenv", lambda: None)
+    monkeypatch.delenv("RERANK_PROVIDER", raising=False)
+    monkeypatch.setenv("RERANK_API_KEY", "rerank-only-key")
+    monkeypatch.setenv("RERANK_BASE_URL", "https://example.test/v2/")
+    monkeypatch.setenv("RERANK_MODEL", "rerank-model")
+    monkeypatch.setenv("RERANK_TIMEOUT_SECONDS", "5")
+
+    config = config_module.load_reranker_config()
+
+    assert config.provider == ""
+
+
+def test_load_reranker_config_rejects_missing_required_configuration(monkeypatch):
     monkeypatch.setattr(config_module, "load_dotenv", lambda: None)
     for name in (
-        "RERANK_PROVIDER",
         "RERANK_API_KEY",
         "RERANK_BASE_URL",
         "RERANK_MODEL",
@@ -203,7 +260,7 @@ def test_load_reranker_config_rejects_missing_configuration(monkeypatch):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("RERANK_TIMEOUT_SECONDS", "5")
 
-    with pytest.raises(RuntimeError, match="provider"):
+    with pytest.raises(RuntimeError, match="api key"):
         config_module.load_reranker_config()
 
 
