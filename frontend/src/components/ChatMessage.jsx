@@ -1,4 +1,29 @@
 import DebugDetails from './DebugDetails.jsx'
+import SourceCards from './SourceCards.jsx'
+import { sourceCardId } from '../utils/sourceLinks.js'
+
+function AnswerWithCitations({ answer, sources }) {
+  const validIds = new Set(
+    (Array.isArray(sources) ? sources : [])
+      .map((source) => source?.id)
+      .filter((sourceId) => sourceId != null)
+      .map((sourceId) => String(sourceId)),
+  )
+  const text = typeof answer === 'string' ? answer : ''
+  const parts = text.split(/(\[web_[A-Za-z0-9_-]+\])/g)
+
+  return parts.map((part, index) => {
+    const match = /^\[([^\]]+)\]$/.exec(part)
+    if (match && validIds.has(match[1])) {
+      return (
+        <a className="source-citation" href={`#${sourceCardId(match[1])}`} key={`${part}-${index}`}>
+          {part}
+        </a>
+      )
+    }
+    return <span key={`${part}-${index}`}>{part}</span>
+  })
+}
 
 function joinValues(values) {
   return Array.isArray(values) && values.length > 0 ? values.join('、') : ''
@@ -101,6 +126,7 @@ function ChatMessage({ role, text, reply, debug }) {
   const checkpoints = Array.isArray(reply?.checkpoints)
     ? reply.checkpoints
     : ['前端没有因为响应字段异常而崩溃']
+  const sources = Array.isArray(reply?.sources) ? reply.sources : []
   const toolTrace = debug?.responseBody?.tool_trace
 
   return (
@@ -109,7 +135,7 @@ function ChatMessage({ role, text, reply, debug }) {
 
       {reply ? (
         <div className="structured-reply">
-          <p>{answer}</p>
+          <p><AnswerWithCitations answer={answer} sources={sources} /></p>
 
           <section className="reply-section">
             <span className="reply-label">下一步</span>
@@ -129,6 +155,8 @@ function ChatMessage({ role, text, reply, debug }) {
               ))}
             </ul>
           </section>
+
+          <SourceCards sources={sources} />
         </div>
       ) : (
         <p>{text}</p>

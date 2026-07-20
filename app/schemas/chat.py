@@ -14,6 +14,15 @@ class ChatRequest(BaseModel):
     persona_id: str | None = None
 
 
+class Source(BaseModel):
+    """Public source copied from the server-side evidence ledger."""
+
+    id: str
+    title: str
+    url: str
+    domain: str
+
+
 class TutorReply(BaseModel):
     """模型返回的结构化导师回复。"""
 
@@ -21,6 +30,8 @@ class TutorReply(BaseModel):
     next_task: str
     exercise: str
     checkpoints: list[str]
+    sources: list[Source] = Field(default_factory=list)
+    source_ids: list[str] = Field(default_factory=list, exclude=True)
 
 
 class ToolResultPreview(BaseModel):
@@ -53,6 +64,7 @@ class ToolTrace(BaseModel):
 
     used: bool
     calls: list[ToolCallTrace] = Field(default_factory=list)
+    ledger: dict[str, Source] = Field(default_factory=dict, exclude=True)
 
 
 class ChatResponse(BaseModel):

@@ -525,3 +525,239 @@ def test_react_loop_trace_keeps_a_stable_public_shape():
             "raw_text_excerpt": "",
         }
     ]
+
+
+def web_search_tool(query: str) -> dict[str, Any]:
+    """Return one deterministic public Web result for budget tests."""
+
+    return {
+        "ok": True,
+        "found": True,
+        "query": query,
+        "items": [
+            {
+                "title": f"Source for {query}",
+                "url": f"https://example.com/{query}",
+                "snippet": "evidence",
+                "domain": "untrusted-provider-domain.example",
+            }
+        ],
+        "summary": {"returned_count": 1, "provider": "stub"},
+    }
+
+
+def test_web_search_budget_blocks_the_third_executor_call():
+    """A third Web Search in one run must fail before ToolExecutor executes it."""
+
+    executed_queries: list[str] = []
+
+    def counted_web_search(query: str) -> dict[str, Any]:
+        executed_queries.append(query)
+        return web_search_tool(query)
+
+    registry = StubToolRegistry({"web_search": counted_web_search})
+    orchestrator = make_orchestrator(registry)
+    messages_seen_by_final_call: list[dict[str, Any]] = []
+    model_call_count = 0
+
+    def fake_call_model_with_tools(messages):
+        nonlocal model_call_count
+        model_call_count += 1
+        if model_call_count == 1:
+            return tool_call_message(
+                tool_call("web_search", {"query": "first"}, "call_1"),
+                tool_call("web_search", {"query": "second"}, "call_2"),
+                tool_call("web_search", {"query": "third"}, "call_3"),
+            )
+
+        messages_seen_by_final_call.extend(messages)
+        return final_message()
+
+    orchestrator._call_model_with_tools = fake_call_model_with_tools
+
+    _, tool_trace = orchestrator.run([{"role": "user", "content": "search"}])
+
+    assert executed_queries == ["first", "second"]
+    assert [trace.ok for trace in tool_trace.calls] == [True, True, False]
+    assert tool_trace.calls[2].error == "web_search_budget_exceeded"
+    tool_messages = [
+        message for message in messages_seen_by_final_call if message["role"] == "tool"
+    ]
+    assert json.loads(tool_messages[2]["content"])["error"] == (
+        "web_search_budget_exceeded"
+    )
+
+
+def test_web_search_trace_redacts_query_text():
+    registry = StubToolRegistry({"web_search": web_search_tool})
+    orchestrator = make_orchestrator(registry)
+    model_call_count = 0
+
+    def fake_call_model_with_tools(messages):
+        nonlocal model_call_count
+        model_call_count += 1
+        if model_call_count == 1:
+            return tool_call_message(
+                tool_call(
+                    "web_search",
+                    {
+                        "query": "private project release details",
+                        "max_results": 3,
+                        "freshness_days": 7,
+                    },
+                    "call_1",
+                )
+            )
+        return final_message()
+
+    orchestrator._call_model_with_tools = fake_call_model_with_tools
+
+    _, tool_trace = orchestrator.run([{"role": "user", "content": "search"}])
+
+    traced_arguments = tool_trace.calls[0].arguments
+    assert "query" not in traced_arguments
+    assert traced_arguments["query_chars"] == len("private project release details")
+    assert len(traced_arguments["query_hash"]) == 12
+    assert traced_arguments["max_results"] == 3
+    assert traced_arguments["freshness_days"] == 7
+
+
+def test_web_search_assigns_unique_evidence_ids_and_reuses_normalized_urls():
+    """Safe URLs get monotonic IDs, while the same normalized URL reuses its ID."""
+
+    def web_search(query: str) -> dict[str, Any]:
+        if query == "first":
+            items = [
+                {
+                    "title": "Official A",
+                    "url": "HTTPS://Example.COM:443/Release/Notes?Version=1#section",
+                    "snippet": "first",
+                    "domain": "provider-controlled.example",
+                },
+                {
+                    "title": "Unsafe HTTP",
+                    "url": "http://example.com/not-safe",
+                    "snippet": "drop me",
+                },
+                {
+                    "title": "Unsafe userinfo",
+                    "url": "https://user:pass@example.com/private",
+                    "snippet": "drop me too",
+                },
+            ]
+        else:
+            items = [
+                {
+                    "title": "Duplicate A",
+                    "url": "https://example.com/Release/Notes?Version=1",
+                    "snippet": "duplicate",
+                },
+                {
+                    "title": "Official B",
+                    "url": "https://docs.example.org/current",
+                    "snippet": "second",
+                    "published_at": "2026-07-20",
+                },
+            ]
+
+        return {
+            "ok": True,
+            "found": True,
+            "query": query,
+            "items": items,
+            "summary": {"returned_count": len(items), "provider": "stub"},
+        }
+
+    registry = StubToolRegistry({"web_search": web_search})
+    orchestrator = make_orchestrator(registry)
+    final_messages: list[dict[str, Any]] = []
+    model_call_count = 0
+
+    def fake_call_model_with_tools(messages):
+        nonlocal model_call_count
+        model_call_count += 1
+        if model_call_count == 1:
+            return tool_call_message(
+                tool_call("web_search", {"query": "first"}, "call_1")
+            )
+        if model_call_count == 2:
+            return tool_call_message(
+                tool_call("web_search", {"query": "second"}, "call_2")
+            )
+
+        final_messages.extend(messages)
+        return final_message()
+
+    orchestrator._call_model_with_tools = fake_call_model_with_tools
+
+    _, tool_trace = orchestrator.run([{"role": "user", "content": "search"}])
+
+    observations = [
+        json.loads(message["content"])
+        for message in final_messages
+        if message["role"] == "tool"
+    ]
+    assert [item["evidence_id"] for item in observations[0]["items"]] == ["web_1"]
+    assert [item["evidence_id"] for item in observations[1]["items"]] == [
+        "web_1",
+        "web_2",
+    ]
+    assert observations[0]["items"][0]["url"] == (
+        "https://example.com/Release/Notes?Version=1"
+    )
+    assert observations[0]["items"][0]["domain"] == "example.com"
+    assert set(tool_trace.ledger) == {"web_1", "web_2"}
+    assert tool_trace.ledger["web_1"].title == "Official A"
+    assert tool_trace.ledger["web_2"].url == "https://docs.example.org/current"
+    assert set(tool_trace.model_dump()) == {"used", "calls"}
+    assert tool_trace.calls[1].result_preview == [
+        {
+            "evidence_id": "web_1",
+            "title": "Official A",
+            "domain": "example.com",
+            "published_at": None,
+        },
+        {
+            "evidence_id": "web_2",
+            "title": "Official B",
+            "domain": "docs.example.org",
+            "published_at": "2026-07-20",
+        },
+    ]
+
+
+def test_web_search_ledger_survives_observation_truncation():
+    """Observation truncation must not truncate or discard the internal ledger."""
+
+    def long_web_search(query: str) -> dict[str, Any]:
+        result = web_search_tool(query)
+        result["items"][0]["snippet"] = "x" * 2000
+        return result
+
+    registry = StubToolRegistry({"web_search": long_web_search})
+    orchestrator = make_orchestrator(registry)
+    orchestrator.max_observation_chars = 120
+    final_messages: list[dict[str, Any]] = []
+    model_call_count = 0
+
+    def fake_call_model_with_tools(messages):
+        nonlocal model_call_count
+        model_call_count += 1
+        if model_call_count == 1:
+            return tool_call_message(
+                tool_call("web_search", {"query": "large"}, "call_1")
+            )
+
+        final_messages.extend(messages)
+        return final_message()
+
+    orchestrator._call_model_with_tools = fake_call_model_with_tools
+
+    _, tool_trace = orchestrator.run([{"role": "user", "content": "search"}])
+
+    observation = next(
+        message["content"] for message in final_messages if message["role"] == "tool"
+    )
+    assert len(observation) <= 120
+    assert "truncated" in observation
+    assert tool_trace.ledger["web_1"].url == "https://example.com/large"

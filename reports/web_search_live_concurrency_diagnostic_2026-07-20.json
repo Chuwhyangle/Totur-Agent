@@ -1,0 +1,102 @@
+{
+  "generated_at": "2026-07-20T04:09:59.462464+00:00",
+  "external_call_count": 13,
+  "results": [
+    {
+      "scenario": "sequential",
+      "workers": 1,
+      "records": [
+        {
+          "query": "Python docs diagnostic 1",
+          "status_code": 200,
+          "latency_ms": 1798,
+          "error_type": null
+        },
+        {
+          "query": "FastAPI docs diagnostic 2",
+          "status_code": 200,
+          "latency_ms": 1500,
+          "error_type": null
+        },
+        {
+          "query": "HTTPX docs diagnostic 3",
+          "status_code": 200,
+          "latency_ms": 1473,
+          "error_type": null
+        }
+      ]
+    },
+    {
+      "scenario": "concurrency_2",
+      "workers": 2,
+      "records": [
+        {
+          "query": "React docs diagnostic 1",
+          "status_code": 200,
+          "latency_ms": 1283,
+          "error_type": null
+        },
+        {
+          "query": "PostgreSQL docs diagnostic 2",
+          "status_code": 200,
+          "latency_ms": 1729,
+          "error_type": null
+        },
+        {
+          "query": "Redis docs diagnostic 3",
+          "status_code": 200,
+          "latency_ms": 1976,
+          "error_type": null
+        },
+        {
+          "query": "Docker docs diagnostic 4",
+          "status_code": 200,
+          "latency_ms": 2248,
+          "error_type": null
+        }
+      ]
+    },
+    {
+      "scenario": "concurrency_3",
+      "workers": 3,
+      "records": [
+        {
+          "query": "SQLite docs diagnostic 2",
+          "status_code": 200,
+          "latency_ms": 1588,
+          "error_type": null
+        },
+        {
+          "query": "Kubernetes docs diagnostic 1",
+          "status_code": 200,
+          "latency_ms": 1659,
+          "error_type": null
+        },
+        {
+          "query": "GitHub docs diagnostic 3",
+          "status_code": 200,
+          "latency_ms": 1747,
+          "error_type": null
+        },
+        {
+          "query": "Tavily docs diagnostic 5",
+          "status_code": 200,
+          "latency_ms": 1343,
+          "error_type": null
+        },
+        {
+          "query": "Pydantic docs diagnostic 4",
+          "status_code": 200,
+          "latency_ms": 2159,
+          "error_type": null
+        },
+        {
+          "query": "Python asyncio diagnostic 6",
+          "status_code": 200,
+          "latency_ms": 2309,
+          "error_type": null
+        }
+      ]
+    }
+  ]
+}

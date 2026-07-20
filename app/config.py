@@ -24,6 +24,16 @@ class EmbeddingConfig:
     model: str
 
 
+@dataclass
+class WebSearchConfig:
+    """Server-side web search provider configuration."""
+
+    provider: str
+    api_key: str
+    base_url: str
+    timeout_seconds: float
+
+
 def load_llm_config() -> LLMConfig:
     """Load and validate model configuration from environment variables."""
 
@@ -71,4 +81,41 @@ def load_embedding_config() -> EmbeddingConfig:
         api_key=api_key,
         base_url=base_url,
         model=model,
+    )
+
+
+def load_web_search_config() -> WebSearchConfig:
+    """Load web search configuration only when search is first requested."""
+
+    load_dotenv()
+
+    provider = os.getenv("WEB_SEARCH_PROVIDER", "tavily").strip().lower() or "tavily"
+    api_key = (
+        os.getenv("WEB_SEARCH_API_KEY", "").strip()
+        or os.getenv("TAVILY_API_KEY", "").strip()
+    )
+    base_url = (
+        os.getenv("WEB_SEARCH_BASE_URL", "https://api.tavily.com").strip()
+        or "https://api.tavily.com"
+    ).rstrip("/")
+
+    timeout_seconds = 7.0
+    raw_timeout = os.getenv("WEB_SEARCH_TIMEOUT_SECONDS", "7").strip()
+    try:
+        configured_timeout = float(raw_timeout)
+    except (TypeError, ValueError):
+        configured_timeout = timeout_seconds
+    if 5.0 <= configured_timeout <= 8.0:
+        timeout_seconds = configured_timeout
+
+    if not api_key:
+        raise RuntimeError("web search api key is not configured")
+    if provider != "tavily":
+        raise RuntimeError("unsupported web search provider")
+
+    return WebSearchConfig(
+        provider=provider,
+        api_key=api_key,
+        base_url=base_url,
+        timeout_seconds=timeout_seconds,
     )

@@ -34,6 +34,7 @@ from app.repositories.summary_repository import (
     upsert_summary,
 )
 from app.services.memory_settings import RECENT_HISTORY_LIMIT, SUMMARY_TRIGGER_COUNT
+from app.schemas.chat import Source, ToolTrace
 from app.services.summary_service import SummaryService
 
 
@@ -710,6 +711,63 @@ def test_chat_returns_structured_reply(monkeypatch, tmp_path):
     assert isinstance(reply["exercise"], str)
     assert isinstance(reply["checkpoints"], list)
     assert len(reply["checkpoints"]) == 3
+
+
+def test_chat_finalizes_web_sources_before_response_and_persistence(monkeypatch, tmp_path):
+    use_temp_database(monkeypatch, tmp_path)
+
+    raw_model_reply = json.dumps(
+        {
+            "answer": (
+                "Verified [web_1], fabricated [web_99], raw "
+                "https://attacker.example/path"
+            ),
+            "next_task": "Read the verified source.",
+            "exercise": "Summarize the source.",
+            "checkpoints": ["Only server-owned evidence is cited."],
+            "source_ids": ["web_1", "web_99"],
+        }
+    )
+    tool_trace = ToolTrace(
+        used=True,
+        ledger={
+            "web_1": Source(
+                id="web_1",
+                title="Official source",
+                url="https://official.example/docs",
+                domain="official.example",
+            )
+        },
+    )
+    monkeypatch.setattr(
+        chat_route.tutor_agent_service.react_orchestrator,
+        "run",
+        lambda messages: (raw_model_reply, tool_trace),
+    )
+
+    response = client.post(
+        "/chat",
+        json={"user_id": "web-user", "message": "What changed recently?"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["reply"]["sources"] == [
+        {
+            "id": "web_1",
+            "title": "Official source",
+            "url": "https://official.example/docs",
+            "domain": "official.example",
+        }
+    ]
+    assert "source_ids" not in body["reply"]
+    assert "ledger" not in body["tool_trace"]
+    assert "[web_99]" not in body["reply"]["answer"]
+    assert "https://attacker.example/path" not in body["reply"]["answer"]
+
+    saved_reply = json.loads(list_recent_conversations("web-user", limit=1)[0].reply_json)
+    assert saved_reply["sources"] == body["reply"]["sources"]
+    assert saved_reply["answer"] == body["reply"]["answer"]
 
 
 def test_chat_without_history_sends_only_current_user_message(monkeypatch, tmp_path):

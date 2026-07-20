@@ -1,6 +1,7 @@
 """Tutor Agent 聊天业务服务。"""
 
 from collections.abc import Callable
+import re
 
 from openai import OpenAI
 from app.db.models import DEFAULT_SESSION_TITLE
@@ -12,7 +13,7 @@ from app.repositories.session_repository import (
 )
 from app.clients.llm_client import create_llm_client
 from app.config import LLMConfig, load_llm_config
-from app.schemas.chat import ChatRequest, ChatResponse
+from app.schemas.chat import ChatRequest, ChatResponse, Source, ToolTrace, TutorReply
 from app.services.agent.memory_manager import MemoryManager
 from app.services.agent.personas import (
     DEFAULT_PERSONA_ID,
@@ -26,6 +27,11 @@ from app.services.agent.tools.registry import ToolRegistry
 from app.services.rag_seed_context import retrieve_seed_knowledge_context
 from app.services.rag_settings import ENABLE_RAG_SEED_CONTEXT
 from app.services.summary_service import SummaryService
+
+
+_WEB_CITATION_PATTERN = re.compile(r"\[web_(\d+)\]")
+_RAW_HTTP_URL_PATTERN = re.compile(r"https?://[^\s<>\"']+", re.IGNORECASE)
+_UNVERIFIED_LINK_REPLACEMENT = "[已移除未验证链接]"
 
 
 class ChatSessionNotFoundError(Exception):
@@ -119,6 +125,7 @@ class TutorAgentService:
         messages = self.prompt_builder.build_messages(context, persona=persona)
         raw_reply, tool_trace = self.react_orchestrator.run(messages)
         reply = self.response_parser.parse_model_reply(raw_reply)
+        reply = self._finalize_reply_sources(reply, tool_trace)
 
         # 模型回复已经结构化后，再统一保存本轮对话并尝试推进摘要。
         self.memory_manager.save_turn_and_update_summary(
@@ -135,6 +142,54 @@ class TutorAgentService:
             reply=reply,
             tool_trace=tool_trace,
         )
+
+    def _finalize_reply_sources(
+        self,
+        reply: TutorReply,
+        tool_trace: ToolTrace,
+    ) -> TutorReply:
+        """Build public sources from this run ledger and sanitize citations."""
+
+        ledger = tool_trace.ledger
+        accepted_source_ids: list[str] = []
+        sources: list[Source] = []
+        seen_ids: set[str] = set()
+
+        for evidence_id in reply.source_ids:
+            if evidence_id in seen_ids:
+                continue
+
+            ledger_source = ledger.get(evidence_id)
+            if ledger_source is None:
+                continue
+
+            seen_ids.add(evidence_id)
+            accepted_source_ids.append(evidence_id)
+            sources.append(
+                Source(
+                    id=evidence_id,
+                    title=ledger_source.title,
+                    url=ledger_source.url,
+                    domain=ledger_source.domain,
+                )
+            )
+
+        valid_ids = set(ledger)
+        reply.answer = _WEB_CITATION_PATTERN.sub(
+            lambda match: (
+                match.group(0)
+                if f"web_{match.group(1)}" in valid_ids
+                else ""
+            ),
+            reply.answer,
+        )
+        reply.answer = _RAW_HTTP_URL_PATTERN.sub(
+            _UNVERIFIED_LINK_REPLACEMENT,
+            reply.answer,
+        )
+        reply.source_ids = accepted_source_ids
+        reply.sources = sources
+        return reply
 
     def _resolve_session(
         self,

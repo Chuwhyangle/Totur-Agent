@@ -1,0 +1,192 @@
+{
+  "generated_at": "2026-07-20T04:13:31.691942+00:00",
+  "summary": {
+    "case_count": 8,
+    "http_success_count": 8,
+    "external_call_count": 7,
+    "must_search_routed_count": 4,
+    "must_search_case_count": 4,
+    "none_avoided_search_count": 3,
+    "none_case_count": 3,
+    "all_internal_fields_hidden": true,
+    "all_source_urls_https": true,
+    "all_citations_resolve": true,
+    "raw_url_answer_count": 0
+  },
+  "records": [
+    {
+      "id": "web_fastapi_latest",
+      "expected": "web",
+      "status_code": 200,
+      "latency_ms": 13576,
+      "external_calls": 2,
+      "tool_names": [
+        "web_search",
+        "web_search",
+        "web_search"
+      ],
+      "tool_errors": [
+        "provider_error",
+        "web_search_budget_exceeded"
+      ],
+      "source_count": 3,
+      "source_ids": [
+        "web_1",
+        "web_2",
+        "web_3"
+      ],
+      "cited_ids": [],
+      "citations_resolve": true,
+      "raw_url_in_answer": false,
+      "source_urls_https": true,
+      "internal_fields_hidden": true,
+      "answer_excerpt": "2026年7月20日是未来的日期，目前无法预测当天会发生什么更新或事件。不过根据当前趋势，FastAPI 在 2025 年依然是最流行的 Python 异步 API 框架之一，月下载量约数百万次，以 Pydantic 自动验证、OpenAPI 自动文档和 async/await 支持著称。如需了解最新动态，建议关注 GitHub Releases (tiangolo/fastapi)、官方博客或 Twitter/X @tiangolo。"
+    },
+    {
+      "id": "web_python_status",
+      "expected": "web",
+      "status_code": 200,
+      "latency_ms": 18812,
+      "external_calls": 2,
+      "tool_names": [
+        "web_search",
+        "web_search",
+        "web_search"
+      ],
+      "tool_errors": [
+        "web_search_budget_exceeded"
+      ],
+      "source_count": 4,
+      "source_ids": [
+        "web_4",
+        "web_5",
+        "web_6",
+        "web_8"
+      ],
+      "cited_ids": [
+        "web_4",
+        "web_5",
+        "web_6",
+        "web_8"
+      ],
+      "citations_resolve": true,
+      "raw_url_in_answer": false,
+      "source_urls_https": true,
+      "internal_fields_hidden": true,
+      "answer_excerpt": "截至2026年7月20日，Python 3.14已于2025年10月7日正式发布，是当前稳定版本[web_4][web_5]。按照PEP 790的发布日程，Python 3.15在7月14日已进入Beta 4阶段，Beta阶段冻结新功能，之后计划7月28日发布首个候选版本(Candidate 1)，最终版本定于2026年10月1日发布[web_6][web_8]。当前Python 3.15处于公测阶段，开发者和有测试需求的用户可以下载beta版本尝鲜新特性，但生产环境仍建议使用3.14稳定版。"
+    },
+    {
+      "id": "web_tavily_docs",
+      "expected": "web",
+      "status_code": 200,
+      "latency_ms": 18090,
+      "external_calls": 2,
+      "tool_names": [
+        "web_search",
+        "web_search"
+      ],
+      "tool_errors": [],
+      "source_count": 1,
+      "source_ids": [
+        "web_6"
+      ],
+      "cited_ids": [
+        "web_6"
+      ],
+      "citations_resolve": true,
+      "raw_url_in_answer": false,
+      "source_urls_https": true,
+      "internal_fields_hidden": true,
+      "answer_excerpt": "Tavily Search API의 `start_date`는 검색 결과의 날짜 범위를 세밀하게 제어할 수 있는 파라미터입니다. `start_date`와 `end_date`를 함께 사용하면 특정 기간 내 결과만 필터링할 수 있으며, `start_date`는 지정된 날짜 이후에 게시된 결과만 반환합니다. 또한 간편하게 `time_range`로 상대적 기간(예: \"day\", \"week\", \"month\")을 지정하거나, 뉴스 주제일 경우 `days` 파라미터로遲幾日前까지 조회가 가능합니다. 정확한 날짜 지정이 필요하면 \"YYYY-MM-DD\""
+    },
+    {
+      "id": "web_recent_news",
+      "expected": "web",
+      "status_code": 200,
+      "latency_ms": 5605,
+      "external_calls": 1,
+      "tool_names": [
+        "web_search"
+      ],
+      "tool_errors": [
+        "provider_error"
+      ],
+      "source_count": 0,
+      "source_ids": [],
+      "cited_ids": [],
+      "citations_resolve": true,
+      "raw_url_in_answer": false,
+      "source_urls_https": true,
+      "internal_fields_hidden": true,
+      "answer_excerpt": "30岁以下的AI Agent领域新锐创始人包括：DeepWisdom创始人兼CEO孟虎（毕业于中科大、伯克利，专注于AI Agent平台化）、归途科技CEO王一舟（MIT TR35华人青年创新者，在AI Agent方向有前沿探索）、元始智能COO张中鹏（北航博士背景）、以及海外的Sam Altman（OpenAI，22岁创业）、Alex Graveley（GitHub Copilot负责人，20多岁开始打造AI编程产品）。这些年轻创始人的共同特征是技术背景强、敢押注大模型+Agent方向、融资能力强。"
+    },
+    {
+      "id": "none_dependency",
+      "expected": "none",
+      "status_code": 200,
+      "latency_ms": 1025,
+      "external_calls": 0,
+      "tool_names": [],
+      "tool_errors": [],
+      "source_count": 0,
+      "source_ids": [],
+      "cited_ids": [],
+      "citations_resolve": true,
+      "raw_url_in_answer": false,
+      "source_urls_https": true,
+      "internal_fields_hidden": true,
+      "answer_excerpt": "你好！看起来你的消息可能是输入问题或乱码了。我是一个后端开发导师，可以帮你准备技术面试、理解后端概念、规划学习路径等。请重新告诉我你想了解的内容或需要什么帮助？"
+    },
+    {
+      "id": "none_math",
+      "expected": "none",
+      "status_code": 200,
+      "latency_ms": 2566,
+      "external_calls": 0,
+      "tool_names": [],
+      "tool_errors": [],
+      "source_count": 0,
+      "source_ids": [],
+      "cited_ids": [],
+      "citations_resolve": true,
+      "raw_url_in_answer": false,
+      "source_urls_https": true,
+      "internal_fields_hidden": true,
+      "answer_excerpt": "你好，你的消息看起来像是编码问题或乱码，内容不太清晰 🤔\n\n请问你能重新描述一下你的问题吗？例如：\n\n- 你想了解某个技术概念？\n- 在准备技术面试？\n- 有代码问题需要帮忙？\n\n我会尽力帮你解答！"
+    },
+    {
+      "id": "none_react",
+      "expected": "none",
+      "status_code": 200,
+      "latency_ms": 3688,
+      "external_calls": 0,
+      "tool_names": [],
+      "tool_errors": [],
+      "source_count": 0,
+      "source_ids": [],
+      "cited_ids": [],
+      "citations_resolve": true,
+      "raw_url_in_answer": false,
+      "source_urls_https": true,
+      "internal_fields_hidden": true,
+      "answer_excerpt": "在 ReAct 框架中，Observation（观察）是【行动后的结果反馈】。ReAct 的核心循环是：Thought → Action → Observation → 再思考。LLM 执行某个 Action（如搜索、查询API）后，环境返回的结果就是 Observation，它作为下一轮推理的输入信息，帮助模型判断当前状态并决定下一步行动。比如 Thought 说\"我需要搜索信息\"，Action 是 search[query]，返回的搜索结果就是 Observation。"
+    },
+    {
+      "id": "local_first",
+      "expected": "local_or_mixed",
+      "status_code": 200,
+      "latency_ms": 1547,
+      "external_calls": 0,
+      "tool_names": [],
+      "tool_errors": [],
+      "source_count": 0,
+      "source_ids": [],
+      "cited_ids": [],
+      "citations_resolve": true,
+      "raw_url_in_answer": false,
+      "source_urls_https": true,
+      "internal_fields_hidden": true,
+      "answer_excerpt": "RAG（Retrieval-Augmented Generation，检索增强生成）是一种结合检索系统和生成式AI的技术架构。它的工作流程是：当用户提问时，先从外部知识库检索相关文档，再将检索结果与原问题一起交给大模型生成答案。这种设计能有效缓解大模型“幻觉”问题，让回答基于真实数据更可信，同时支持知识动态更新而无需重新训练模型。RAG的核心组件包括向量数据库、嵌入模型和重排序机制。"
+    }
+  ]
+}

@@ -1,0 +1,99 @@
+{
+  "generated_at": "2026-07-20T04:11:19.678530+00:00",
+  "external_call_count": 13,
+  "warmup": [
+    {
+      "query": "long lived warmup official docs 0",
+      "ok": true,
+      "error": null,
+      "latency_ms": 2860,
+      "count": 2
+    },
+    {
+      "query": "long lived warmup official docs 1",
+      "ok": true,
+      "error": null,
+      "latency_ms": 1257,
+      "count": 2
+    },
+    {
+      "query": "long lived warmup official docs 2",
+      "ok": true,
+      "error": null,
+      "latency_ms": 2918,
+      "count": 2
+    },
+    {
+      "query": "long lived warmup official docs 3",
+      "ok": true,
+      "error": null,
+      "latency_ms": 1944,
+      "count": 2
+    },
+    {
+      "query": "long lived warmup official docs 4",
+      "ok": true,
+      "error": null,
+      "latency_ms": 1312,
+      "count": 2
+    }
+  ],
+  "concurrent": [
+    {
+      "query": "long lived concurrent official docs 0",
+      "ok": true,
+      "error": null,
+      "latency_ms": 974,
+      "count": 2
+    },
+    {
+      "query": "long lived concurrent official docs 4",
+      "ok": true,
+      "error": null,
+      "latency_ms": 1232,
+      "count": 2
+    },
+    {
+      "query": "long lived concurrent official docs 2",
+      "ok": true,
+      "error": null,
+      "latency_ms": 2648,
+      "count": 2
+    },
+    {
+      "query": "long lived concurrent official docs 1",
+      "ok": true,
+      "error": null,
+      "latency_ms": 2730,
+      "count": 2
+    },
+    {
+      "query": "long lived concurrent official docs 5",
+      "ok": true,
+      "error": null,
+      "latency_ms": 1293,
+      "count": 2
+    },
+    {
+      "query": "long lived concurrent official docs 6",
+      "ok": true,
+      "error": null,
+      "latency_ms": 1626,
+      "count": 2
+    },
+    {
+      "query": "long lived concurrent official docs 3",
+      "ok": false,
+      "error": "provider_error",
+      "latency_ms": 5004,
+      "cause_type": "ConnectError"
+    },
+    {
+      "query": "long lived concurrent official docs 7",
+      "ok": true,
+      "error": null,
+      "latency_ms": 2360,
+      "count": 2
+    }
+  ]
+}

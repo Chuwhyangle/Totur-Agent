@@ -1,5 +1,7 @@
 """FastAPI application entry point."""
 
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.api.routes.chat import router as chat_router
@@ -8,6 +10,7 @@ from app.api.routes.health import router as health_router
 from app.api.routes.interview_jds import router as interview_jds_router
 from app.api.routes.personas import router as personas_router
 from app.api.routes.sessions import router as sessions_router
+from app.clients.web_search_client import close_web_search_client
 
 allowed_origins = [
     "http://127.0.0.1:5173",
@@ -18,9 +21,21 @@ allowed_origins = [
     "http://localhost:5175",
 ]
 
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    """Release shared outbound clients when the application shuts down."""
+
+    try:
+        yield
+    finally:
+        close_web_search_client()
+
+
 app = FastAPI(
     title="Tutor Agent API",
     version="0.1.0",
+    lifespan=lifespan,
 )
 
 # 允许本地 Vite 前端从浏览器访问后端 API。
