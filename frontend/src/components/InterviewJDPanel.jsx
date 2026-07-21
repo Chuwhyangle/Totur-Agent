@@ -50,10 +50,10 @@ function InterviewJDPanel({ userId, items, status, isSaving, onRefresh, onSave, 
       <button className={`panel-backdrop ${isOpen ? 'is-visible' : ''}`} type="button" aria-label="关闭目标岗位面板" onClick={onClose} />
       <aside className={`interview-jd-panel ${isOpen ? 'is-open' : ''}`} aria-label="目标岗位 JD">
         <div className="interview-jd-header">
-          <div><p className="interview-jd-kicker">学习目标</p><h2>目标岗位 JD</h2></div>
+          <div><p className="interview-jd-kicker">学习目标</p><h2>目标岗位</h2></div>
           <button className="close-panel-button" type="button" onClick={onClose} aria-label="关闭面板">×</button>
         </div>
-        <p className="panel-description">保存目标岗位后，AI 会围绕能力缺口给出更精准的学习建议。</p>
+        <p className="panel-description">保存目标岗位后，导师会围绕能力缺口给出更精准的学习建议与练习。</p>
 
         <div className="saved-jd-block">
           <div className="saved-jd-title"><span>已保存岗位</span><button type="button" onClick={onRefresh} disabled={status === 'loading'}><Icon name="refresh" size={15} /></button></div>

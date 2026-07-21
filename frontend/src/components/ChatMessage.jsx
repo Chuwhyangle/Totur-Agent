@@ -104,7 +104,7 @@ function ChatMessage({ role, text, reply, debug }) {
       </div>
       <div className={`message ${isAssistant ? 'assistant-message' : 'user-message'}`}>
         <div className="message-meta">
-          <span className="message-author">{isAssistant ? 'AI 导师' : '你'}</span>
+          <span className="message-author">{isAssistant ? '导师' : '你'}</span>
           <span className="message-time">刚刚</span>
         </div>
         {reply ? (
@@ -117,12 +117,12 @@ function ChatMessage({ role, text, reply, debug }) {
               </section>
               <section className="reply-section reply-exercise">
                 <span className="reply-icon"><Icon name="target" size={15} /></span>
-                <div><span className="reply-label">小练习</span><p>{exercise}</p></div>
+                <div><span className="reply-label">练习</span><p>{exercise}</p></div>
               </section>
             </div>
             {checkpoints.length > 0 ? (
               <section className="checkpoint-section">
-                <span className="reply-label">完成检查</span>
+                <span className="reply-label">检查点</span>
                 <ul className="checkpoint-list">
                   {checkpoints.map((checkpoint) => <li key={checkpoint}><Icon name="check" size={14} />{checkpoint}</li>)}
                 </ul>
