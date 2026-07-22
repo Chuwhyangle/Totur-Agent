@@ -1,4 +1,4 @@
-function Icon({ name, size = 20, strokeWidth = 1.8, className = '' }) {
+function Icon({ name, size = 20, strokeWidth = 1.7, className = '' }) {
   const paths = {
     plus: <><path d="M12 5v14M5 12h14" /></>,
     refresh: <><path d="M20 11a8.1 8.1 0 0 0-15.5-3M4 4v4h4" /><path d="M4 13a8.1 8.1 0 0 0 15.5 3M20 20v-4h-4" /></>,
@@ -17,7 +17,7 @@ function Icon({ name, size = 20, strokeWidth = 1.8, className = '' }) {
 
   return (
     <svg
-      className={`icon ${className}`}
+      className={`icon ${className}`.trim()}
       width={size}
       height={size}
       viewBox="0 0 24 24"

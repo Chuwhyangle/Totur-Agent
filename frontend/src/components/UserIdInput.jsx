@@ -2,7 +2,7 @@
 function UserIdInput({ userId, onUserIdChange }) {
   return (
     <label className="user-id-field">
-      <span>user_id</span>
+      <span>User</span>
       <input
         type="text"
         value={userId}

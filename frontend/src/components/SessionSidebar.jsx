@@ -38,20 +38,20 @@ function SessionSidebar({
         onClick={onCreateSession}
       >
         <Icon name="plus" size={18} />
-        <span>{isCreating ? '创建中…' : '新建学习对话'}</span>
+        <span>{isCreating ? '创建中…' : '开始新对话'}</span>
       </button>
 
       <div className="session-list-header">
-        <span>最近对话</span>
+        <span>近期会话</span>
         <button className="icon-button" type="button" disabled={isLoading || !userId.trim()} onClick={onRefreshSessions} aria-label="刷新会话">
           <Icon name="refresh" size={16} />
         </button>
       </div>
 
-      {status === 'idle' ? <p className="session-empty">刷新以读取历史会话</p> : null}
+      {status === 'idle' ? <p className="session-empty">刷新后可查看历史会话</p> : null}
       {status === 'loading' ? <div className="session-skeletons"><span /><span /><span /></div> : null}
       {status === 'error' ? <p className="session-error">会话读取失败，请检查服务连接。</p> : null}
-      {status === 'success' && !hasSessions ? <p className="session-empty">暂无历史对话，开始一次新的学习吧。</p> : null}
+      {status === 'success' && !hasSessions ? <p className="session-empty">还没有会话。从一次清晰的问题开始。</p> : null}
 
       {hasSessions ? (
         <ol className="session-list">
@@ -62,7 +62,7 @@ function SessionSidebar({
                 <button className={isActive ? 'session-item session-item-active' : 'session-item'} type="button" onClick={() => onSelectSession(session)}>
                   <span className="session-item-icon"><Icon name="message" size={16} /></span>
                   <span className="session-copy">
-                    <span className="session-title">{session.title || '新的学习对话'}</span>
+                    <span className="session-title">{session.title || '未命名会话'}</span>
                     <span className="session-persona">{getPersonaName(personas, session.persona_id)}</span>
                   </span>
                   <span className="session-meta">{formatUpdatedAt(session.updated_at)}</span>
@@ -75,7 +75,7 @@ function SessionSidebar({
 
       <div className="sidebar-footer">
         <span className="user-avatar-mini">{(userId || 'U').slice(0, 1).toUpperCase()}</span>
-        <span className="sidebar-user-copy"><strong>{userId || '未设置用户'}</strong><small>学习档案已同步</small></span>
+        <span className="sidebar-user-copy"><strong>{userId || '未设置用户'}</strong><small>学习档案同步中</small></span>
         <span className="online-dot" />
       </div>
     </aside>

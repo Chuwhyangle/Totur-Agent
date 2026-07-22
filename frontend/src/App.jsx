@@ -384,7 +384,7 @@ function App() {
   const activeSession = sessions.find((session) => session.id === activeSessionId)
   const quickPrompts = [
     { title: '制定学习计划', text: '根据我的目标，为我制定一份循序渐进的学习计划。', icon: 'target' },
-    { title: '解释一个概念', text: '请用通俗易懂的方式解释一个我正在学习的概念。', icon: 'sparkles' },
+    { title: '拆解一个概念', text: '请用清晰、可记忆的方式解释一个我正在学习的概念。', icon: 'sparkles' },
     { title: '模拟面试练习', text: '请围绕我的目标岗位，开始一轮循序渐进的模拟面试。', icon: 'message' },
   ]
 
@@ -392,11 +392,11 @@ function App() {
     <main className="app-shell">
       <header className="app-header">
         <div className="brand-block">
-          <span className="brand-mark"><Icon name="sparkles" size={20} /></span>
-          <div><strong>Tutor Agent</strong><span>AI 学习伙伴</span></div>
+          <span className="brand-mark"><Icon name="sparkles" size={18} strokeWidth={1.6} /></span>
+          <div><strong>Tutor Agent</strong><span>专注学习 · 清晰推进</span></div>
         </div>
         <div className="header-center">
-          <span className="active-session-title">{activeSession?.title || '新的学习对话'}</span>
+          <span className="active-session-title">{activeSession?.title || '未命名会话'}</span>
           <ApiStatus status={apiStatus} />
         </div>
         <div className="header-controls">
@@ -430,10 +430,10 @@ function App() {
           <div className="thread-preview" ref={threadRef}>
             {messages.length === 0 && activeSessionStatus !== 'loading' ? (
               <div className="welcome-state">
-                <div className="welcome-orb"><Icon name="sparkles" size={28} /></div>
-                <p className="welcome-kicker">专注 · 清晰 · 循序渐进</p>
-                <h1>今天想学习什么？</h1>
-                <p className="welcome-description">我可以帮你拆解复杂知识、制定学习路径，也能结合目标岗位陪你练习与复盘。</p>
+                <div className="welcome-orb"><Icon name="sparkles" size={26} strokeWidth={1.5} /></div>
+                <p className="welcome-kicker">专注 · 清晰 · 推进</p>
+                <h1>从今天开始，学得更清楚一点</h1>
+                <p className="welcome-description">拆解概念、规划路径、围绕目标岗位练习与复盘。保持节奏，不必一次学完。</p>
                 <div className="quick-prompt-grid">
                   {quickPrompts.map((prompt) => (
                     <button key={prompt.title} type="button" onClick={() => setDraftMessage(prompt.text)}>
