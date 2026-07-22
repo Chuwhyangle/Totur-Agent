@@ -202,13 +202,24 @@ WEB_SEARCH_SCHEMA: dict[str, Any] = {
 class ToolRegistry:
     """Keeps tool schemas and Python callables in one small boundary."""
 
-    def __init__(self) -> None:
+    def __init__(self, mcp_client_adapter: Any | None = None) -> None:
         self._tools: dict[str, Callable[..., dict[str, Any]]] = {
             "interview_jd_search": search_interview_jds,
             "search_learning_notes": search_learning_notes,
             "score_jd_skill_fit": score_jd_skill_fit,
             "web_search": web_search,
         }
+        self._mcp_client_adapter = mcp_client_adapter
+        if self._mcp_client_adapter is None:
+            try:
+                from app.mcp.settings import is_mcp_client_enabled
+
+                if is_mcp_client_enabled():
+                    from app.mcp.client import MCPClientAdapter
+
+                    self._mcp_client_adapter = MCPClientAdapter()
+            except Exception:
+                self._mcp_client_adapter = None
 
     def get_tools_schema(self) -> list[dict[str, Any]]:
         """Return OpenAI-compatible tool schemas."""
@@ -220,19 +231,42 @@ class ToolRegistry:
                 "subject", None
             )
 
-        return [
+        schemas = [
             deepcopy(INTERVIEW_JD_SEARCH_SCHEMA),
             learning_notes_schema,
             deepcopy(SCORE_JD_SKILL_FIT_SCHEMA),
             deepcopy(WEB_SEARCH_SCHEMA),
         ]
+        if self._mcp_client_adapter is not None:
+            try:
+                schemas.extend(self._mcp_client_adapter.get_tools_schema())
+            except Exception:
+                pass
+        return schemas
 
     def has_tool(self, name: str) -> bool:
         """Check whether a tool is registered."""
 
-        return name in self._tools
+        if name in self._tools:
+            return True
+        return self.is_external_tool(name)
+
+    def is_external_tool(self, name: str) -> bool:
+        """Check whether a tool is provided by an external MCP server."""
+
+        if self._mcp_client_adapter is None:
+            return False
+        try:
+            return bool(self._mcp_client_adapter.has_tool(name))
+        except Exception:
+            return False
 
     def get_tool(self, name: str) -> Callable[..., dict[str, Any]] | None:
         """Return a registered tool callable by name."""
 
-        return self._tools.get(name)
+        local_tool = self._tools.get(name)
+        if local_tool is not None:
+            return local_tool
+        if self.is_external_tool(name):
+            return lambda **kwargs: self._mcp_client_adapter.execute(name, kwargs)
+        return None

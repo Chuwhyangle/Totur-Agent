@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
 from app.api.routes.chat import router as chat_router
 from app.api.routes.conversations import router as conversations_router
 from app.api.routes.health import router as health_router
@@ -12,6 +13,7 @@ from app.api.routes.personas import router as personas_router
 from app.api.routes.sessions import router as sessions_router
 from app.clients.reranker_client import close_reranker_client
 from app.clients.web_search_client import close_web_search_client
+from app.mcp.settings import get_mcp_http_path, is_mcp_http_enabled
 
 allowed_origins = [
     "http://127.0.0.1:5173",
@@ -27,6 +29,17 @@ allowed_origins = [
 async def lifespan(_: FastAPI):
     """Release shared outbound clients when the application shuts down."""
 
+    if is_mcp_http_enabled():
+        from app.mcp.server import get_mcp_http_lifespan
+
+        async with get_mcp_http_lifespan():
+            try:
+                yield
+            finally:
+                close_reranker_client()
+                close_web_search_client()
+        return
+
     try:
         yield
     finally:
@@ -40,7 +53,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# 允许本地 Vite 前端从浏览器访问后端 API。
+# Allow local Vite frontends to call the API from the browser.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
@@ -53,7 +66,12 @@ app.include_router(chat_router)
 app.include_router(conversations_router)
 app.include_router(health_router)
 app.include_router(personas_router)
-# 注册多会话接口：创建会话、列出会话、读取某个会话的历史。
+# Session endpoints: create, list, and inspect chat history.
 app.include_router(sessions_router)
-# 注册目标岗位 JD 接口：先存储用户资料，后续再接面试工具检索。
+# Interview JD endpoints: store user profiles before matching tools.
 app.include_router(interview_jds_router)
+
+if is_mcp_http_enabled():
+    from app.mcp.server import get_mcp_http_app
+
+    app.mount(get_mcp_http_path(), get_mcp_http_app())

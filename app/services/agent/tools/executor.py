@@ -6,6 +6,7 @@ import json
 from typing import Any
 
 from app.services.agent.tools.registry import ToolRegistry
+from app.services.tool_metrics import observe_tool_call
 
 
 class ToolExecutor:
@@ -51,7 +52,12 @@ class ToolExecutor:
         merged_arguments.update(parsed_arguments)
 
         try:
-            return tool(**merged_arguments)
+            if self._is_external_tool(name):
+                return tool(**merged_arguments)
+            with observe_tool_call(name, "internal") as metric:
+                result = tool(**merged_arguments)
+                metric.set_ok(bool(result.get("ok")) if isinstance(result, dict) else True)
+                return result
         except TypeError as exc:
             return {
                 "ok": False,
@@ -64,6 +70,15 @@ class ToolExecutor:
                 "error": "tool_execution_failed",
                 "message": f"tool execution failed: {exc}",
             }
+
+    def _is_external_tool(self, name: str) -> bool:
+        checker = getattr(self.registry, "is_external_tool", None)
+        if checker is None:
+            return False
+        try:
+            return bool(checker(name))
+        except Exception:
+            return False
 
     def _parse_arguments(self, arguments: dict[str, Any] | str) -> dict[str, Any] | None:
         if isinstance(arguments, dict):
