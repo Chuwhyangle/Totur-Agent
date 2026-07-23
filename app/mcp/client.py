@@ -5,16 +5,22 @@ import hashlib
 import logging
 import os
 import re
+import time
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import timedelta
-from threading import Thread
+from threading import Lock, Thread
 from typing import Any, AsyncContextManager, Callable
 import httpx
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 from mcp.client.streamable_http import streamable_http_client
-from app.mcp.settings import McpRemoteServerConfig, get_mcp_client_timeout_seconds, load_mcp_client_servers
+from app.mcp.settings import (
+    McpRemoteServerConfig,
+    get_mcp_client_retry_seconds,
+    get_mcp_client_timeout_seconds,
+    load_mcp_client_servers,
+)
 from app.services.tool_metrics import observe_tool_call
 
 logger = logging.getLogger(__name__)
@@ -51,23 +57,50 @@ async def _connect_server(config: McpRemoteServerConfig, timeout_seconds: float)
 
 class MCPClientAdapter:
     """Discover and execute external MCP tools with structured degradation."""
-    def __init__(self, servers: list[McpRemoteServerConfig] | None = None, session_factory: SessionFactory | None = None, timeout_seconds: float | None = None) -> None:
+    def __init__(
+        self,
+        servers: list[McpRemoteServerConfig] | None = None,
+        session_factory: SessionFactory | None = None,
+        timeout_seconds: float | None = None,
+        retry_seconds: float | None = None,
+    ) -> None:
         self.servers = list(servers if servers is not None else load_mcp_client_servers())
         self.timeout_seconds = timeout_seconds or get_mcp_client_timeout_seconds()
+        self.retry_seconds = max(
+            retry_seconds if retry_seconds is not None else get_mcp_client_retry_seconds(),
+            0.0,
+        )
         self._session_factory = session_factory or self._default_session_factory
         self._bindings: dict[str, RemoteToolBinding] = {}
         self.discovery_errors: dict[str, str] = {}
+        self._discovery_attempted = False
+        self._next_retry_at = 0.0
+        self._discovery_lock = Lock()
 
     def _default_session_factory(self, config: McpRemoteServerConfig) -> AsyncContextManager[ClientSession]:
         return _connect_server(config, self.timeout_seconds)
 
     def refresh(self) -> list[dict[str, Any]]:
-        return _run_async(self._discover())
+        return self._refresh_if_needed(force=True)
 
     def get_tools_schema(self) -> list[dict[str, Any]]:
-        if not self._bindings and self.servers:
-            self.refresh()
-        return [binding.schema for binding in self._bindings.values()]
+        return self._refresh_if_needed(force=False)
+
+    def _refresh_if_needed(self, *, force: bool) -> list[dict[str, Any]]:
+        with self._discovery_lock:
+            now = time.monotonic()
+            should_refresh = force or (
+                bool(self.servers)
+                and (
+                    not self._discovery_attempted
+                    or (bool(self.discovery_errors) and now >= self._next_retry_at)
+                )
+            )
+            if should_refresh:
+                _run_async(self._discover())
+                self._discovery_attempted = True
+                self._next_retry_at = time.monotonic() + self.retry_seconds
+            return [binding.schema for binding in self._bindings.values()]
 
     def has_tool(self, name: str) -> bool:
         return name in self._bindings

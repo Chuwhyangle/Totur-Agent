@@ -43,6 +43,14 @@ def get_mcp_client_timeout_seconds() -> float:
         return 10.0
     return min(max(timeout, 1.0), 60.0)
 
+def get_mcp_client_retry_seconds() -> float:
+    load_dotenv()
+    try:
+        retry_seconds = float(os.getenv("MCP_CLIENT_RETRY_SECONDS", "30").strip())
+    except ValueError:
+        return 30.0
+    return min(max(retry_seconds, 0.0), 3600.0)
+
 def get_project_root() -> Path:
     return Path(__file__).resolve().parents[2]
 

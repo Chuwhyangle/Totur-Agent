@@ -7,8 +7,10 @@ import sys
 import time
 
 import anyio
+from mcp import types
 from mcp.shared.memory import create_connected_server_and_client_session
 
+from app.mcp import resources as mcp_resources
 from app.mcp import tools as mcp_tools
 from app.mcp.server import mcp
 
@@ -27,6 +29,60 @@ def test_mcp_server_lists_business_tools_resources_and_prompts():
             prompts = await session.list_prompts()
             prompt_names = {prompt.name for prompt in prompts.prompts}
             assert {"tutor", "algorithm_coach", "interviewer", "quiz", "interview"} <= prompt_names
+
+    anyio.run(exercise)
+
+
+def test_mcp_server_proactively_notifies_resource_changes(monkeypatch):
+    state = {"signature": (("initial", 1, 1),)}
+    monkeypatch.setattr(mcp_resources, "manifest_state_signature", lambda: state["signature"])
+
+    async def exercise() -> None:
+        notified = anyio.Event()
+
+        async def message_handler(message) -> None:
+            if isinstance(getattr(message, "root", None), types.ResourceListChangedNotification):
+                notified.set()
+
+        async with mcp.watch_changes(poll_seconds=0.01):
+            async with create_connected_server_and_client_session(
+                mcp,
+                message_handler=message_handler,
+            ) as session:
+                await session.list_resources()
+                state["signature"] = (("changed", 2, 2),)
+                with anyio.fail_after(1):
+                    await notified.wait()
+
+    anyio.run(exercise)
+
+
+def test_mcp_server_proactively_notifies_tool_changes(monkeypatch):
+    state = {"changed": False}
+
+    def refresh_dynamic_tools() -> bool:
+        changed = state["changed"]
+        state["changed"] = False
+        return changed
+
+    monkeypatch.setattr(mcp, "_refresh_dynamic_shard_tools", refresh_dynamic_tools)
+
+    async def exercise() -> None:
+        notified = anyio.Event()
+
+        async def message_handler(message) -> None:
+            if isinstance(getattr(message, "root", None), types.ToolListChangedNotification):
+                notified.set()
+
+        async with mcp.watch_changes(poll_seconds=0.01):
+            async with create_connected_server_and_client_session(
+                mcp,
+                message_handler=message_handler,
+            ) as session:
+                await session.list_tools()
+                state["changed"] = True
+                with anyio.fail_after(1):
+                    await notified.wait()
 
     anyio.run(exercise)
 

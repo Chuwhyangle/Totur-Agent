@@ -2,10 +2,14 @@
 from __future__ import annotations
 import asyncio
 import logging
+from contextlib import asynccontextmanager
 from typing import Any
+
+import anyio
 from starlette.types import ASGIApp, Receive, Scope, Send
 from mcp.server.fastmcp import FastMCP
 from mcp.server.lowlevel.server import NotificationOptions
+from mcp.server.session import ServerSession
 from app.mcp import prompts, resources, tools
 from app.mcp.settings import get_mcp_auth_token, is_mcp_server_enabled
 from app.services import rag_settings
@@ -48,6 +52,7 @@ class TutorMCP(FastMCP):
     def __init__(self) -> None:
         self._dynamic_shard_tools: set[str] = set()
         self._resource_signature = resources.manifest_state_signature()
+        self._sessions: dict[int, ServerSession] = {}
         super().__init__(
             name="Tutor Agent",
             instructions="检索学习笔记、分析面试 JD、生成带来源测验，并提供项目资源。",
@@ -64,14 +69,53 @@ class TutorMCP(FastMCP):
         self._mcp_server.create_initialization_options = create_initialization_options
 
     async def list_tools(self):
-        if self._refresh_dynamic_shard_tools():
-            await self._notify("tools")
+        self._refresh_dynamic_shard_tools()
+        self._register_current_session()
         return await super().list_tools()
 
     async def list_resources(self):
-        if self._refresh_resource_signature():
-            await self._notify("resources")
+        self._refresh_resource_signature()
+        self._register_current_session()
         return await super().list_resources()
+
+    def _register_current_session(self) -> None:
+        try:
+            session = self._mcp_server.request_context.session
+        except LookupError:
+            return
+        self._sessions[id(session)] = session
+
+    @asynccontextmanager
+    async def watch_changes(self, poll_seconds: float = 1.0):
+        async with anyio.create_task_group() as task_group:
+            task_group.start_soon(self._watch_changes, max(poll_seconds, 0.01))
+            try:
+                yield
+            finally:
+                task_group.cancel_scope.cancel()
+                self._sessions.clear()
+
+    async def _watch_changes(self, poll_seconds: float) -> None:
+        while True:
+            await anyio.sleep(poll_seconds)
+            try:
+                tools_changed = self._refresh_dynamic_shard_tools()
+            except Exception:
+                logger.exception("failed to check MCP tool changes")
+            else:
+                if tools_changed:
+                    await self._notify_sessions("tools")
+            try:
+                resources_changed = self._refresh_resource_signature()
+            except Exception:
+                logger.exception("failed to check MCP resource changes")
+            else:
+                if resources_changed:
+                    await self._notify_sessions("resources")
+
+    async def run_stdio_async(self) -> None:
+        async with self.watch_changes():
+            await super().run_stdio_async()
 
     def _refresh_dynamic_shard_tools(self) -> bool:
         if not rag_settings.ENABLE_SUBJECT_SHARDING:
@@ -103,15 +147,17 @@ class TutorMCP(FastMCP):
         self._resource_signature = current
         return True
 
-    async def _notify(self, kind: str) -> None:
-        try:
-            session = self._mcp_server.request_context.session
-            if kind == "tools":
-                await session.send_tool_list_changed()
-            else:
-                await session.send_resource_list_changed()
-        except LookupError:
-            pass
+    async def _notify_sessions(self, kind: str) -> None:
+        for session_id, session in list(self._sessions.items()):
+            try:
+                if kind == "tools":
+                    await session.send_tool_list_changed()
+                else:
+                    await session.send_resource_list_changed()
+            except Exception as exc:
+                logger.debug("dropping closed MCP session after notification failure: %s", exc)
+                if self._sessions.get(session_id) is session:
+                    self._sessions.pop(session_id, None)
 
 
 def _make_subject_search_tool(slug: str):
@@ -214,8 +260,11 @@ def get_mcp_http_app():
         _http_app = _BearerAuthMiddleware(mcp.streamable_http_app(), get_mcp_auth_token())
     return _http_app
 
-def get_mcp_http_lifespan():
-    return mcp.session_manager.run()
+@asynccontextmanager
+async def get_mcp_http_lifespan():
+    async with mcp.session_manager.run():
+        async with mcp.watch_changes():
+            yield
 
 def run_stdio() -> None:
     if not is_mcp_server_enabled():
