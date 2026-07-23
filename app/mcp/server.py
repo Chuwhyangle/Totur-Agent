@@ -1,5 +1,6 @@
 """Tutor Agent MCP server with stdio and Streamable HTTP transports."""
 from __future__ import annotations
+import asyncio
 import logging
 from typing import Any
 from starlette.types import ASGIApp, Receive, Scope, Send
@@ -24,6 +25,24 @@ class _BearerAuthMiddleware:
                 await JSONResponse({"detail": "MCP bearer token required"}, status_code=401)(scope, receive, send)
                 return
         await self.app(scope, receive, send)
+
+
+class MCPMountPathMiddleware:
+    """Internally add the slash required by a mounted ASGI app without redirecting clients."""
+
+    def __init__(self, app: ASGIApp, mount_path: str) -> None:
+        self.app = app
+        self.mount_path = mount_path.rstrip("/")
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope.get("type") == "http" and scope.get("path") == self.mount_path:
+            scope = dict(scope)
+            scope["path"] = f"{self.mount_path}/"
+            raw_path = scope.get("raw_path")
+            if isinstance(raw_path, bytes) and not raw_path.endswith(b"/"):
+                scope["raw_path"] = raw_path + b"/"
+        await self.app(scope, receive, send)
+
 
 class TutorMCP(FastMCP):
     def __init__(self) -> None:
@@ -96,8 +115,13 @@ class TutorMCP(FastMCP):
 
 
 def _make_subject_search_tool(slug: str):
-    def search_subject_notes(query: str, limit: int = 3) -> dict[str, Any]:
-        return tools.tool_search_learning_notes(query=query, limit=limit, subject=slug)
+    async def search_subject_notes(query: str, limit: int = 3) -> dict[str, Any]:
+        return await asyncio.to_thread(
+            tools.tool_search_learning_notes,
+            query=query,
+            limit=limit,
+            subject=slug,
+        )
 
     search_subject_notes.__name__ = f"search_notes_{slug}"
     return search_subject_notes
@@ -105,24 +129,38 @@ def _make_subject_search_tool(slug: str):
 mcp = TutorMCP()
 
 @mcp.tool(name="search_learning_notes")
-def search_learning_notes(query: str, limit: int = 3, subject: str | None = None) -> dict[str, Any]:
+async def search_learning_notes(query: str, limit: int = 3, subject: str | None = None) -> dict[str, Any]:
     """Search the local learning-note RAG index and return source-linked excerpts."""
-    return tools.tool_search_learning_notes(query=query, limit=limit, subject=subject)
+    return await asyncio.to_thread(
+        tools.tool_search_learning_notes,
+        query=query,
+        limit=limit,
+        subject=subject,
+    )
 
 @mcp.tool(name="interview_jd_search")
-def interview_jd_search(query: str, limit: int = 3) -> dict[str, Any]:
+async def interview_jd_search(query: str, limit: int = 3) -> dict[str, Any]:
     """Search saved interview job descriptions."""
-    return tools.tool_interview_jd_search(query=query, limit=limit)
+    return await asyncio.to_thread(tools.tool_interview_jd_search, query=query, limit=limit)
 
 @mcp.tool(name="score_jd_skill_fit")
-def score_jd_skill_fit(skills: list[dict[str, Any]], target_role: str | None = None) -> dict[str, Any]:
+async def score_jd_skill_fit(skills: list[dict[str, Any]], target_role: str | None = None) -> dict[str, Any]:
     """Calculate a weighted fit score from per-skill judgments."""
-    return tools.tool_score_jd_skill_fit(skills=skills, target_role=target_role)
+    return await asyncio.to_thread(
+        tools.tool_score_jd_skill_fit,
+        skills=skills,
+        target_role=target_role,
+    )
 
 @mcp.tool(name="generate_quiz")
-def generate_quiz(query: str, count: int = 3, subject: str | None = None) -> dict[str, Any]:
+async def generate_quiz(query: str, count: int = 3, subject: str | None = None) -> dict[str, Any]:
     """Generate source-linked practice questions from local learning notes."""
-    return tools.tool_generate_quiz(query=query, count=count, subject=subject)
+    return await asyncio.to_thread(
+        tools.tool_generate_quiz,
+        query=query,
+        count=count,
+        subject=subject,
+    )
 
 @mcp.resource("manifest://index", name="index_manifest", mime_type="application/json")
 def index_manifest() -> str:

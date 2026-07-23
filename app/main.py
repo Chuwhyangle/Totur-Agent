@@ -72,6 +72,8 @@ app.include_router(sessions_router)
 app.include_router(interview_jds_router)
 
 if is_mcp_http_enabled():
-    from app.mcp.server import get_mcp_http_app
+    from app.mcp.server import MCPMountPathMiddleware, get_mcp_http_app
 
-    app.mount(get_mcp_http_path(), get_mcp_http_app())
+    mcp_http_path = get_mcp_http_path()
+    app.add_middleware(MCPMountPathMiddleware, mount_path=mcp_http_path)
+    app.mount(mcp_http_path, get_mcp_http_app())

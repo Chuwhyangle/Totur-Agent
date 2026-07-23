@@ -39,7 +39,11 @@ async def _connect_server(config: McpRemoteServerConfig, timeout_seconds: float)
                 await session.initialize()
                 yield session
         return
-    async with httpx.AsyncClient(headers=config.headers, timeout=timeout_seconds) as http_client:
+    async with httpx.AsyncClient(
+        headers=config.headers,
+        timeout=timeout_seconds,
+        follow_redirects=True,
+    ) as http_client:
         async with streamable_http_client(config.url or "", http_client=http_client) as (read_stream, write_stream, _):
             async with ClientSession(read_stream, write_stream, read_timeout_seconds=timeout) as session:
                 await session.initialize()
