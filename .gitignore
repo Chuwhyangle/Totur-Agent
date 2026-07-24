@@ -33,3 +33,6 @@ chroma_db/
 
 # Local partial Git clones
 /external/
+
+# Runtime-only temporary attachment files
+runtime_data/

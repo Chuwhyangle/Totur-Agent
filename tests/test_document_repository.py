@@ -1,11 +1,13 @@
-"""Unit tests for conversation attachment document metadata."""
+﻿"""Unit tests for conversation attachment document metadata."""
 
 import sqlite3
+from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
 import pytest
 
 from app.db import database
+import app.repositories.document_repository as document_repository
 from app.db.models import (
     CHAT_SESSIONS_TABLE,
     CONVERSATIONS_TABLE,
@@ -19,10 +21,14 @@ from app.db.models import (
 from app.repositories.document_repository import (
     DocumentOwnershipError,
     DocumentSessionNotFoundError,
+    count_accessible_session_attachments,
     create_attachment_document,
     delete_document_record,
+    get_accessible_attachment,
     get_document,
     get_owned_attachment,
+    get_retrievable_attachment,
+    list_accessible_session_attachments,
     list_expired_attachments,
     list_session_attachments,
     update_document_status,
@@ -508,19 +514,19 @@ def test_deleting_and_deleted_documents_are_hidden_from_attachment_queries(
         "alice",
         session.id,
         filename="deleting.pdf",
-        expires_at="2026-01-01T00:00:00+00:00",
+        expires_at="2030-01-01T00:00:00+00:00",
     )
     deleted = create_attachment(
         "alice",
         session.id,
         filename="deleted.pdf",
-        expires_at="2026-01-01T00:00:00+00:00",
+        expires_at="2030-01-01T00:00:00+00:00",
     )
     visible = create_attachment(
         "alice",
         session.id,
         filename="visible.pdf",
-        expires_at="2026-01-01T00:00:00+00:00",
+        expires_at="2030-01-01T00:00:00+00:00",
     )
     update_document_status(deleting.id, DocumentStatus.DELETING)
     update_document_status(deleted.id, DocumentStatus.DELETING)
@@ -534,7 +540,7 @@ def test_deleting_and_deleted_documents_are_hidden_from_attachment_queries(
     assert [
         record.id
         for record in list_expired_attachments(
-            "2026-02-01T00:00:00+00:00",
+            "2030-02-01T00:00:00+00:00",
             limit=10,
         )
     ] == [visible.id]
@@ -819,3 +825,169 @@ def test_legacy_database_initialization_preserves_existing_functionality(
     assert conversation["message"] == "legacy message"
     assert conversation["session_id"] == sessions[0].id
     assert documents_table["name"] == DOCUMENTS_TABLE
+
+
+
+def test_create_attachment_rejects_expiry_at_or_before_created_at(
+    monkeypatch,
+    tmp_path,
+):
+    use_temp_database(monkeypatch, tmp_path)
+    session = create_session("alice")
+    fixed_created_at = "2030-01-01T00:00:00+00:00"
+    monkeypatch.setattr(document_repository, "_utc_now", lambda: fixed_created_at)
+
+    for expires_at in (
+        fixed_created_at,
+        "2029-12-31T23:59:59+00:00",
+    ):
+        with pytest.raises(InvalidDocumentRecord, match="strictly later"):
+            create_attachment(
+                "alice",
+                session.id,
+                filename="invalid-expiry.pdf",
+                expires_at=expires_at,
+            )
+
+    assert list_session_attachments("alice", session.id) == []
+
+
+def test_accessible_attachment_queries_enforce_ttl(monkeypatch, tmp_path):
+    use_temp_database(monkeypatch, tmp_path)
+    session = create_session("alice")
+    expires_at = datetime.now(timezone.utc) + timedelta(hours=2)
+    document = create_attachment(
+        "alice",
+        session.id,
+        expires_at=expires_at,
+    )
+    before_expiry = expires_at - timedelta(seconds=1)
+
+    assert (
+        get_accessible_attachment(
+            document.id,
+            "alice",
+            session.id,
+            before_expiry,
+        ).id
+        == document.id
+    )
+    assert [
+        record.id
+        for record in list_accessible_session_attachments(
+            "alice",
+            session.id,
+            before_expiry,
+        )
+    ] == [document.id]
+    assert (
+        count_accessible_session_attachments(
+            "alice",
+            session.id,
+            before_expiry,
+        )
+        == 1
+    )
+
+    assert (
+        get_accessible_attachment(
+            document.id,
+            "alice",
+            session.id,
+            expires_at,
+        )
+        is None
+    )
+    assert (
+        list_accessible_session_attachments(
+            "alice",
+            session.id,
+            expires_at,
+        )
+        == []
+    )
+    assert (
+        count_accessible_session_attachments(
+            "alice",
+            session.id,
+            expires_at,
+        )
+        == 0
+    )
+
+
+def test_retrievable_query_allows_only_ready_and_partial(monkeypatch, tmp_path):
+    use_temp_database(monkeypatch, tmp_path)
+    session = create_session("alice")
+    query_now = datetime.now(timezone.utc)
+    expires_at = query_now + timedelta(hours=2)
+    uploaded = create_attachment(
+        "alice",
+        session.id,
+        filename="uploaded.pdf",
+        expires_at=expires_at,
+    )
+    ready = create_attachment(
+        "alice",
+        session.id,
+        filename="ready.pdf",
+        expires_at=expires_at,
+    )
+    partial = create_attachment(
+        "alice",
+        session.id,
+        filename="partial.pdf",
+        expires_at=expires_at,
+    )
+    update_document_status(ready.id, DocumentStatus.PARSING)
+    update_document_status(
+        ready.id,
+        DocumentStatus.READY,
+        parsed_path="parsed/ready.json",
+        page_count=2,
+    )
+    update_document_status(partial.id, DocumentStatus.PARSING)
+    update_document_status(
+        partial.id,
+        DocumentStatus.PARTIAL,
+        parsed_path="parsed/partial.json",
+        page_count=1,
+        error_code="PARTIAL_TEXT",
+    )
+
+    assert (
+        get_retrievable_attachment(
+            uploaded.id,
+            "alice",
+            session.id,
+            query_now,
+        )
+        is None
+    )
+    assert (
+        get_retrievable_attachment(
+            ready.id,
+            "alice",
+            session.id,
+            query_now,
+        ).status
+        is DocumentStatus.READY
+    )
+    assert (
+        get_retrievable_attachment(
+            partial.id,
+            "alice",
+            session.id,
+            query_now,
+        ).status
+        is DocumentStatus.PARTIAL
+    )
+    assert (
+        get_retrievable_attachment(
+            ready.id,
+            "bob",
+            session.id,
+            query_now,
+        )
+        is None
+    )

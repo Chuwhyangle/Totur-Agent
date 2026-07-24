@@ -39,6 +39,13 @@ _ACTIVE_ATTACHMENT_STATUSES = (
 _ACTIVE_STATUS_PLACEHOLDERS = ", ".join(
     "?" for _ in _ACTIVE_ATTACHMENT_STATUSES
 )
+_RETRIEVABLE_ATTACHMENT_STATUSES = (
+    DocumentStatus.READY.value,
+    DocumentStatus.PARTIAL.value,
+)
+_RETRIEVABLE_STATUS_PLACEHOLDERS = ", ".join(
+    "?" for _ in _RETRIEVABLE_ATTACHMENT_STATUSES
+)
 
 
 _DOCUMENT_COLUMNS = """
@@ -93,6 +100,10 @@ def create_attachment_document(
     document_id = str(uuid4())
     now = _utc_now()
     normalized_expires_at = _normalize_utc_iso(expires_at, "expires_at")
+    if datetime.fromisoformat(normalized_expires_at) <= datetime.fromisoformat(now):
+        raise InvalidDocumentRecord(
+            "expires_at must be strictly later than created_at"
+        )
     insert_sql = f"""
     INSERT INTO {DOCUMENTS_TABLE} (
         id,
@@ -248,6 +259,153 @@ def list_session_attachments(
             ),
         ).fetchall()
         return [_record_from_row(row) for row in rows]
+    finally:
+        connection.close()
+
+
+def get_accessible_attachment(
+    document_id: str,
+    user_id: str,
+    session_id: int,
+    now: datetime | str,
+) -> DocumentRecord | None:
+    """Return one unexpired attachment visible to its owning session."""
+
+    initialize_database()
+    normalized_now = _normalize_utc_iso(now, "now")
+    connection = get_connection()
+
+    try:
+        row = connection.execute(
+            f"""
+            SELECT {_DOCUMENT_COLUMNS}
+            FROM {DOCUMENTS_TABLE}
+            WHERE id = ?
+                AND scope = ?
+                AND user_id = ?
+                AND session_id = ?
+                AND expires_at > ?
+                AND status IN ({_ACTIVE_STATUS_PLACEHOLDERS})
+            """,
+            (
+                document_id,
+                DocumentScope.ATTACHMENT.value,
+                user_id,
+                session_id,
+                normalized_now,
+                *_ACTIVE_ATTACHMENT_STATUSES,
+            ),
+        ).fetchone()
+        return _record_from_row(row) if row is not None else None
+    finally:
+        connection.close()
+
+
+def list_accessible_session_attachments(
+    user_id: str,
+    session_id: int,
+    now: datetime | str,
+) -> list[DocumentRecord]:
+    """List unexpired active attachments for one user and session."""
+
+    initialize_database()
+    normalized_now = _normalize_utc_iso(now, "now")
+    connection = get_connection()
+
+    try:
+        rows = connection.execute(
+            f"""
+            SELECT {_DOCUMENT_COLUMNS}
+            FROM {DOCUMENTS_TABLE}
+            WHERE scope = ?
+                AND user_id = ?
+                AND session_id = ?
+                AND expires_at > ?
+                AND status IN ({_ACTIVE_STATUS_PLACEHOLDERS})
+            ORDER BY created_at DESC, id DESC
+            """,
+            (
+                DocumentScope.ATTACHMENT.value,
+                user_id,
+                session_id,
+                normalized_now,
+                *_ACTIVE_ATTACHMENT_STATUSES,
+            ),
+        ).fetchall()
+        return [_record_from_row(row) for row in rows]
+    finally:
+        connection.close()
+
+
+def count_accessible_session_attachments(
+    user_id: str,
+    session_id: int,
+    now: datetime | str,
+) -> int:
+    """Count unexpired active attachments for upload quota checks."""
+
+    initialize_database()
+    normalized_now = _normalize_utc_iso(now, "now")
+    connection = get_connection()
+
+    try:
+        row = connection.execute(
+            f"""
+            SELECT COUNT(*) AS attachment_count
+            FROM {DOCUMENTS_TABLE}
+            WHERE scope = ?
+                AND user_id = ?
+                AND session_id = ?
+                AND expires_at > ?
+                AND status IN ({_ACTIVE_STATUS_PLACEHOLDERS})
+            """,
+            (
+                DocumentScope.ATTACHMENT.value,
+                user_id,
+                session_id,
+                normalized_now,
+                *_ACTIVE_ATTACHMENT_STATUSES,
+            ),
+        ).fetchone()
+        return int(row["attachment_count"])
+    finally:
+        connection.close()
+
+
+def get_retrievable_attachment(
+    document_id: str,
+    user_id: str,
+    session_id: int,
+    now: datetime | str,
+) -> DocumentRecord | None:
+    """Return only unexpired READY/PARTIAL attachment parser results."""
+
+    initialize_database()
+    normalized_now = _normalize_utc_iso(now, "now")
+    connection = get_connection()
+
+    try:
+        row = connection.execute(
+            f"""
+            SELECT {_DOCUMENT_COLUMNS}
+            FROM {DOCUMENTS_TABLE}
+            WHERE id = ?
+                AND scope = ?
+                AND user_id = ?
+                AND session_id = ?
+                AND expires_at > ?
+                AND status IN ({_RETRIEVABLE_STATUS_PLACEHOLDERS})
+            """,
+            (
+                document_id,
+                DocumentScope.ATTACHMENT.value,
+                user_id,
+                session_id,
+                normalized_now,
+                *_RETRIEVABLE_ATTACHMENT_STATUSES,
+            ),
+        ).fetchone()
+        return _record_from_row(row) if row is not None else None
     finally:
         connection.close()
 

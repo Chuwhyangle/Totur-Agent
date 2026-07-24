@@ -2,6 +2,7 @@ openai
 mcp>=1.27,<2
 python-dotenv
 fastapi
+python-multipart
 uvicorn
 pytest
 httpx
