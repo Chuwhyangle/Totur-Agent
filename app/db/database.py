@@ -84,14 +84,82 @@ def initialize_database() -> None:
         updated_at TEXT NOT NULL
     );
     """
-    create_documents_table_sql = f"""
-    CREATE TABLE IF NOT EXISTS {DOCUMENTS_TABLE} (
+    create_documents_table_sql = _create_documents_table_sql(DOCUMENTS_TABLE)
+    create_sessions_index_sql = f"""
+    CREATE INDEX IF NOT EXISTS idx_chat_sessions_user_updated
+    ON {CHAT_SESSIONS_TABLE} (user_id, updated_at DESC, id DESC);
+    """
+    create_conversations_session_index_sql = f"""
+    CREATE INDEX IF NOT EXISTS idx_conversations_session_id
+    ON {CONVERSATIONS_TABLE} (session_id, id DESC);
+    """
+    create_conversations_user_index_sql = f"""
+    CREATE INDEX IF NOT EXISTS idx_conversations_user_id
+    ON {CONVERSATIONS_TABLE} (user_id, id DESC);
+    """
+    create_session_summaries_last_conversation_index_sql = f"""
+    CREATE INDEX IF NOT EXISTS idx_session_summaries_last_conversation
+    ON {SESSION_SUMMARIES_TABLE} (last_conversation_id);
+    """
+    create_interview_jds_user_index_sql = f"""
+    CREATE INDEX IF NOT EXISTS idx_interview_jds_user_updated
+    ON {INTERVIEW_JDS_TABLE} (user_id, updated_at DESC, id DESC);
+    """
+    create_documents_user_session_index_sql = f"""
+    CREATE INDEX IF NOT EXISTS idx_documents_user_session
+    ON {DOCUMENTS_TABLE} (user_id, session_id);
+    """
+    create_documents_status_index_sql = f"""
+    CREATE INDEX IF NOT EXISTS idx_documents_status
+    ON {DOCUMENTS_TABLE} (status);
+    """
+    create_documents_expires_at_index_sql = f"""
+    CREATE INDEX IF NOT EXISTS idx_documents_expires_at
+    ON {DOCUMENTS_TABLE} (expires_at);
+    """
+
+    connection = get_connection()
+    try:
+        connection.execute(create_sessions_table_sql)
+        connection.execute(create_conversations_table_sql)
+        # 旧版 chat_sessions 表没有 persona_id，这里会自动补上。
+        _ensure_chat_sessions_persona_id_column(connection)
+        _ensure_chat_sessions_subject_column(connection)
+        # 每个会话只保留一条滚动摘要，后续由 repository 负责更新它。
+        connection.execute(create_session_summaries_table_sql)
+        # JD 是用户提供的目标岗位资料，先持久化，再让后续工具检索它。
+        connection.execute(create_interview_jds_table_sql)
+        # Document rows retain cleanup paths until lifecycle cleanup is complete.
+        connection.execute(create_documents_table_sql)
+        _ensure_documents_session_delete_restrict(connection)
+        # 旧版 conversations 表没有 session_id，这里会自动补上。
+        _ensure_conversations_session_id_column(connection)
+        # 把旧数据按 user_id 归入一个“默认会话”。
+        _migrate_existing_conversations_to_default_sessions(connection)
+        connection.execute(create_sessions_index_sql)
+        connection.execute(create_conversations_session_index_sql)
+        connection.execute(create_conversations_user_index_sql)
+        connection.execute(create_session_summaries_last_conversation_index_sql)
+        connection.execute(create_interview_jds_user_index_sql)
+        connection.execute(create_documents_user_session_index_sql)
+        connection.execute(create_documents_status_index_sql)
+        connection.execute(create_documents_expires_at_index_sql)
+        connection.commit()
+    finally:
+        connection.close()
+
+
+def _create_documents_table_sql(table_name: str) -> str:
+    """Build the documents table SQL for first creation and FK migration."""
+
+    return f"""
+    CREATE TABLE IF NOT EXISTS {table_name} (
         id TEXT PRIMARY KEY,
         scope TEXT NOT NULL
             CHECK (scope IN ('INTERNAL', 'PRIVATE', 'ATTACHMENT')),
         user_id TEXT,
         session_id INTEGER
-            REFERENCES {CHAT_SESSIONS_TABLE}(id) ON DELETE CASCADE,
+            REFERENCES {CHAT_SESSIONS_TABLE}(id) ON DELETE RESTRICT,
         message_id INTEGER,
         original_filename TEXT NOT NULL,
         mime_type TEXT NOT NULL,
@@ -141,67 +209,67 @@ def initialize_database() -> None:
         )
     );
     """
-    create_sessions_index_sql = f"""
-    CREATE INDEX IF NOT EXISTS idx_chat_sessions_user_updated
-    ON {CHAT_SESSIONS_TABLE} (user_id, updated_at DESC, id DESC);
-    """
-    create_conversations_session_index_sql = f"""
-    CREATE INDEX IF NOT EXISTS idx_conversations_session_id
-    ON {CONVERSATIONS_TABLE} (session_id, id DESC);
-    """
-    create_conversations_user_index_sql = f"""
-    CREATE INDEX IF NOT EXISTS idx_conversations_user_id
-    ON {CONVERSATIONS_TABLE} (user_id, id DESC);
-    """
-    create_session_summaries_last_conversation_index_sql = f"""
-    CREATE INDEX IF NOT EXISTS idx_session_summaries_last_conversation
-    ON {SESSION_SUMMARIES_TABLE} (last_conversation_id);
-    """
-    create_interview_jds_user_index_sql = f"""
-    CREATE INDEX IF NOT EXISTS idx_interview_jds_user_updated
-    ON {INTERVIEW_JDS_TABLE} (user_id, updated_at DESC, id DESC);
-    """
-    create_documents_user_session_index_sql = f"""
-    CREATE INDEX IF NOT EXISTS idx_documents_user_session
-    ON {DOCUMENTS_TABLE} (user_id, session_id);
-    """
-    create_documents_status_index_sql = f"""
-    CREATE INDEX IF NOT EXISTS idx_documents_status
-    ON {DOCUMENTS_TABLE} (status);
-    """
-    create_documents_expires_at_index_sql = f"""
-    CREATE INDEX IF NOT EXISTS idx_documents_expires_at
-    ON {DOCUMENTS_TABLE} (expires_at);
-    """
 
-    connection = get_connection()
-    try:
-        connection.execute(create_sessions_table_sql)
-        connection.execute(create_conversations_table_sql)
-        # 旧版 chat_sessions 表没有 persona_id，这里会自动补上。
-        _ensure_chat_sessions_persona_id_column(connection)
-        _ensure_chat_sessions_subject_column(connection)
-        # 每个会话只保留一条滚动摘要，后续由 repository 负责更新它。
-        connection.execute(create_session_summaries_table_sql)
-        # JD 是用户提供的目标岗位资料，先持久化，再让后续工具检索它。
-        connection.execute(create_interview_jds_table_sql)
-        # Store document metadata only; session deletion cascades records.
-        connection.execute(create_documents_table_sql)
-        # 旧版 conversations 表没有 session_id，这里会自动补上。
-        _ensure_conversations_session_id_column(connection)
-        # 把旧数据按 user_id 归入一个“默认会话”。
-        _migrate_existing_conversations_to_default_sessions(connection)
-        connection.execute(create_sessions_index_sql)
-        connection.execute(create_conversations_session_index_sql)
-        connection.execute(create_conversations_user_index_sql)
-        connection.execute(create_session_summaries_last_conversation_index_sql)
-        connection.execute(create_interview_jds_user_index_sql)
-        connection.execute(create_documents_user_session_index_sql)
-        connection.execute(create_documents_status_index_sql)
-        connection.execute(create_documents_expires_at_index_sql)
-        connection.commit()
-    finally:
-        connection.close()
+
+def _ensure_documents_session_delete_restrict(
+    connection: sqlite3.Connection,
+) -> None:
+    """Migrate the initial CASCADE foreign key to cleanup-safe RESTRICT."""
+
+    foreign_keys = connection.execute(
+        f"PRAGMA foreign_key_list({DOCUMENTS_TABLE})"
+    ).fetchall()
+    session_foreign_key = next(
+        (
+            row
+            for row in foreign_keys
+            if row["table"] == CHAT_SESSIONS_TABLE
+            and row["from"] == "session_id"
+        ),
+        None,
+    )
+    if (
+        session_foreign_key is not None
+        and session_foreign_key["on_delete"].upper() == "RESTRICT"
+    ):
+        return
+
+    temporary_table = f"{DOCUMENTS_TABLE}_restrict_migration"
+    columns = """
+        id,
+        scope,
+        user_id,
+        session_id,
+        message_id,
+        original_filename,
+        mime_type,
+        size_bytes,
+        storage_path,
+        parsed_path,
+        content_hash,
+        status,
+        parser_name,
+        parser_version,
+        page_count,
+        error_code,
+        error_message,
+        created_at,
+        updated_at,
+        expires_at
+    """
+    connection.execute(f"DROP TABLE IF EXISTS {temporary_table}")
+    connection.execute(_create_documents_table_sql(temporary_table))
+    connection.execute(
+        f"""
+        INSERT INTO {temporary_table} ({columns})
+        SELECT {columns}
+        FROM {DOCUMENTS_TABLE}
+        """
+    )
+    connection.execute(f"DROP TABLE {DOCUMENTS_TABLE}")
+    connection.execute(
+        f"ALTER TABLE {temporary_table} RENAME TO {DOCUMENTS_TABLE}"
+    )
 
 
 def _ensure_chat_sessions_subject_column(connection: sqlite3.Connection) -> None:

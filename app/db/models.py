@@ -44,13 +44,20 @@ class InvalidDocumentStatusTransition(DocumentDomainError):
     """A requested document status transition is not allowed."""
 
 
+class DocumentPurgeNotAllowedError(DocumentDomainError):
+    """A document record cannot be purged before reaching DELETED."""
+
+
 ALLOWED_DOCUMENT_STATUS_TRANSITIONS = {
-    DocumentStatus.UPLOADED: frozenset({DocumentStatus.PARSING}),
+    DocumentStatus.UPLOADED: frozenset(
+        {DocumentStatus.PARSING, DocumentStatus.DELETING}
+    ),
     DocumentStatus.PARSING: frozenset(
         {
             DocumentStatus.READY,
             DocumentStatus.PARTIAL,
             DocumentStatus.FAILED,
+            DocumentStatus.DELETING,
         }
     ),
     DocumentStatus.FAILED: frozenset(
@@ -199,9 +206,19 @@ class DocumentRecord:
                 "INTERNAL forbids user_id, session_id, and expires_at"
             )
 
-        if self.status is DocumentStatus.FAILED and not (
+        if self.status in {DocumentStatus.READY, DocumentStatus.PARTIAL}:
+            if not self.parsed_path or not self.parsed_path.strip():
+                raise InvalidDocumentRecord(
+                    f"{self.status.value} documents require parsed_path"
+                )
+            if self.page_count is None or self.page_count <= 0:
+                raise InvalidDocumentRecord(
+                    f"{self.status.value} documents require page_count > 0"
+                )
+
+        if self.status in {DocumentStatus.FAILED, DocumentStatus.PARTIAL} and not (
             self.error_code and self.error_code.strip()
         ):
             raise InvalidDocumentRecord(
-                "FAILED documents require a stable error_code"
+                f"{self.status.value} documents require a stable error_code"
             )

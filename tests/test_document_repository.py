@@ -10,6 +10,7 @@ from app.db.models import (
     CHAT_SESSIONS_TABLE,
     CONVERSATIONS_TABLE,
     DOCUMENTS_TABLE,
+    DocumentPurgeNotAllowedError,
     DocumentScope,
     DocumentStatus,
     InvalidDocumentRecord,
@@ -107,7 +108,7 @@ def test_initialize_database_creates_documents_table_and_indexes(
     assert any(
         row["table"] == CHAT_SESSIONS_TABLE
         and row["from"] == "session_id"
-        and row["on_delete"] == "CASCADE"
+        and row["on_delete"] == "RESTRICT"
         for row in foreign_keys
     )
 
@@ -242,6 +243,27 @@ def test_all_allowed_document_status_transitions_succeed(monkeypatch, tmp_path):
     use_temp_database(monkeypatch, tmp_path)
     session = create_session("alice")
 
+    uploaded_cleanup = create_attachment(
+        "alice",
+        session.id,
+        filename="uploaded-cleanup.pdf",
+    )
+    assert update_document_status(
+        uploaded_cleanup.id,
+        DocumentStatus.DELETING,
+    ).status is DocumentStatus.DELETING
+
+    parsing_cleanup = create_attachment(
+        "alice",
+        session.id,
+        filename="parsing-cleanup.pdf",
+    )
+    update_document_status(parsing_cleanup.id, DocumentStatus.PARSING)
+    assert update_document_status(
+        parsing_cleanup.id,
+        DocumentStatus.DELETING,
+    ).status is DocumentStatus.DELETING
+
     ready_document = create_attachment("alice", session.id, filename="ready.pdf")
     assert update_document_status(
         ready_document.id,
@@ -348,7 +370,10 @@ def test_failed_document_can_retry_and_continue_to_ready(monkeypatch, tmp_path):
     update_document_status(
         document.id,
         DocumentStatus.FAILED,
+        parsed_path="/parsed/stale.txt",
+        page_count=2,
         error_code="TEMPORARY_IO_ERROR",
+        error_message="Stale failure details.",
     )
 
     parsing = update_document_status(
@@ -365,6 +390,10 @@ def test_failed_document_can_retry_and_continue_to_ready(monkeypatch, tmp_path):
     )
 
     assert parsing.status is DocumentStatus.PARSING
+    assert parsing.parsed_path is None
+    assert parsing.page_count is None
+    assert parsing.error_code is None
+    assert parsing.error_message is None
     assert ready.status is DocumentStatus.READY
     assert ready.parser_name == "retry-parser"
     assert ready.parser_version == "2.0"
@@ -385,7 +414,12 @@ def test_ready_clears_errors_from_previous_failed_attempt(monkeypatch, tmp_path)
     )
     update_document_status(document.id, DocumentStatus.PARSING)
 
-    ready = update_document_status(document.id, DocumentStatus.READY)
+    ready = update_document_status(
+        document.id,
+        DocumentStatus.READY,
+        parsed_path="/parsed/ready-after-retry.txt",
+        page_count=1,
+    )
 
     assert ready.error_code is None
     assert ready.error_message is None
@@ -464,10 +498,233 @@ def test_expired_query_returns_only_attachments_sorted_by_expiration(
     assert all(record.scope is DocumentScope.ATTACHMENT for record in expired)
 
 
-def test_deleting_session_cascades_document_database_record(monkeypatch, tmp_path):
+def test_deleting_and_deleted_documents_are_hidden_from_attachment_queries(
+    monkeypatch,
+    tmp_path,
+):
+    use_temp_database(monkeypatch, tmp_path)
+    session = create_session("alice")
+    deleting = create_attachment(
+        "alice",
+        session.id,
+        filename="deleting.pdf",
+        expires_at="2026-01-01T00:00:00+00:00",
+    )
+    deleted = create_attachment(
+        "alice",
+        session.id,
+        filename="deleted.pdf",
+        expires_at="2026-01-01T00:00:00+00:00",
+    )
+    visible = create_attachment(
+        "alice",
+        session.id,
+        filename="visible.pdf",
+        expires_at="2026-01-01T00:00:00+00:00",
+    )
+    update_document_status(deleting.id, DocumentStatus.DELETING)
+    update_document_status(deleted.id, DocumentStatus.DELETING)
+    update_document_status(deleted.id, DocumentStatus.DELETED)
+
+    assert get_owned_attachment(deleting.id, "alice", session.id) is None
+    assert get_owned_attachment(deleted.id, "alice", session.id) is None
+    assert [
+        record.id for record in list_session_attachments("alice", session.id)
+    ] == [visible.id]
+    assert [
+        record.id
+        for record in list_expired_attachments(
+            "2026-02-01T00:00:00+00:00",
+            limit=10,
+        )
+    ] == [visible.id]
+
+
+def test_ready_requires_parsed_path_and_positive_page_count(monkeypatch, tmp_path):
     use_temp_database(monkeypatch, tmp_path)
     session = create_session("alice")
     document = create_attachment("alice", session.id)
+    update_document_status(document.id, DocumentStatus.PARSING)
+
+    with pytest.raises(InvalidDocumentRecord, match="parsed_path"):
+        update_document_status(document.id, DocumentStatus.READY)
+    with pytest.raises(InvalidDocumentRecord, match="page_count > 0"):
+        update_document_status(
+            document.id,
+            DocumentStatus.READY,
+            parsed_path="/parsed/empty.txt",
+            page_count=0,
+        )
+
+    assert get_document(document.id).status is DocumentStatus.PARSING
+
+
+def test_partial_requires_usable_result_and_stable_warning_code(
+    monkeypatch,
+    tmp_path,
+):
+    use_temp_database(monkeypatch, tmp_path)
+    session = create_session("alice")
+    document = create_attachment("alice", session.id)
+    update_document_status(document.id, DocumentStatus.PARSING)
+
+    with pytest.raises(InvalidDocumentRecord, match="stable error or warning code"):
+        update_document_status(
+            document.id,
+            DocumentStatus.PARTIAL,
+            parsed_path="/parsed/partial.txt",
+            page_count=1,
+        )
+
+    partial = update_document_status(
+        document.id,
+        DocumentStatus.PARTIAL,
+        parsed_path="/parsed/partial.txt",
+        page_count=1,
+        error_code="ONE_PAGE_SKIPPED",
+    )
+    assert partial.status is DocumentStatus.PARTIAL
+
+
+def test_initialize_database_migrates_cascade_fk_to_restrict(
+    monkeypatch,
+    tmp_path,
+):
+    use_temp_database(monkeypatch, tmp_path)
+
+    connection = sqlite3.connect(database.DATABASE_PATH)
+    connection.row_factory = sqlite3.Row
+    try:
+        connection.execute(
+            f"""
+            CREATE TABLE {CHAT_SESSIONS_TABLE} (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id TEXT NOT NULL,
+                title TEXT NOT NULL,
+                persona_id TEXT NOT NULL DEFAULT 'tutor',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                subject TEXT
+            )
+            """
+        )
+        connection.execute(
+            f"""
+            INSERT INTO {CHAT_SESSIONS_TABLE}
+                (user_id, title, persona_id, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                "legacy-user",
+                "Legacy",
+                "tutor",
+                "2026-01-01T00:00:00+00:00",
+                "2026-01-01T00:00:00+00:00",
+            ),
+        )
+        cascade_sql = database._create_documents_table_sql(
+            DOCUMENTS_TABLE
+        ).replace("ON DELETE RESTRICT", "ON DELETE CASCADE")
+        connection.execute(cascade_sql)
+        connection.execute(
+            f"""
+            INSERT INTO {DOCUMENTS_TABLE} (
+                id, scope, user_id, session_id, message_id,
+                original_filename, mime_type, size_bytes, storage_path,
+                parsed_path, content_hash, status, parser_name, parser_version,
+                page_count, error_code, error_message, created_at, updated_at,
+                expires_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "legacy-document",
+                DocumentScope.ATTACHMENT.value,
+                "legacy-user",
+                1,
+                None,
+                "legacy.pdf",
+                "application/pdf",
+                1,
+                "/legacy/legacy.pdf",
+                None,
+                None,
+                DocumentStatus.UPLOADED.value,
+                None,
+                None,
+                None,
+                None,
+                None,
+                "2026-01-01T00:00:00+00:00",
+                "2026-01-01T00:00:00+00:00",
+                "2030-01-01T00:00:00+00:00",
+            ),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    database.initialize_database()
+    database.initialize_database()
+
+    connection = database.get_connection()
+    try:
+        foreign_keys = connection.execute(
+            f"PRAGMA foreign_key_list({DOCUMENTS_TABLE})"
+        ).fetchall()
+        document = connection.execute(
+            f"SELECT id, storage_path FROM {DOCUMENTS_TABLE} WHERE id = ?",
+            ("legacy-document",),
+        ).fetchone()
+    finally:
+        connection.close()
+
+    assert any(
+        row["table"] == CHAT_SESSIONS_TABLE
+        and row["from"] == "session_id"
+        and row["on_delete"] == "RESTRICT"
+        for row in foreign_keys
+    )
+    assert document["id"] == "legacy-document"
+    assert document["storage_path"] == "/legacy/legacy.pdf"
+
+
+def test_session_delete_is_restricted_until_document_cleanup_finishes(
+    monkeypatch,
+    tmp_path,
+):
+    use_temp_database(monkeypatch, tmp_path)
+    session = create_session("alice")
+    stored_file = tmp_path / "stored.pdf"
+    stored_file.write_bytes(b"document")
+    document = create_attachment_document(
+        user_id="alice",
+        session_id=session.id,
+        original_filename="stored.pdf",
+        mime_type="application/pdf",
+        size_bytes=stored_file.stat().st_size,
+        storage_path=str(stored_file),
+        expires_at="2030-01-01T00:00:00+00:00",
+    )
+
+    connection = database.get_connection()
+    try:
+        with pytest.raises(sqlite3.IntegrityError):
+            connection.execute(
+                f"DELETE FROM {CHAT_SESSIONS_TABLE} WHERE id = ?",
+                (session.id,),
+            )
+        connection.rollback()
+    finally:
+        connection.close()
+
+    retained = get_document(document.id)
+    assert retained.storage_path == str(stored_file)
+    assert stored_file.exists()
+
+    update_document_status(document.id, DocumentStatus.DELETING)
+    stored_file.unlink()
+    update_document_status(document.id, DocumentStatus.DELETED)
+    assert delete_document_record(document.id) is True
 
     connection = database.get_connection()
     try:
@@ -479,13 +736,26 @@ def test_deleting_session_cascades_document_database_record(monkeypatch, tmp_pat
     finally:
         connection.close()
 
-    assert get_document(document.id) is None
+    assert list_sessions("alice") == []
 
 
-def test_delete_document_record_removes_only_metadata_record(monkeypatch, tmp_path):
+def test_non_deleted_document_cannot_be_purged(monkeypatch, tmp_path):
     use_temp_database(monkeypatch, tmp_path)
     session = create_session("alice")
     document = create_attachment("alice", session.id)
+
+    with pytest.raises(DocumentPurgeNotAllowedError, match="DELETED is required"):
+        delete_document_record(document.id)
+
+    assert get_document(document.id).status is DocumentStatus.UPLOADED
+
+
+def test_delete_document_record_purges_only_deleted_metadata(monkeypatch, tmp_path):
+    use_temp_database(monkeypatch, tmp_path)
+    session = create_session("alice")
+    document = create_attachment("alice", session.id)
+    update_document_status(document.id, DocumentStatus.DELETING)
+    update_document_status(document.id, DocumentStatus.DELETED)
 
     assert delete_document_record(document.id) is True
     assert get_document(document.id) is None

@@ -7,6 +7,7 @@ from app.db.database import get_connection, initialize_database
 from app.db.models import (
     CHAT_SESSIONS_TABLE,
     DOCUMENTS_TABLE,
+    DocumentPurgeNotAllowedError,
     DocumentRecord,
     DocumentScope,
     DocumentStatus,
@@ -26,6 +27,18 @@ class DocumentSessionNotFoundError(DocumentRepositoryError):
 
 class DocumentOwnershipError(DocumentRepositoryError):
     """The requested session is not owned by the supplied user."""
+
+
+_ACTIVE_ATTACHMENT_STATUSES = (
+    DocumentStatus.UPLOADED.value,
+    DocumentStatus.PARSING.value,
+    DocumentStatus.READY.value,
+    DocumentStatus.PARTIAL.value,
+    DocumentStatus.FAILED.value,
+)
+_ACTIVE_STATUS_PLACEHOLDERS = ", ".join(
+    "?" for _ in _ACTIVE_ATTACHMENT_STATUSES
+)
 
 
 _DOCUMENT_COLUMNS = """
@@ -147,11 +160,12 @@ def create_attachment_document(
             f"SELECT {_DOCUMENT_COLUMNS} FROM {DOCUMENTS_TABLE} WHERE id = ?",
             (document_id,),
         ).fetchone()
-        connection.commit()
-
         if row is None:
             raise RuntimeError("Created document record could not be reloaded")
-        return _record_from_row(row)
+
+        created = _record_from_row(row)
+        connection.commit()
+        return created
     finally:
         connection.close()
 
@@ -187,13 +201,18 @@ def get_owned_attachment(
             f"""
             SELECT {_DOCUMENT_COLUMNS}
             FROM {DOCUMENTS_TABLE}
-            WHERE id = ? AND scope = ? AND user_id = ? AND session_id = ?
+            WHERE id = ?
+                AND scope = ?
+                AND user_id = ?
+                AND session_id = ?
+                AND status IN ({_ACTIVE_STATUS_PLACEHOLDERS})
             """,
             (
                 document_id,
                 DocumentScope.ATTACHMENT.value,
                 user_id,
                 session_id,
+                *_ACTIVE_ATTACHMENT_STATUSES,
             ),
         ).fetchone()
         return _record_from_row(row) if row is not None else None
@@ -215,10 +234,18 @@ def list_session_attachments(
             f"""
             SELECT {_DOCUMENT_COLUMNS}
             FROM {DOCUMENTS_TABLE}
-            WHERE scope = ? AND user_id = ? AND session_id = ?
+            WHERE scope = ?
+                AND user_id = ?
+                AND session_id = ?
+                AND status IN ({_ACTIVE_STATUS_PLACEHOLDERS})
             ORDER BY created_at DESC, id DESC
             """,
-            (DocumentScope.ATTACHMENT.value, user_id, session_id),
+            (
+                DocumentScope.ATTACHMENT.value,
+                user_id,
+                session_id,
+                *_ACTIVE_ATTACHMENT_STATUSES,
+            ),
         ).fetchall()
         return [_record_from_row(row) for row in rows]
     finally:
@@ -275,6 +302,14 @@ def update_document_status(
             f"Parser metadata cannot be written while entering "
             f"{target_status.value}"
         )
+    if target_status is DocumentStatus.PARSING and any(
+        value is not None
+        for value in (parsed_path, page_count, error_code, error_message)
+    ):
+        raise InvalidDocumentRecord(
+            "PARSING resets parsed output and errors; only parser identity, "
+            "version, and content_hash may be supplied"
+        )
 
     initialize_database()
     connection = get_connection()
@@ -294,28 +329,51 @@ def update_document_status(
             "status": target_status.value,
             "updated_at": _utc_now(),
         }
-        for column in (
-            "parsed_path",
-            "content_hash",
-            "parser_name",
-            "parser_version",
-            "page_count",
-        ):
+        for column in ("content_hash", "parser_name", "parser_version"):
             value = parser_metadata[column]
             if value is not None:
                 updates[column] = value
 
-        if target_status is DocumentStatus.READY:
+        if target_status is DocumentStatus.PARSING:
+            updates["parsed_path"] = None
+            updates["page_count"] = None
             updates["error_code"] = None
             updates["error_message"] = None
-        elif target_status is DocumentStatus.FAILED:
-            updates["error_code"] = error_code.strip() if error_code else None
-            updates["error_message"] = error_message
         else:
-            if error_code is not None:
-                updates["error_code"] = error_code.strip()
-            if error_message is not None:
+            if parsed_path is not None:
+                updates["parsed_path"] = parsed_path
+            if page_count is not None:
+                updates["page_count"] = page_count
+
+            effective_parsed_path = (
+                parsed_path if parsed_path is not None else current.parsed_path
+            )
+            effective_page_count = (
+                page_count if page_count is not None else current.page_count
+            )
+            effective_error_code = (
+                error_code if error_code is not None else current.error_code
+            )
+
+            if target_status in {DocumentStatus.READY, DocumentStatus.PARTIAL}:
+                _validate_usable_parse_result(
+                    target_status,
+                    effective_parsed_path,
+                    effective_page_count,
+                    effective_error_code,
+                )
+
+            if target_status is DocumentStatus.READY:
+                updates["error_code"] = None
+                updates["error_message"] = None
+            elif target_status is DocumentStatus.FAILED:
+                updates["error_code"] = error_code.strip() if error_code else None
                 updates["error_message"] = error_message
+            else:
+                if error_code is not None:
+                    updates["error_code"] = error_code.strip()
+                if error_message is not None:
+                    updates["error_message"] = error_message
 
         assignments = ", ".join(f"{column} = ?" for column in updates)
         values = [*updates.values(), document_id, current.status.value]
@@ -336,11 +394,12 @@ def update_document_status(
             f"SELECT {_DOCUMENT_COLUMNS} FROM {DOCUMENTS_TABLE} WHERE id = ?",
             (document_id,),
         ).fetchone()
-        connection.commit()
-
         if updated_row is None:
             raise RuntimeError("Updated document record could not be reloaded")
-        return _record_from_row(updated_row)
+
+        updated = _record_from_row(updated_row)
+        connection.commit()
+        return updated
     finally:
         connection.close()
 
@@ -365,11 +424,19 @@ def list_expired_attachments(
             f"""
             SELECT {_DOCUMENT_COLUMNS}
             FROM {DOCUMENTS_TABLE}
-            WHERE scope = ? AND expires_at IS NOT NULL AND expires_at <= ?
+            WHERE scope = ?
+                AND expires_at IS NOT NULL
+                AND expires_at <= ?
+                AND status IN ({_ACTIVE_STATUS_PLACEHOLDERS})
             ORDER BY expires_at ASC, created_at ASC, id ASC
             LIMIT ?
             """,
-            (DocumentScope.ATTACHMENT.value, normalized_now, limit),
+            (
+                DocumentScope.ATTACHMENT.value,
+                normalized_now,
+                *_ACTIVE_ATTACHMENT_STATUSES,
+                limit,
+            ),
         ).fetchall()
         return [_record_from_row(row) for row in rows]
     finally:
@@ -377,20 +444,61 @@ def list_expired_attachments(
 
 
 def delete_document_record(document_id: str) -> bool:
-    """Delete only the SQLite metadata record, not any physical file."""
+    """Purge SQLite metadata only after lifecycle cleanup reaches DELETED."""
 
     initialize_database()
     connection = get_connection()
 
     try:
-        cursor = connection.execute(
-            f"DELETE FROM {DOCUMENTS_TABLE} WHERE id = ?",
+        row = connection.execute(
+            f"SELECT status FROM {DOCUMENTS_TABLE} WHERE id = ?",
             (document_id,),
+        ).fetchone()
+        if row is None:
+            return False
+        if row["status"] != DocumentStatus.DELETED.value:
+            raise DocumentPurgeNotAllowedError(
+                f"Document {document_id} cannot be purged from "
+                f"{row['status']}; DELETED is required"
+            )
+
+        cursor = connection.execute(
+            f"""
+            DELETE FROM {DOCUMENTS_TABLE}
+            WHERE id = ? AND status = ?
+            """,
+            (document_id, DocumentStatus.DELETED.value),
         )
+        if cursor.rowcount != 1:
+            raise DocumentRepositoryError(
+                "Document status changed concurrently; retry the purge"
+            )
         connection.commit()
-        return cursor.rowcount == 1
+        return True
     finally:
         connection.close()
+
+
+def _validate_usable_parse_result(
+    status: DocumentStatus,
+    parsed_path: str | None,
+    page_count: int | None,
+    error_code: str | None,
+) -> None:
+    if not parsed_path or not parsed_path.strip():
+        raise InvalidDocumentRecord(
+            f"{status.value} requires a non-empty parsed_path"
+        )
+    if page_count is None or page_count <= 0:
+        raise InvalidDocumentRecord(
+            f"{status.value} requires page_count > 0"
+        )
+    if status is DocumentStatus.PARTIAL and not (
+        error_code and error_code.strip()
+    ):
+        raise InvalidDocumentRecord(
+            "PARTIAL requires a stable error or warning code"
+        )
 
 
 def _utc_now() -> str:
