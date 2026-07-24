@@ -7,6 +7,7 @@ from app.db.models import (
     CHAT_SESSIONS_TABLE,
     CONVERSATIONS_TABLE,
     DEFAULT_SESSION_TITLE,
+    DOCUMENTS_TABLE,
     INTERVIEW_JDS_TABLE,
     SESSION_SUMMARIES_TABLE,
 )
@@ -83,6 +84,63 @@ def initialize_database() -> None:
         updated_at TEXT NOT NULL
     );
     """
+    create_documents_table_sql = f"""
+    CREATE TABLE IF NOT EXISTS {DOCUMENTS_TABLE} (
+        id TEXT PRIMARY KEY,
+        scope TEXT NOT NULL
+            CHECK (scope IN ('INTERNAL', 'PRIVATE', 'ATTACHMENT')),
+        user_id TEXT,
+        session_id INTEGER
+            REFERENCES {CHAT_SESSIONS_TABLE}(id) ON DELETE CASCADE,
+        message_id INTEGER,
+        original_filename TEXT NOT NULL,
+        mime_type TEXT NOT NULL,
+        size_bytes INTEGER NOT NULL CHECK (size_bytes >= 0),
+        storage_path TEXT NOT NULL,
+        parsed_path TEXT,
+        content_hash TEXT,
+        status TEXT NOT NULL CHECK (status IN (
+            'UPLOADED',
+            'PARSING',
+            'READY',
+            'PARTIAL',
+            'FAILED',
+            'DELETING',
+            'DELETED'
+        )),
+        parser_name TEXT,
+        parser_version TEXT,
+        page_count INTEGER CHECK (page_count IS NULL OR page_count >= 0),
+        error_code TEXT,
+        error_message TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        expires_at TEXT,
+        CHECK (
+            (
+                scope = 'ATTACHMENT'
+                AND user_id IS NOT NULL
+                AND session_id IS NOT NULL
+                AND expires_at IS NOT NULL
+            )
+            OR (
+                scope = 'PRIVATE'
+                AND user_id IS NOT NULL
+                AND session_id IS NULL
+            )
+            OR (
+                scope = 'INTERNAL'
+                AND user_id IS NULL
+                AND session_id IS NULL
+                AND expires_at IS NULL
+            )
+        ),
+        CHECK (
+            status <> 'FAILED'
+            OR (error_code IS NOT NULL AND length(trim(error_code)) > 0)
+        )
+    );
+    """
     create_sessions_index_sql = f"""
     CREATE INDEX IF NOT EXISTS idx_chat_sessions_user_updated
     ON {CHAT_SESSIONS_TABLE} (user_id, updated_at DESC, id DESC);
@@ -103,6 +161,18 @@ def initialize_database() -> None:
     CREATE INDEX IF NOT EXISTS idx_interview_jds_user_updated
     ON {INTERVIEW_JDS_TABLE} (user_id, updated_at DESC, id DESC);
     """
+    create_documents_user_session_index_sql = f"""
+    CREATE INDEX IF NOT EXISTS idx_documents_user_session
+    ON {DOCUMENTS_TABLE} (user_id, session_id);
+    """
+    create_documents_status_index_sql = f"""
+    CREATE INDEX IF NOT EXISTS idx_documents_status
+    ON {DOCUMENTS_TABLE} (status);
+    """
+    create_documents_expires_at_index_sql = f"""
+    CREATE INDEX IF NOT EXISTS idx_documents_expires_at
+    ON {DOCUMENTS_TABLE} (expires_at);
+    """
 
     connection = get_connection()
     try:
@@ -115,6 +185,8 @@ def initialize_database() -> None:
         connection.execute(create_session_summaries_table_sql)
         # JD 是用户提供的目标岗位资料，先持久化，再让后续工具检索它。
         connection.execute(create_interview_jds_table_sql)
+        # Store document metadata only; session deletion cascades records.
+        connection.execute(create_documents_table_sql)
         # 旧版 conversations 表没有 session_id，这里会自动补上。
         _ensure_conversations_session_id_column(connection)
         # 把旧数据按 user_id 归入一个“默认会话”。
@@ -124,6 +196,9 @@ def initialize_database() -> None:
         connection.execute(create_conversations_user_index_sql)
         connection.execute(create_session_summaries_last_conversation_index_sql)
         connection.execute(create_interview_jds_user_index_sql)
+        connection.execute(create_documents_user_session_index_sql)
+        connection.execute(create_documents_status_index_sql)
+        connection.execute(create_documents_expires_at_index_sql)
         connection.commit()
     finally:
         connection.close()
