@@ -238,6 +238,40 @@ def test_file_delete_failure_leaves_document_in_deleting(monkeypatch, tmp_path):
     assert service.retry_attachment_cleanup(record.id) is False
 
 
+
+def test_deleted_metadata_purge_failure_can_be_retried(monkeypatch, tmp_path):
+    use_temp_database(monkeypatch, tmp_path)
+    session = create_session("alice")
+    service = make_service(tmp_path)
+    record = service.create_attachment("alice", session.id, make_upload())
+    stored_path = service.storage.resolve(record.storage_path)
+    real_purge = document_service_module.delete_document_record
+    attempts = 0
+
+    def fail_first_purge(document_id):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise RuntimeError("database unavailable")
+        return real_purge(document_id)
+
+    monkeypatch.setattr(
+        document_service_module,
+        "delete_document_record",
+        fail_first_purge,
+    )
+
+    with pytest.raises(AttachmentCleanupError):
+        service.delete_attachment(record.id, "alice", session.id)
+
+    retained = get_document(record.id)
+    assert retained is not None
+    assert retained.status is DocumentStatus.DELETED
+    assert stored_path.exists() is False
+
+    assert service.retry_attachment_cleanup(record.id) is True
+    assert get_document(record.id) is None
+
 def test_unauthorized_delete_preserves_file_and_metadata(monkeypatch, tmp_path):
     use_temp_database(monkeypatch, tmp_path)
     session = create_session("alice")
@@ -570,12 +604,52 @@ def test_failed_attachment_api_hides_internal_error_message(
     assert response.status_code == 200
     body = response.json()
     assert body["error_code"] == "PDF_PARSE_FAILED"
-    assert body["user_safe_message"] == (
-        "The attachment could not be processed."
-    )
+    assert body["user_safe_message"] == "PDF 文档解析失败。"
     assert "error_message" not in body
     assert "secret" not in response.text
 
+
+
+@pytest.mark.parametrize(
+    ("error_code", "expected_message"),
+    [
+        ("ENCRYPTED_PDF_NOT_SUPPORTED", "当前版本不支持加密 PDF。"),
+        ("PDF_PAGE_LIMIT_EXCEEDED", "PDF 页数超过当前限制。"),
+        (
+            "NO_EXTRACTABLE_TEXT",
+            "当前版本只支持包含可提取文本层的 PDF，暂不支持扫描件。",
+        ),
+        ("INVALID_PDF", "PDF 文件损坏或格式无效。"),
+        ("PDF_PARSE_FAILED", "PDF 文档解析失败。"),
+    ],
+)
+def test_failed_attachment_uses_stable_safe_message(
+    monkeypatch,
+    tmp_path,
+    error_code,
+    expected_message,
+):
+    use_temp_database(monkeypatch, tmp_path)
+    session = create_session("alice")
+    service = make_service(tmp_path)
+    record = service.create_attachment("alice", session.id, make_upload())
+    update_document_status(record.id, DocumentStatus.PARSING)
+    update_document_status(
+        record.id,
+        DocumentStatus.FAILED,
+        error_code=error_code,
+        error_message=r"internal failure at C:\secret\document.pdf",
+    )
+
+    with api_client_for(service) as client:
+        response = client.get(
+            f"/sessions/{session.id}/attachments/{record.id}",
+            params={"user_id": "alice"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["user_safe_message"] == expected_message
+    assert "secret" not in response.text
 
 def test_attachment_routes_are_registered():
     paths = app.openapi()["paths"]

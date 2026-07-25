@@ -32,7 +32,9 @@ from app.repositories.document_repository import (
     list_accessible_session_attachments,
     list_expired_attachments,
     list_session_attachments,
+    list_stale_cleanup_attachments,
     list_stale_deleting_attachments,
+    list_stale_parsing_attachments,
     update_document_status,
 )
 from app.repositories.session_repository import create_session, list_sessions
@@ -620,6 +622,88 @@ def test_stale_deleting_query_filters_and_orders_candidates(
 
     assert [record.id for record in candidates] == [first.id, second.id]
 
+
+
+def test_stale_cleanup_query_includes_deleting_and_deleted_with_stable_order(
+    monkeypatch,
+    tmp_path,
+):
+    use_temp_database(monkeypatch, tmp_path)
+    session = create_session("alice")
+    deleting = create_attachment("alice", session.id, filename="deleting.pdf")
+    deleted = create_attachment("alice", session.id, filename="deleted.pdf")
+    active = create_attachment("alice", session.id, filename="active.pdf")
+    recent = create_attachment("alice", session.id, filename="recent.pdf")
+    update_document_status(deleting.id, DocumentStatus.DELETING)
+    update_document_status(deleted.id, DocumentStatus.DELETING)
+    update_document_status(deleted.id, DocumentStatus.DELETED)
+    update_document_status(recent.id, DocumentStatus.DELETING)
+
+    timestamps = {
+        deleted.id: "2028-01-01T00:00:00+00:00",
+        deleting.id: "2029-01-01T00:00:00+00:00",
+        active.id: "2027-01-01T00:00:00+00:00",
+        recent.id: "2031-01-01T00:00:00+00:00",
+    }
+    connection = database.get_connection()
+    try:
+        connection.executemany(
+            f"UPDATE {DOCUMENTS_TABLE} SET updated_at = ? WHERE id = ?",
+            [(timestamp, document_id) for document_id, timestamp in timestamps.items()],
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    candidates = list_stale_cleanup_attachments(
+        "2030-01-01T00:00:00+00:00",
+        limit=2,
+    )
+
+    assert [(record.id, record.status) for record in candidates] == [
+        (deleted.id, DocumentStatus.DELETED),
+        (deleting.id, DocumentStatus.DELETING),
+    ]
+
+
+def test_stale_parsing_query_filters_orders_and_limits(monkeypatch, tmp_path):
+    use_temp_database(monkeypatch, tmp_path)
+    session = create_session("alice")
+    first = create_attachment("alice", session.id, filename="first.pdf")
+    second = create_attachment("alice", session.id, filename="second.pdf")
+    recent = create_attachment("alice", session.id, filename="recent.pdf")
+    ready = create_attachment("alice", session.id, filename="ready.pdf")
+    for document in (first, second, recent, ready):
+        update_document_status(document.id, DocumentStatus.PARSING)
+    update_document_status(
+        ready.id,
+        DocumentStatus.READY,
+        parsed_path="parsed/ready.json",
+        page_count=1,
+    )
+
+    timestamps = {
+        first.id: "2028-01-01T00:00:00+00:00",
+        second.id: "2029-01-01T00:00:00+00:00",
+        recent.id: "2031-01-01T00:00:00+00:00",
+        ready.id: "2027-01-01T00:00:00+00:00",
+    }
+    connection = database.get_connection()
+    try:
+        connection.executemany(
+            f"UPDATE {DOCUMENTS_TABLE} SET updated_at = ? WHERE id = ?",
+            [(timestamp, document_id) for document_id, timestamp in timestamps.items()],
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    candidates = list_stale_parsing_attachments(
+        "2030-01-01T00:00:00+00:00",
+        limit=1,
+    )
+
+    assert [record.id for record in candidates] == [first.id]
 
 def test_ready_requires_parsed_path_and_positive_page_count(monkeypatch, tmp_path):
     use_temp_database(monkeypatch, tmp_path)

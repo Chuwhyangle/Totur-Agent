@@ -594,15 +594,55 @@ def update_document_status(
         connection.close()
 
 
+def list_stale_cleanup_attachments(
+    updated_before: datetime | str,
+    limit: int,
+) -> list[DocumentRecord]:
+    """List stale DELETING and DELETED attachments for cleanup recovery."""
+
+    return _list_stale_attachments(
+        updated_before,
+        limit,
+        (DocumentStatus.DELETING, DocumentStatus.DELETED),
+    )
+
+
 def list_stale_deleting_attachments(
     updated_before: datetime | str,
     limit: int,
 ) -> list[DocumentRecord]:
-    """List DELETING attachments old enough for cleanup retry."""
+    """List only stale DELETING attachments for backward compatibility."""
 
+    return _list_stale_attachments(
+        updated_before,
+        limit,
+        (DocumentStatus.DELETING,),
+    )
+
+
+def list_stale_parsing_attachments(
+    updated_before: datetime | str,
+    limit: int,
+) -> list[DocumentRecord]:
+    """List PARSING attachments old enough for future worker recovery."""
+
+    return _list_stale_attachments(
+        updated_before,
+        limit,
+        (DocumentStatus.PARSING,),
+    )
+
+
+def _list_stale_attachments(
+    updated_before: datetime | str,
+    limit: int,
+    statuses: tuple[DocumentStatus, ...],
+) -> list[DocumentRecord]:
     if limit < 0:
         raise ValueError("limit must not be negative")
     if limit == 0:
+        return []
+    if not statuses:
         return []
 
     initialize_database()
@@ -610,6 +650,7 @@ def list_stale_deleting_attachments(
         updated_before,
         "updated_before",
     )
+    placeholders = ", ".join("?" for _ in statuses)
     connection = get_connection()
 
     try:
@@ -618,14 +659,14 @@ def list_stale_deleting_attachments(
             SELECT {_DOCUMENT_COLUMNS}
             FROM {DOCUMENTS_TABLE}
             WHERE scope = ?
-                AND status = ?
+                AND status IN ({placeholders})
                 AND updated_at <= ?
             ORDER BY updated_at ASC, created_at ASC, id ASC
             LIMIT ?
             """,
             (
                 DocumentScope.ATTACHMENT.value,
-                DocumentStatus.DELETING.value,
+                *(status.value for status in statuses),
                 normalized_updated_before,
                 limit,
             ),
@@ -633,7 +674,6 @@ def list_stale_deleting_attachments(
         return [_record_from_row(row) for row in rows]
     finally:
         connection.close()
-
 
 def list_expired_attachments(
     now: datetime | str,

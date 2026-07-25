@@ -13,6 +13,8 @@ DEFAULT_TEMP_DOCUMENT_MAX_BYTES = 20 * 1024 * 1024
 DEFAULT_TEMP_DOCUMENT_TTL_HOURS = 24
 DEFAULT_TEMP_DOCUMENT_MAX_FILES_PER_SESSION = 5
 DEFAULT_TEMP_DOCUMENT_WRITE_CHUNK_BYTES = 64 * 1024
+DEFAULT_TEMP_DOCUMENT_MAX_PAGES = 300
+DEFAULT_TEMP_DOCUMENT_MIN_EXTRACTED_CHARS = 20
 
 _MIN_MAX_BYTES = 1024
 _MAX_MAX_BYTES = 100 * 1024 * 1024
@@ -22,6 +24,10 @@ _MIN_FILES_PER_SESSION = 1
 _MAX_FILES_PER_SESSION = 100
 _MIN_WRITE_CHUNK_BYTES = 1024
 _MAX_WRITE_CHUNK_BYTES = 1024 * 1024
+_MIN_MAX_PAGES = 1
+_MAX_MAX_PAGES = 2000
+_MIN_EXTRACTED_CHARS = 1
+_MAX_EXTRACTED_CHARS = 100_000
 
 
 class InvalidTemporaryDocumentSettings(ValueError):
@@ -37,6 +43,8 @@ class TemporaryDocumentSettings:
     ttl_hours: int = DEFAULT_TEMP_DOCUMENT_TTL_HOURS
     max_files_per_session: int = DEFAULT_TEMP_DOCUMENT_MAX_FILES_PER_SESSION
     write_chunk_bytes: int = DEFAULT_TEMP_DOCUMENT_WRITE_CHUNK_BYTES
+    max_pages: int = DEFAULT_TEMP_DOCUMENT_MAX_PAGES
+    min_extracted_chars: int = DEFAULT_TEMP_DOCUMENT_MIN_EXTRACTED_CHARS
 
     def __post_init__(self) -> None:
         root_path = Path(self.root_path).expanduser().resolve(strict=False)
@@ -65,6 +73,18 @@ class TemporaryDocumentSettings:
             self.write_chunk_bytes,
             _MIN_WRITE_CHUNK_BYTES,
             _MAX_WRITE_CHUNK_BYTES,
+        )
+        _validate_range(
+            "TEMP_DOCUMENT_MAX_PAGES",
+            self.max_pages,
+            _MIN_MAX_PAGES,
+            _MAX_MAX_PAGES,
+        )
+        _validate_range(
+            "TEMP_DOCUMENT_MIN_EXTRACTED_CHARS",
+            self.min_extracted_chars,
+            _MIN_EXTRACTED_CHARS,
+            _MAX_EXTRACTED_CHARS,
         )
 
 
@@ -117,6 +137,16 @@ def load_temporary_document_settings(
             environment,
             "TEMP_DOCUMENT_WRITE_CHUNK_BYTES",
             DEFAULT_TEMP_DOCUMENT_WRITE_CHUNK_BYTES,
+        ),
+        max_pages=_read_integer(
+            environment,
+            "TEMP_DOCUMENT_MAX_PAGES",
+            DEFAULT_TEMP_DOCUMENT_MAX_PAGES,
+        ),
+        min_extracted_chars=_read_integer(
+            environment,
+            "TEMP_DOCUMENT_MIN_EXTRACTED_CHARS",
+            DEFAULT_TEMP_DOCUMENT_MIN_EXTRACTED_CHARS,
         ),
     )
 

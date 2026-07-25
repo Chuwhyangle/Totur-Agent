@@ -189,6 +189,8 @@ def test_settings_resolve_relative_root_without_creating_it(tmp_path):
             "TEMP_DOCUMENT_TTL_HOURS": "12",
             "TEMP_DOCUMENT_MAX_FILES_PER_SESSION": "3",
             "TEMP_DOCUMENT_WRITE_CHUNK_BYTES": "2048",
+            "TEMP_DOCUMENT_MAX_PAGES": "250",
+            "TEMP_DOCUMENT_MIN_EXTRACTED_CHARS": "12",
         },
         project_root=tmp_path,
     )
@@ -198,6 +200,8 @@ def test_settings_resolve_relative_root_without_creating_it(tmp_path):
     assert settings.ttl_hours == 12
     assert settings.max_files_per_session == 3
     assert settings.write_chunk_bytes == 2048
+    assert settings.max_pages == 250
+    assert settings.min_extracted_chars == 12
     assert settings.root_path.exists() is False
 
 
@@ -209,6 +213,10 @@ def test_settings_resolve_relative_root_without_creating_it(tmp_path):
         ("TEMP_DOCUMENT_TTL_HOURS", "0"),
         ("TEMP_DOCUMENT_MAX_FILES_PER_SESSION", "0"),
         ("TEMP_DOCUMENT_WRITE_CHUNK_BYTES", "0"),
+        ("TEMP_DOCUMENT_MAX_PAGES", "0"),
+        ("TEMP_DOCUMENT_MAX_PAGES", "2001"),
+        ("TEMP_DOCUMENT_MIN_EXTRACTED_CHARS", "0"),
+        ("TEMP_DOCUMENT_MIN_EXTRACTED_CHARS", "100001"),
     ],
 )
 def test_invalid_numeric_settings_are_rejected(tmp_path, name, value):

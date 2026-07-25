@@ -176,6 +176,15 @@ def _user_safe_message(record: DocumentRecord) -> str | None:
 
     if record.status is DocumentStatus.PARTIAL:
         return "The attachment was only partially processed."
-    if record.status is DocumentStatus.FAILED:
-        return "The attachment could not be processed."
-    return None
+    if record.status is not DocumentStatus.FAILED:
+        return None
+
+    messages = {
+        "ENCRYPTED_PDF_NOT_SUPPORTED": "当前版本不支持加密 PDF。",
+        "PDF_PAGE_LIMIT_EXCEEDED": "PDF 页数超过当前限制。",
+        "NO_EXTRACTABLE_TEXT": (
+            "当前版本只支持包含可提取文本层的 PDF，暂不支持扫描件。"
+        ),
+        "INVALID_PDF": "PDF 文件损坏或格式无效。",
+    }
+    return messages.get(record.error_code, "PDF 文档解析失败。")
