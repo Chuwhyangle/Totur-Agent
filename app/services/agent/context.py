@@ -15,3 +15,4 @@ class AgentContext:
     summary_text: str | None
     recent_history: list[ConversationRecord]
     seed_knowledge_context: str | None = None
+    attachment_context: str | None = None

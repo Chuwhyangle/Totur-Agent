@@ -6,6 +6,12 @@ from app.services.agent.personas import (
     InvalidPersonaError,
     available_persona_ids,
 )
+from app.services.documents.attachment_retrieval_service import (
+    AttachmentNotFoundError,
+    AttachmentNotReadyError,
+    AttachmentProcessingFailedError,
+    AttachmentRetrievalFailedError,
+)
 from app.services.tutor_agent_service import (
     ChatSessionNotFoundError,
     SessionPersonaMismatchError,
@@ -41,6 +47,26 @@ def chat(request: ChatRequest) -> ChatResponse:
                 "session_persona_id": error.session_persona_id,
                 "request_persona_id": error.request_persona_id,
             },
+        ) from error
+    except AttachmentNotFoundError as error:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": "attachment_not_found"},
+        ) from error
+    except AttachmentNotReadyError as error:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"error": "attachment_not_ready"},
+        ) from error
+    except AttachmentProcessingFailedError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={"error": "attachment_processing_failed"},
+        ) from error
+    except AttachmentRetrievalFailedError as error:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"error": "attachment_retrieval_failed"},
         ) from error
     except ChatSessionNotFoundError as error:
         raise HTTPException(

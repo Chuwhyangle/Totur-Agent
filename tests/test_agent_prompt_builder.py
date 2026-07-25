@@ -3,6 +3,7 @@
 from app.db.models import ConversationRecord
 from app.services.agent.context import AgentContext
 from app.services.agent.personas import (
+    ATTACHMENT_EVIDENCE_POLICY,
     BUILTIN_PERSONAS,
     KNOWLEDGE_TOOL_PROMPT,
     STRUCTURED_REPLY_PROMPT,
@@ -40,6 +41,7 @@ def _context(
     summary_text: str | None = None,
     recent_history: list[ConversationRecord] | None = None,
     seed_knowledge_context: str | None = None,
+    attachment_context: str | None = None,
 ) -> AgentContext:
     return AgentContext(
         user_id="alice",
@@ -48,6 +50,7 @@ def _context(
         summary_text=summary_text,
         recent_history=recent_history or [],
         seed_knowledge_context=seed_knowledge_context,
+        attachment_context=attachment_context,
     )
 
 
@@ -98,7 +101,8 @@ def test_web_search_prompt_contains_routing_and_safety_guidance():
 def test_structured_reply_prompt_requires_source_ids_array():
     assert "JSON 必须包含五个字段" in STRUCTURED_REPLY_PROMPT
     assert "source_ids: 字符串数组" in STRUCTURED_REPLY_PROMPT
-    assert "没有网页引用时返回空数组" in STRUCTURED_REPLY_PROMPT
+    assert "[attachment_N]" in STRUCTURED_REPLY_PROMPT
+    assert "\u6ca1\u6709\u4efb\u4f55\u5f15\u7528\u65f6\u8fd4\u56de\u7a7a\u6570\u7ec4" in STRUCTURED_REPLY_PROMPT
 
 
 def test_build_messages_adds_summary_before_recent_history():
@@ -173,6 +177,31 @@ def test_build_messages_adds_seed_context_before_current_message():
     assert [message["role"] for message in messages] == ["system", "system", "user"]
     assert "[Knowledge Base Context]" in str(messages[-2]["content"])
     assert messages[-1]["content"] == "RAG 分块器怎么设计？"
+
+
+
+def test_build_messages_adds_attachment_policy_and_context_before_current_message():
+    builder = PromptBuilder(ResponseParser())
+
+    messages = builder.build_messages(
+        _context(
+            current_message="final question",
+            attachment_context=(
+                "[Selected Attachment Evidence]\n"
+                "[attachment_1]\ncontent\n[/attachment_1]"
+            ),
+        )
+    )
+
+    assert [message["role"] for message in messages] == [
+        "system",
+        "system",
+        "user",
+        "user",
+    ]
+    assert messages[-3]["content"] == ATTACHMENT_EVIDENCE_POLICY
+    assert "[attachment_1]" in str(messages[-2]["content"])
+    assert messages[-1] == {"role": "user", "content": "final question"}
 
 
 def test_build_messages_skips_bad_history_answer_without_crashing():

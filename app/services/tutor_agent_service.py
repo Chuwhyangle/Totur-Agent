@@ -24,12 +24,20 @@ from app.services.agent.react_orchestrator import ReactOrchestrator
 from app.services.agent.response_parser import ResponseParser
 from app.services.agent.tools.executor import ToolExecutor
 from app.services.agent.tools.registry import ToolRegistry
+from app.services.documents.attachment_retrieval_service import (
+    AttachmentEvidence,
+    AttachmentRetrievalFailedError,
+    AttachmentRetrievalService,
+    attachment_source_title,
+    build_attachment_context,
+)
+from app.services.documents.settings import DEFAULT_TEMP_DOCUMENT_CONTEXT_MAX_CHARS
 from app.services.rag_seed_context import retrieve_seed_knowledge_context
 from app.services.rag_settings import ENABLE_RAG_SEED_CONTEXT
 from app.services.summary_service import SummaryService
 
 
-_WEB_CITATION_PATTERN = re.compile(r"\[web_(\d+)\]")
+_CITATION_PATTERN = re.compile(r"\[(web|attachment)_(\d+)\]")
 _RAW_HTTP_URL_PATTERN = re.compile(r"https?://[^\s<>\"']+", re.IGNORECASE)
 _UNVERIFIED_LINK_REPLACEMENT = "[已移除未验证链接]"
 
@@ -74,6 +82,8 @@ class TutorAgentService:
         react_orchestrator: ReactOrchestrator | None = None,
         seed_context_enabled: bool = ENABLE_RAG_SEED_CONTEXT,
         seed_context_provider: Callable[[str], str | None] | None = None,
+        attachment_retrieval_service: AttachmentRetrievalService | None = None,
+        attachment_context_max_chars: int | None = None,
     ) -> None:
         """初始化模型配置、模型客户端和 Agent 辅助组件。"""
 
@@ -96,6 +106,10 @@ class TutorAgentService:
         )
         self.seed_context_enabled = seed_context_enabled
         self.seed_context_provider = seed_context_provider or retrieve_seed_knowledge_context
+        # Keep attachment dependencies lazy so ordinary chat never opens Chroma or
+        # initializes an embedding client.
+        self.attachment_retrieval_service = attachment_retrieval_service
+        self.attachment_context_max_chars = attachment_context_max_chars
 
     def chat(self, request: ChatRequest) -> ChatResponse:
         """处理一次聊天请求。"""
@@ -121,6 +135,31 @@ class TutorAgentService:
         if self.seed_context_enabled:
             context.seed_knowledge_context = self.seed_context_provider(message)
 
+        attachment_ledger: dict[str, Source] = {}
+        if request.attachment_ids:
+            retrieval_service = self._get_attachment_retrieval_service()
+            evidence = retrieval_service.retrieve(
+                user_id=user_id,
+                session_id=session.id,
+                attachment_ids=request.attachment_ids,
+                query=message,
+            )
+            max_context_chars = (
+                self.attachment_context_max_chars
+                if self.attachment_context_max_chars is not None
+                else getattr(
+                    retrieval_service,
+                    "context_max_chars",
+                    DEFAULT_TEMP_DOCUMENT_CONTEXT_MAX_CHARS,
+                )
+            )
+            attachment_context, included_evidence = build_attachment_context(
+                evidence,
+                max_chars=max_context_chars,
+            )
+            context.attachment_context = attachment_context or None
+            attachment_ledger = self._build_attachment_ledger(included_evidence)
+
         if not context.recent_history and session.title == DEFAULT_SESSION_TITLE:
             # 新会话第一条消息发出后，用这条消息生成一个更自然的会话标题。
             update_session_title(session.id, make_title_from_message(message))
@@ -133,6 +172,9 @@ class TutorAgentService:
             )
         else:
             raw_reply, tool_trace = self.react_orchestrator.run(messages)
+        # The model can only select source IDs; public Source objects always come
+        # from the server-side Web/attachment ledgers.
+        tool_trace.ledger.update(attachment_ledger)
         reply = self.response_parser.parse_model_reply(raw_reply)
         reply = self._finalize_reply_sources(reply, tool_trace)
 
@@ -184,10 +226,10 @@ class TutorAgentService:
             )
 
         valid_ids = set(ledger)
-        reply.answer = _WEB_CITATION_PATTERN.sub(
+        reply.answer = _CITATION_PATTERN.sub(
             lambda match: (
                 match.group(0)
-                if f"web_{match.group(1)}" in valid_ids
+                if f"{match.group(1)}_{match.group(2)}" in valid_ids
                 else ""
             ),
             reply.answer,
@@ -199,6 +241,32 @@ class TutorAgentService:
         reply.source_ids = accepted_source_ids
         reply.sources = sources
         return reply
+
+    def _get_attachment_retrieval_service(self) -> AttachmentRetrievalService:
+        """Create attachment retrieval dependencies only when IDs are selected."""
+
+        if self.attachment_retrieval_service is None:
+            try:
+                self.attachment_retrieval_service = AttachmentRetrievalService()
+            except Exception as exc:
+                raise AttachmentRetrievalFailedError from exc
+        return self.attachment_retrieval_service
+
+    @staticmethod
+    def _build_attachment_ledger(
+        evidence: list[AttachmentEvidence],
+    ) -> dict[str, Source]:
+        """Create public attachment sources exclusively from trusted evidence."""
+
+        return {
+            item.evidence_id: Source(
+                id=item.evidence_id,
+                title=attachment_source_title(item),
+                url="",
+                domain="attachment",
+            )
+            for item in evidence
+        }
 
     def _resolve_session(
         self,

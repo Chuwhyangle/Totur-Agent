@@ -9,6 +9,7 @@ from openai.types.chat import (
 
 from app.services.agent.context import AgentContext
 from app.services.agent.personas import (
+    ATTACHMENT_EVIDENCE_POLICY,
     Persona,
     build_system_prompt,
     get_persona,
@@ -73,6 +74,18 @@ class PromptBuilder:
                 "content": context.seed_knowledge_context.strip(),
             }
             messages.append(seed_msg)
+
+        if context.attachment_context and context.attachment_context.strip():
+            attachment_policy_msg: ChatCompletionSystemMessageParam = {
+                "role": "system",
+                "content": ATTACHMENT_EVIDENCE_POLICY,
+            }
+            messages.append(attachment_policy_msg)
+            attachment_context_msg: ChatCompletionUserMessageParam = {
+                "role": "user",
+                "content": context.attachment_context.strip(),
+            }
+            messages.append(attachment_context_msg)
 
         user_msg: ChatCompletionUserMessageParam = {
             "role": "user",

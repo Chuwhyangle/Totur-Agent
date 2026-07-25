@@ -160,3 +160,42 @@ def test_tutor_agent_service_builds_sources_only_from_current_ledger():
     assert "https://" not in finalized.answer
     assert "[\u5df2\u79fb\u9664\u672a\u9a8c\u8bc1\u94fe\u63a5]" in finalized.answer
     assert "source_ids" not in finalized.model_dump()
+
+
+def test_tutor_agent_service_accepts_attachment_and_web_sources_from_ledger():
+    service = object.__new__(TutorAgentService)
+    reply = TutorReply(
+        answer="Web [web_1], attachment [attachment_1], fake [attachment_999].",
+        next_task="Next",
+        exercise="Exercise",
+        checkpoints=["Check"],
+        source_ids=["attachment_1", "attachment_999", "web_1"],
+    )
+    tool_trace = ToolTrace(
+        used=True,
+        ledger={
+            "web_1": Source(
+                id="web_1",
+                title="Official docs",
+                url="https://official.example/docs",
+                domain="official.example",
+            ),
+            "attachment_1": Source(
+                id="attachment_1",
+                title="resume.pdf · 第 2 页",
+                url="",
+                domain="attachment",
+            ),
+        },
+    )
+
+    finalized = service._finalize_reply_sources(reply, tool_trace)
+
+    assert finalized.source_ids == ["attachment_1", "web_1"]
+    assert [source.id for source in finalized.sources] == [
+        "attachment_1",
+        "web_1",
+    ]
+    assert "[attachment_1]" in finalized.answer
+    assert "[attachment_999]" not in finalized.answer
+    assert "[web_1]" in finalized.answer

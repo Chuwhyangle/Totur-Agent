@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class ChatRequest(BaseModel):
@@ -13,6 +13,26 @@ class ChatRequest(BaseModel):
     message: str = Field(..., min_length=1)
     persona_id: str | None = None
     force_web_search: bool = False
+    attachment_ids: list[str] = Field(default_factory=list, max_length=5)
+
+    @field_validator("attachment_ids", mode="before")
+    @classmethod
+    def normalize_attachment_ids(cls, value):
+        """Reject blank IDs and de-duplicate them before the size constraint."""
+
+        if not isinstance(value, list):
+            return value
+
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for item in value:
+            if not isinstance(item, str) or not item.strip():
+                raise ValueError("attachment_ids must not contain empty values")
+            document_id = item.strip()
+            if document_id not in seen:
+                seen.add(document_id)
+                normalized.append(document_id)
+        return normalized
 
 
 class Source(BaseModel):

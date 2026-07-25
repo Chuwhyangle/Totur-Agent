@@ -191,6 +191,9 @@ def test_settings_resolve_relative_root_without_creating_it(tmp_path):
             "TEMP_DOCUMENT_WRITE_CHUNK_BYTES": "2048",
             "TEMP_DOCUMENT_MAX_PAGES": "250",
             "TEMP_DOCUMENT_MIN_EXTRACTED_CHARS": "12",
+            "TEMP_DOCUMENT_RETRIEVAL_TOP_K": "4",
+            "TEMP_DOCUMENT_CONTEXT_MAX_CHARS": "4096",
+            "TEMP_DOCUMENT_SIMILARITY_THRESHOLD": "0.25",
         },
         project_root=tmp_path,
     )
@@ -202,6 +205,9 @@ def test_settings_resolve_relative_root_without_creating_it(tmp_path):
     assert settings.write_chunk_bytes == 2048
     assert settings.max_pages == 250
     assert settings.min_extracted_chars == 12
+    assert settings.retrieval_top_k == 4
+    assert settings.context_max_chars == 4096
+    assert settings.similarity_threshold == 0.25
     assert settings.root_path.exists() is False
 
 
@@ -217,6 +223,11 @@ def test_settings_resolve_relative_root_without_creating_it(tmp_path):
         ("TEMP_DOCUMENT_MAX_PAGES", "2001"),
         ("TEMP_DOCUMENT_MIN_EXTRACTED_CHARS", "0"),
         ("TEMP_DOCUMENT_MIN_EXTRACTED_CHARS", "100001"),
+        ("TEMP_DOCUMENT_RETRIEVAL_TOP_K", "0"),
+        ("TEMP_DOCUMENT_CONTEXT_MAX_CHARS", "255"),
+        ("TEMP_DOCUMENT_SIMILARITY_THRESHOLD", "not-a-number"),
+        ("TEMP_DOCUMENT_SIMILARITY_THRESHOLD", "nan"),
+        ("TEMP_DOCUMENT_SIMILARITY_THRESHOLD", "1.1"),
     ],
 )
 def test_invalid_numeric_settings_are_rejected(tmp_path, name, value):

@@ -2,6 +2,7 @@
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+import math
 import os
 from pathlib import Path
 
@@ -19,6 +20,9 @@ DEFAULT_TEMP_DOCUMENT_MAX_EXTRACTED_CHARS = 2_000_000
 DEFAULT_TEMP_DOCUMENT_MAX_BLOCKS_PER_PAGE = 5_000
 DEFAULT_TEMP_DOCUMENT_CHUNK_CHARS = 2_000
 DEFAULT_TEMP_DOCUMENT_CHUNK_OVERLAP_CHARS = 300
+DEFAULT_TEMP_DOCUMENT_RETRIEVAL_TOP_K = 6
+DEFAULT_TEMP_DOCUMENT_CONTEXT_MAX_CHARS = 8_000
+DEFAULT_TEMP_DOCUMENT_SIMILARITY_THRESHOLD = 0.0
 
 _MIN_MAX_BYTES = 1024
 _MAX_MAX_BYTES = 100 * 1024 * 1024
@@ -38,6 +42,12 @@ _MIN_BLOCKS_PER_PAGE = 1
 _MAX_BLOCKS_PER_PAGE = 100_000
 _MIN_CHUNK_CHARS = 100
 _MAX_CHUNK_CHARS = 100_000
+_MIN_RETRIEVAL_TOP_K = 1
+_MAX_RETRIEVAL_TOP_K = 50
+_MIN_CONTEXT_MAX_CHARS = 256
+_MAX_CONTEXT_MAX_CHARS = 200_000
+_MIN_SIMILARITY_THRESHOLD = -1.0
+_MAX_SIMILARITY_THRESHOLD = 1.0
 
 
 class InvalidTemporaryDocumentSettings(ValueError):
@@ -59,6 +69,9 @@ class TemporaryDocumentSettings:
     max_blocks_per_page: int = DEFAULT_TEMP_DOCUMENT_MAX_BLOCKS_PER_PAGE
     chunk_chars: int = DEFAULT_TEMP_DOCUMENT_CHUNK_CHARS
     chunk_overlap_chars: int = DEFAULT_TEMP_DOCUMENT_CHUNK_OVERLAP_CHARS
+    retrieval_top_k: int = DEFAULT_TEMP_DOCUMENT_RETRIEVAL_TOP_K
+    context_max_chars: int = DEFAULT_TEMP_DOCUMENT_CONTEXT_MAX_CHARS
+    similarity_threshold: float = DEFAULT_TEMP_DOCUMENT_SIMILARITY_THRESHOLD
 
     def __post_init__(self) -> None:
         root_path = Path(self.root_path).expanduser().resolve(strict=False)
@@ -125,6 +138,24 @@ class TemporaryDocumentSettings:
                 "TEMP_DOCUMENT_CHUNK_OVERLAP_CHARS must satisfy "
                 "0 <= overlap < chunk chars"
             )
+        _validate_range(
+            "TEMP_DOCUMENT_RETRIEVAL_TOP_K",
+            self.retrieval_top_k,
+            _MIN_RETRIEVAL_TOP_K,
+            _MAX_RETRIEVAL_TOP_K,
+        )
+        _validate_range(
+            "TEMP_DOCUMENT_CONTEXT_MAX_CHARS",
+            self.context_max_chars,
+            _MIN_CONTEXT_MAX_CHARS,
+            _MAX_CONTEXT_MAX_CHARS,
+        )
+        _validate_float_range(
+            "TEMP_DOCUMENT_SIMILARITY_THRESHOLD",
+            self.similarity_threshold,
+            _MIN_SIMILARITY_THRESHOLD,
+            _MAX_SIMILARITY_THRESHOLD,
+        )
 
 
 def load_temporary_document_settings(
@@ -200,6 +231,21 @@ def load_temporary_document_settings(
             "TEMP_DOCUMENT_CHUNK_OVERLAP_CHARS",
             DEFAULT_TEMP_DOCUMENT_CHUNK_OVERLAP_CHARS,
         ),
+        retrieval_top_k=_read_integer(
+            environment,
+            "TEMP_DOCUMENT_RETRIEVAL_TOP_K",
+            DEFAULT_TEMP_DOCUMENT_RETRIEVAL_TOP_K,
+        ),
+        context_max_chars=_read_integer(
+            environment,
+            "TEMP_DOCUMENT_CONTEXT_MAX_CHARS",
+            DEFAULT_TEMP_DOCUMENT_CONTEXT_MAX_CHARS,
+        ),
+        similarity_threshold=_read_float(
+            environment,
+            "TEMP_DOCUMENT_SIMILARITY_THRESHOLD",
+            DEFAULT_TEMP_DOCUMENT_SIMILARITY_THRESHOLD,
+        ),
     )
 
 
@@ -217,9 +263,41 @@ def _read_integer(
         ) from exc
 
 
+def _read_float(
+    environment: Mapping[str, str],
+    name: str,
+    default: float,
+) -> float:
+    raw_value = environment.get(name, str(default)).strip()
+    try:
+        return float(raw_value)
+    except ValueError as exc:
+        raise InvalidTemporaryDocumentSettings(
+            f"{name} must be a number"
+        ) from exc
+
+
 def _validate_range(name: str, value: int, minimum: int, maximum: int) -> None:
     if isinstance(value, bool) or not isinstance(value, int):
         raise InvalidTemporaryDocumentSettings(f"{name} must be an integer")
+    if value < minimum or value > maximum:
+        raise InvalidTemporaryDocumentSettings(
+            f"{name} must be between {minimum} and {maximum}"
+        )
+
+
+def _validate_float_range(
+    name: str,
+    value: float,
+    minimum: float,
+    maximum: float,
+) -> None:
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not math.isfinite(value)
+    ):
+        raise InvalidTemporaryDocumentSettings(f"{name} must be a finite number")
     if value < minimum or value > maximum:
         raise InvalidTemporaryDocumentSettings(
             f"{name} must be between {minimum} and {maximum}"
