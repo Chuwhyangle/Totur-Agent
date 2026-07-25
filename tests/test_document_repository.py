@@ -25,12 +25,14 @@ from app.repositories.document_repository import (
     create_attachment_document,
     delete_document_record,
     get_accessible_attachment,
+    get_attachment_for_cleanup,
     get_document,
     get_owned_attachment,
     get_retrievable_attachment,
     list_accessible_session_attachments,
     list_expired_attachments,
     list_session_attachments,
+    list_stale_deleting_attachments,
     update_document_status,
 )
 from app.repositories.session_repository import create_session, list_sessions
@@ -280,7 +282,7 @@ def test_all_allowed_document_status_transitions_succeed(monkeypatch, tmp_path):
     assert update_document_status(
         ready_document.id,
         DocumentStatus.READY,
-        parsed_path="/parsed/ready.txt",
+        parsed_path="parsed/ready.txt",
         page_count=2,
     ).status is DocumentStatus.READY
     assert update_document_status(
@@ -301,7 +303,7 @@ def test_all_allowed_document_status_transitions_succeed(monkeypatch, tmp_path):
     assert update_document_status(
         partial_document.id,
         DocumentStatus.PARTIAL,
-        parsed_path="/parsed/partial.txt",
+        parsed_path="parsed/partial.txt",
         page_count=1,
         error_code="PAGE_SKIPPED",
     ).status is DocumentStatus.PARTIAL
@@ -376,7 +378,7 @@ def test_failed_document_can_retry_and_continue_to_ready(monkeypatch, tmp_path):
     update_document_status(
         document.id,
         DocumentStatus.FAILED,
-        parsed_path="/parsed/stale.txt",
+        parsed_path="parsed/stale.txt",
         page_count=2,
         error_code="TEMPORARY_IO_ERROR",
         error_message="Stale failure details.",
@@ -391,7 +393,7 @@ def test_failed_document_can_retry_and_continue_to_ready(monkeypatch, tmp_path):
     ready = update_document_status(
         document.id,
         DocumentStatus.READY,
-        parsed_path="/parsed/retry.txt",
+        parsed_path="parsed/retry.txt",
         page_count=3,
     )
 
@@ -403,7 +405,7 @@ def test_failed_document_can_retry_and_continue_to_ready(monkeypatch, tmp_path):
     assert ready.status is DocumentStatus.READY
     assert ready.parser_name == "retry-parser"
     assert ready.parser_version == "2.0"
-    assert ready.parsed_path == "/parsed/retry.txt"
+    assert ready.parsed_path == "parsed/retry.txt"
     assert ready.page_count == 3
 
 
@@ -423,7 +425,7 @@ def test_ready_clears_errors_from_previous_failed_attempt(monkeypatch, tmp_path)
     ready = update_document_status(
         document.id,
         DocumentStatus.READY,
-        parsed_path="/parsed/ready-after-retry.txt",
+        parsed_path="parsed/ready-after-retry.txt",
         page_count=1,
     )
 
@@ -546,6 +548,79 @@ def test_deleting_and_deleted_documents_are_hidden_from_attachment_queries(
     ] == [visible.id]
 
 
+def test_cleanup_query_returns_only_recoverable_attachment_states(
+    monkeypatch,
+    tmp_path,
+):
+    use_temp_database(monkeypatch, tmp_path)
+    session = create_session("alice")
+    active = create_attachment("alice", session.id, filename="active.pdf")
+    deleting = create_attachment(
+        "alice",
+        session.id,
+        filename="deleting.pdf",
+    )
+    deleted = create_attachment(
+        "alice",
+        session.id,
+        filename="deleted.pdf",
+    )
+    update_document_status(deleting.id, DocumentStatus.DELETING)
+    update_document_status(deleted.id, DocumentStatus.DELETING)
+    update_document_status(deleted.id, DocumentStatus.DELETED)
+
+    assert get_attachment_for_cleanup(active.id) is None
+    assert (
+        get_attachment_for_cleanup(deleting.id).status
+        is DocumentStatus.DELETING
+    )
+    assert (
+        get_attachment_for_cleanup(deleted.id).status
+        is DocumentStatus.DELETED
+    )
+
+
+def test_stale_deleting_query_filters_and_orders_candidates(
+    monkeypatch,
+    tmp_path,
+):
+    use_temp_database(monkeypatch, tmp_path)
+    session = create_session("alice")
+    first = create_attachment("alice", session.id, filename="first.pdf")
+    second = create_attachment("alice", session.id, filename="second.pdf")
+    recent = create_attachment("alice", session.id, filename="recent.pdf")
+    deleted = create_attachment("alice", session.id, filename="deleted.pdf")
+    for document in (first, second, recent, deleted):
+        update_document_status(document.id, DocumentStatus.DELETING)
+    update_document_status(deleted.id, DocumentStatus.DELETED)
+
+    timestamps = {
+        first.id: "2029-01-01T00:00:00+00:00",
+        second.id: "2029-01-02T00:00:00+00:00",
+        recent.id: "2031-01-01T00:00:00+00:00",
+        deleted.id: "2028-01-01T00:00:00+00:00",
+    }
+    connection = database.get_connection()
+    try:
+        connection.executemany(
+            f"UPDATE {DOCUMENTS_TABLE} SET updated_at = ? WHERE id = ?",
+            [
+                (updated_at, document_id)
+                for document_id, updated_at in timestamps.items()
+            ],
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    candidates = list_stale_deleting_attachments(
+        "2030-01-01T00:00:00+00:00",
+        limit=10,
+    )
+
+    assert [record.id for record in candidates] == [first.id, second.id]
+
+
 def test_ready_requires_parsed_path_and_positive_page_count(monkeypatch, tmp_path):
     use_temp_database(monkeypatch, tmp_path)
     session = create_session("alice")
@@ -558,8 +633,39 @@ def test_ready_requires_parsed_path_and_positive_page_count(monkeypatch, tmp_pat
         update_document_status(
             document.id,
             DocumentStatus.READY,
-            parsed_path="/parsed/empty.txt",
+            parsed_path="parsed/empty.txt",
             page_count=0,
+        )
+
+    assert get_document(document.id).status is DocumentStatus.PARSING
+
+
+@pytest.mark.parametrize(
+    "parsed_path",
+    [
+        "/absolute/result.json",
+        "../escape.json",
+        "parsed/../escape.json",
+        r"C:\\secret\\result.json",
+        " parsed/result.json",
+    ],
+)
+def test_parsed_path_must_be_a_relative_storage_key(
+    monkeypatch,
+    tmp_path,
+    parsed_path,
+):
+    use_temp_database(monkeypatch, tmp_path)
+    session = create_session("alice")
+    document = create_attachment("alice", session.id)
+    update_document_status(document.id, DocumentStatus.PARSING)
+
+    with pytest.raises(InvalidDocumentRecord, match="relative storage key"):
+        update_document_status(
+            document.id,
+            DocumentStatus.READY,
+            parsed_path=parsed_path,
+            page_count=1,
         )
 
     assert get_document(document.id).status is DocumentStatus.PARSING
@@ -578,14 +684,14 @@ def test_partial_requires_usable_result_and_stable_warning_code(
         update_document_status(
             document.id,
             DocumentStatus.PARTIAL,
-            parsed_path="/parsed/partial.txt",
+            parsed_path="parsed/partial.txt",
             page_count=1,
         )
 
     partial = update_document_status(
         document.id,
         DocumentStatus.PARTIAL,
-        parsed_path="/parsed/partial.txt",
+        parsed_path="parsed/partial.txt",
         page_count=1,
         error_code="ONE_PAGE_SKIPPED",
     )

@@ -4,7 +4,7 @@ from typing import Annotated, NoReturn
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile, status
 
-from app.db.models import DocumentRecord
+from app.db.models import DocumentRecord, DocumentStatus
 from app.schemas.documents import AttachmentItem, AttachmentListResponse
 from app.services.documents.temporary_document_service import (
     AttachmentCleanupError,
@@ -167,7 +167,15 @@ def _item_from_record(record: DocumentRecord) -> AttachmentItem:
         created_at=record.created_at,
         expires_at=record.expires_at or "",
         error_code=record.error_code,
-        error_message=record.error_message,
+        user_safe_message=_user_safe_message(record),
     )
 
 
+def _user_safe_message(record: DocumentRecord) -> str | None:
+    """Map internal parser outcomes to path-safe public messages."""
+
+    if record.status is DocumentStatus.PARTIAL:
+        return "The attachment was only partially processed."
+    if record.status is DocumentStatus.FAILED:
+        return "The attachment could not be processed."
+    return None

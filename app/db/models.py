@@ -161,6 +161,7 @@ class DocumentRecord:
     mime_type: str
     size_bytes: int
     storage_path: str
+    # Relative storage key under the temporary document root, never absolute.
     parsed_path: str | None
     content_hash: str | None
     status: DocumentStatus

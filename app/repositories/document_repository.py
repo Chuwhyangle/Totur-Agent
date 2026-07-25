@@ -1,6 +1,7 @@
 """Document metadata database operations."""
 
 from datetime import datetime, timezone
+from pathlib import PurePosixPath, PureWindowsPath
 from uuid import uuid4
 
 from app.db.database import get_connection, initialize_database
@@ -191,6 +192,35 @@ def get_document(document_id: str) -> DocumentRecord | None:
         row = connection.execute(
             f"SELECT {_DOCUMENT_COLUMNS} FROM {DOCUMENTS_TABLE} WHERE id = ?",
             (document_id,),
+        ).fetchone()
+        return _record_from_row(row) if row is not None else None
+    finally:
+        connection.close()
+
+
+def get_attachment_for_cleanup(
+    document_id: str,
+) -> DocumentRecord | None:
+    """Get an attachment only while lifecycle cleanup is recoverable."""
+
+    initialize_database()
+    connection = get_connection()
+
+    try:
+        row = connection.execute(
+            f"""
+            SELECT {_DOCUMENT_COLUMNS}
+            FROM {DOCUMENTS_TABLE}
+            WHERE id = ?
+                AND scope = ?
+                AND status IN (?, ?)
+            """,
+            (
+                document_id,
+                DocumentScope.ATTACHMENT.value,
+                DocumentStatus.DELETING.value,
+                DocumentStatus.DELETED.value,
+            ),
         ).fetchone()
         return _record_from_row(row) if row is not None else None
     finally:
@@ -431,6 +461,8 @@ def update_document_status(
 
     if page_count is not None and page_count < 0:
         raise InvalidDocumentRecord("page_count must not be negative")
+    if parsed_path is not None:
+        _validate_parsed_storage_key(parsed_path)
     if error_code is not None and not error_code.strip():
         raise InvalidDocumentRecord("error_code must not be blank")
     if target_status is DocumentStatus.FAILED and error_code is None:
@@ -562,6 +594,47 @@ def update_document_status(
         connection.close()
 
 
+def list_stale_deleting_attachments(
+    updated_before: datetime | str,
+    limit: int,
+) -> list[DocumentRecord]:
+    """List DELETING attachments old enough for cleanup retry."""
+
+    if limit < 0:
+        raise ValueError("limit must not be negative")
+    if limit == 0:
+        return []
+
+    initialize_database()
+    normalized_updated_before = _normalize_utc_iso(
+        updated_before,
+        "updated_before",
+    )
+    connection = get_connection()
+
+    try:
+        rows = connection.execute(
+            f"""
+            SELECT {_DOCUMENT_COLUMNS}
+            FROM {DOCUMENTS_TABLE}
+            WHERE scope = ?
+                AND status = ?
+                AND updated_at <= ?
+            ORDER BY updated_at ASC, created_at ASC, id ASC
+            LIMIT ?
+            """,
+            (
+                DocumentScope.ATTACHMENT.value,
+                DocumentStatus.DELETING.value,
+                normalized_updated_before,
+                limit,
+            ),
+        ).fetchall()
+        return [_record_from_row(row) for row in rows]
+    finally:
+        connection.close()
+
+
 def list_expired_attachments(
     now: datetime | str,
     limit: int,
@@ -635,6 +708,32 @@ def delete_document_record(document_id: str) -> bool:
         return True
     finally:
         connection.close()
+
+
+def _validate_parsed_storage_key(parsed_path: str) -> None:
+    """Require parsed_path to be a relative key under the storage root."""
+
+    if (
+        not parsed_path
+        or parsed_path != parsed_path.strip()
+        or "\x00" in parsed_path
+        or "\\" in parsed_path
+    ):
+        raise InvalidDocumentRecord(
+            "parsed_path must be a relative storage key"
+        )
+
+    posix_key = PurePosixPath(parsed_path)
+    windows_key = PureWindowsPath(parsed_path)
+    if (
+        posix_key.is_absolute()
+        or windows_key.is_absolute()
+        or bool(windows_key.drive)
+        or any(part in {".", "..", ""} for part in posix_key.parts)
+    ):
+        raise InvalidDocumentRecord(
+            "parsed_path must be a relative storage key"
+        )
 
 
 def _validate_usable_parse_result(

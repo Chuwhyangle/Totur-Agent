@@ -184,7 +184,7 @@ def test_delete_attachment_removes_future_parsed_artifact(monkeypatch, tmp_path)
     assert parsed_path.exists() is False
     assert get_document(record.id) is None
 
-def test_delete_attachment_succeeds_when_file_is_already_missing(
+def test_delete_attachment_continues_when_original_is_already_missing(
     monkeypatch,
     tmp_path,
 ):
@@ -192,10 +192,22 @@ def test_delete_attachment_succeeds_when_file_is_already_missing(
     session = create_session("alice")
     service = make_service(tmp_path)
     record = service.create_attachment("alice", session.id, make_upload())
+    parsed_key = "parsed/result.json"
+    parsed_path = service.storage.resolve(parsed_key)
+    parsed_path.parent.mkdir(parents=True, exist_ok=True)
+    parsed_path.write_text("{}", encoding="utf-8")
+    update_document_status(record.id, DocumentStatus.PARSING)
+    update_document_status(
+        record.id,
+        DocumentStatus.READY,
+        parsed_path=parsed_key,
+        page_count=1,
+    )
     service.storage.delete(record.storage_path)
 
     service.delete_attachment(record.id, "alice", session.id)
 
+    assert parsed_path.exists() is False
     assert get_document(record.id) is None
 
 
@@ -204,6 +216,8 @@ def test_file_delete_failure_leaves_document_in_deleting(monkeypatch, tmp_path):
     session = create_session("alice")
     service = make_service(tmp_path)
     record = service.create_attachment("alice", session.id, make_upload())
+    stored_path = service.storage.resolve(record.storage_path)
+    real_delete = service.storage.delete
 
     def fail_delete(_storage_key):
         raise AttachmentStorageError("simulated delete failure")
@@ -216,6 +230,12 @@ def test_file_delete_failure_leaves_document_in_deleting(monkeypatch, tmp_path):
     retained = get_document(record.id)
     assert retained is not None
     assert retained.status is DocumentStatus.DELETING
+
+    monkeypatch.setattr(service.storage, "delete", real_delete)
+    assert service.retry_attachment_cleanup(record.id) is True
+    assert stored_path.exists() is False
+    assert get_document(record.id) is None
+    assert service.retry_attachment_cleanup(record.id) is False
 
 
 def test_unauthorized_delete_preserves_file_and_metadata(monkeypatch, tmp_path):
@@ -255,7 +275,9 @@ def test_post_attachment_returns_201_and_safe_dto(monkeypatch, tmp_path):
         "parsed_path",
         "content_hash",
         "user_id",
+        "error_message",
     }.isdisjoint(body)
+    assert body["user_safe_message"] is None
 
 
 def test_list_api_returns_only_owned_session_unexpired_attachments(
@@ -350,6 +372,43 @@ def test_delete_attachment_api_returns_204(monkeypatch, tmp_path):
 
     assert response.status_code == 204
     assert response.content == b""
+    assert get_document(record.id) is None
+
+
+def test_delete_api_retries_a_deleting_attachment(
+    monkeypatch,
+    tmp_path,
+):
+    use_temp_database(monkeypatch, tmp_path)
+    session = create_session("alice")
+    service = make_service(tmp_path)
+    record = service.create_attachment("alice", session.id, make_upload())
+    stored_path = service.storage.resolve(record.storage_path)
+    real_delete = service.storage.delete
+    attempts = 0
+
+    def fail_once(storage_key):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise AttachmentStorageError("transient delete failure")
+        real_delete(storage_key)
+
+    monkeypatch.setattr(service.storage, "delete", fail_once)
+
+    with api_client_for(service) as client:
+        first = client.delete(
+            f"/sessions/{session.id}/attachments/{record.id}",
+            params={"user_id": "alice"},
+        )
+        second = client.delete(
+            f"/sessions/{session.id}/attachments/{record.id}",
+            params={"user_id": "alice"},
+        )
+
+    assert first.status_code == 500
+    assert second.status_code == 204
+    assert stored_path.exists() is False
     assert get_document(record.id) is None
 
 
@@ -483,6 +542,38 @@ def test_storage_failure_api_returns_stable_500_without_path_details(
 
     assert response.status_code == 500
     assert response.json()["detail"]["error"] == "attachment_storage_error"
+    assert "secret" not in response.text
+
+
+def test_failed_attachment_api_hides_internal_error_message(
+    monkeypatch,
+    tmp_path,
+):
+    use_temp_database(monkeypatch, tmp_path)
+    session = create_session("alice")
+    service = make_service(tmp_path)
+    record = service.create_attachment("alice", session.id, make_upload())
+    update_document_status(record.id, DocumentStatus.PARSING)
+    update_document_status(
+        record.id,
+        DocumentStatus.FAILED,
+        error_code="PDF_PARSE_FAILED",
+        error_message=r"parser failed at C:\secret\document.pdf",
+    )
+
+    with api_client_for(service) as client:
+        response = client.get(
+            f"/sessions/{session.id}/attachments/{record.id}",
+            params={"user_id": "alice"},
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["error_code"] == "PDF_PARSE_FAILED"
+    assert body["user_safe_message"] == (
+        "The attachment could not be processed."
+    )
+    assert "error_message" not in body
     assert "secret" not in response.text
 
 

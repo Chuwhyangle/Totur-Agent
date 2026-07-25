@@ -16,7 +16,7 @@ class AttachmentItem(BaseModel):
     created_at: str
     expires_at: str
     error_code: str | None = None
-    error_message: str | None = None
+    user_safe_message: str | None = None
 
 
 class AttachmentListResponse(BaseModel):

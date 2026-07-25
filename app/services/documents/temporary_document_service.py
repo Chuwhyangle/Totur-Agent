@@ -3,12 +3,13 @@
 from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 
-from app.db.models import DocumentRecord, DocumentStatus
+from app.db.models import DocumentRecord, DocumentScope, DocumentStatus
 from app.repositories.document_repository import (
     count_accessible_session_attachments,
     create_attachment_document,
     delete_document_record,
     get_accessible_attachment,
+    get_attachment_for_cleanup,
     list_accessible_session_attachments,
     update_document_status,
 )
@@ -158,39 +159,98 @@ class TemporaryDocumentService:
         user_id: str,
         session_id: int,
     ) -> None:
-        """Delete files, finish lifecycle state, then purge SQLite metadata."""
+        """Delete files, finish lifecycle state, then purge metadata."""
 
-        record = self.get_attachment(document_id, user_id, session_id)
-        deleting = update_document_status(document_id, DocumentStatus.DELETING)
-        if deleting is None:
-            raise AttachmentNotFoundError("Session or attachment not found")
-
-        storage_keys = [record.storage_path]
-        if record.parsed_path and record.parsed_path not in storage_keys:
-            storage_keys.append(record.parsed_path)
-
-        try:
-            for storage_key in storage_keys:
-                self.storage.delete(storage_key)
-        except AttachmentStorageError as exc:
-            # Keep DELETING so a future cleanup service can safely retry.
-            raise AttachmentCleanupError(
-                "Attachment file cleanup failed"
-            ) from exc
-
-        try:
-            deleted = update_document_status(document_id, DocumentStatus.DELETED)
-            if deleted is None:
-                raise AttachmentCleanupError(
-                    "Attachment metadata disappeared during cleanup"
+        self._require_owned_session(user_id, session_id)
+        record = get_accessible_attachment(
+            document_id=document_id,
+            user_id=user_id,
+            session_id=session_id,
+            now=self._utc_now(),
+        )
+        if record is not None:
+            deleting = update_document_status(
+                document_id,
+                DocumentStatus.DELETING,
+            )
+            if deleting is None:
+                raise AttachmentNotFoundError(
+                    "Session or attachment not found"
                 )
-            delete_document_record(document_id)
-        except AttachmentCleanupError:
-            raise
+            self._cleanup_attachment_record(deleting)
+            return
+
+        cleanup_record = get_attachment_for_cleanup(document_id)
+        if not self._is_owned_attachment(
+            cleanup_record,
+            user_id,
+            session_id,
+        ):
+            raise AttachmentNotFoundError(
+                "Session or attachment not found"
+            )
+        self._cleanup_attachment_record(cleanup_record)
+
+    def retry_attachment_cleanup(self, document_id: str) -> bool:
+        """Retry trusted internal cleanup for DELETING/DELETED metadata."""
+
+        record = get_attachment_for_cleanup(document_id)
+        if record is None:
+            return False
+        self._cleanup_attachment_record(record)
+        return True
+
+    def _cleanup_attachment_record(self, record: DocumentRecord) -> None:
+        if record.status is DocumentStatus.DELETING:
+            storage_keys = [record.storage_path]
+            # parsed_path is a relative key under this same storage root.
+            if record.parsed_path and record.parsed_path not in storage_keys:
+                storage_keys.append(record.parsed_path)
+
+            try:
+                for storage_key in storage_keys:
+                    self.storage.delete(storage_key)
+            except AttachmentStorageError as exc:
+                # Keep DELETING so this idempotent operation can be retried.
+                raise AttachmentCleanupError(
+                    "Attachment file cleanup failed"
+                ) from exc
+
+            try:
+                deleted = update_document_status(
+                    record.id,
+                    DocumentStatus.DELETED,
+                )
+                if deleted is None:
+                    raise AttachmentCleanupError(
+                        "Attachment metadata disappeared during cleanup"
+                    )
+            except AttachmentCleanupError:
+                raise
+            except Exception as exc:
+                raise AttachmentCleanupError(
+                    "Attachment metadata cleanup failed"
+                ) from exc
+
+        try:
+            delete_document_record(record.id)
         except Exception as exc:
             raise AttachmentCleanupError(
                 "Attachment metadata cleanup failed"
             ) from exc
+
+    @staticmethod
+    def _is_owned_attachment(
+        record: DocumentRecord | None,
+        user_id: str,
+        session_id: int,
+    ) -> bool:
+        return (
+            record is not None
+            and record.scope is DocumentScope.ATTACHMENT
+            and record.user_id == user_id
+            and record.session_id == session_id
+        )
 
     def _require_owned_session(self, user_id: str, session_id: int) -> None:
         # user_id is a temporary identity mechanism until authentication exists.
