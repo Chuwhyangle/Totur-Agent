@@ -1,4 +1,4 @@
-"""PyMuPDF-backed validation and ordered Page/Block text extraction."""
+﻿"""PyMuPDF-backed validation and ordered Page/Block text extraction."""
 
 from pathlib import Path
 import re
@@ -18,6 +18,10 @@ class PdfParsingError(RuntimeError):
     error_code = "PDF_PARSE_FAILED"
 
 
+class PdfSourceUnavailable(PdfParsingError):
+    error_code = "PDF_SOURCE_UNAVAILABLE"
+
+
 class InvalidPdfError(PdfParsingError):
     error_code = "INVALID_PDF"
 
@@ -28,6 +32,10 @@ class EncryptedPdfNotSupported(PdfParsingError):
 
 class PdfPageLimitExceeded(PdfParsingError):
     error_code = "PDF_PAGE_LIMIT_EXCEEDED"
+
+
+class PdfContentLimitExceeded(PdfParsingError):
+    error_code = "PDF_CONTENT_LIMIT_EXCEEDED"
 
 
 class NoExtractableText(PdfParsingError):
@@ -51,14 +59,32 @@ class PdfParser:
         original_filename: str,
         max_pages: int,
         min_extracted_chars: int,
+        max_extracted_chars: int = 2_000_000,
+        max_blocks_per_page: int = 5_000,
     ) -> ParsedDocument:
         if max_pages <= 0:
             raise ValueError("max_pages must be positive")
         if min_extracted_chars <= 0:
             raise ValueError("min_extracted_chars must be positive")
+        if max_extracted_chars < min_extracted_chars:
+            raise ValueError(
+                "max_extracted_chars must be >= min_extracted_chars"
+            )
+        if max_blocks_per_page <= 0:
+            raise ValueError("max_blocks_per_page must be positive")
 
+        source_path = Path(source_path)
         try:
-            document = pymupdf.open(Path(source_path))
+            document = pymupdf.open(source_path)
+        except (
+            FileNotFoundError,
+            PermissionError,
+            OSError,
+            pymupdf.FileNotFoundError,
+        ) as exc:
+            raise PdfSourceUnavailable(
+                "PDF source is unavailable"
+            ) from exc
         except Exception as exc:
             raise InvalidPdfError("PDF could not be opened or is invalid") from exc
 
@@ -87,6 +113,17 @@ class PdfParser:
                     text = _normalize_block_text(str(raw_block[4]))
                     if not text:
                         continue
+                    if len(blocks) >= max_blocks_per_page:
+                        raise PdfContentLimitExceeded(
+                            "PDF page contains too many text blocks"
+                        )
+                    block_chars = sum(
+                        not character.isspace() for character in text
+                    )
+                    if extracted_char_count + block_chars > max_extracted_chars:
+                        raise PdfContentLimitExceeded(
+                            "PDF extracted text exceeds the configured limit"
+                        )
                     blocks.append(
                         ParsedTextBlock(
                             block_index=len(blocks),
@@ -96,9 +133,7 @@ class PdfParser:
                             ),
                         )
                     )
-                    extracted_char_count += sum(
-                        not character.isspace() for character in text
-                    )
+                    extracted_char_count += block_chars
 
                 pages.append(
                     ParsedPage(

@@ -11,9 +11,11 @@ from app.services.documents.pdf_parser import (
     EncryptedPdfNotSupported,
     InvalidPdfError,
     NoExtractableText,
+    PdfContentLimitExceeded,
     PdfPageLimitExceeded,
     PdfParseFailed,
     PdfParser,
+    PdfSourceUnavailable,
 )
 
 
@@ -63,13 +65,22 @@ def create_image_only_pdf(path: Path) -> Path:
     return path
 
 
-def parse(path: Path, *, max_pages: int = 10, min_chars: int = 3):
+def parse(
+    path: Path,
+    *,
+    max_pages: int = 10,
+    min_chars: int = 3,
+    max_chars: int = 2_000_000,
+    max_blocks_per_page: int = 5_000,
+):
     return PdfParser().parse(
         source_path=path,
         document_id="document-123",
         original_filename="paper.pdf",
         max_pages=max_pages,
         min_extracted_chars=min_chars,
+        max_extracted_chars=max_chars,
+        max_blocks_per_page=max_blocks_per_page,
     )
 
 
@@ -251,4 +262,39 @@ def test_unexpected_extraction_failure_is_stable_and_document_closes(monkeypatch
         parse(Path("unused.pdf"), min_chars=1)
 
     assert error.value.error_code == "PDF_PARSE_FAILED"
+    assert document.closed is True
+
+
+def test_missing_source_is_classified_as_unavailable(tmp_path):
+    with pytest.raises(PdfSourceUnavailable) as error:
+        parse(tmp_path / "missing.pdf")
+
+    assert error.value.error_code == "PDF_SOURCE_UNAVAILABLE"
+
+
+def test_extracted_character_limit_stops_parsing(tmp_path):
+    path = create_text_pdf(
+        tmp_path / "too-much-text.pdf",
+        [[(72, "abcdefghij")]],
+    )
+
+    with pytest.raises(PdfContentLimitExceeded) as error:
+        parse(path, min_chars=1, max_chars=5)
+
+    assert error.value.error_code == "PDF_CONTENT_LIMIT_EXCEEDED"
+
+
+def test_per_page_block_limit_stops_parsing(monkeypatch):
+    document = FakeDocument(
+        [
+            (0, 0, 10, 10, "first", 0, 0),
+            (0, 20, 10, 30, "second", 1, 0),
+        ]
+    )
+    monkeypatch.setattr(pdf_parser_module.pymupdf, "open", lambda _path: document)
+
+    with pytest.raises(PdfContentLimitExceeded) as error:
+        parse(Path("unused.pdf"), min_chars=1, max_blocks_per_page=1)
+
+    assert error.value.error_code == "PDF_CONTENT_LIMIT_EXCEEDED"
     assert document.closed is True

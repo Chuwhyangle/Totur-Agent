@@ -35,6 +35,7 @@ from app.repositories.document_repository import (
     list_stale_cleanup_attachments,
     list_stale_deleting_attachments,
     list_stale_parsing_attachments,
+    list_stale_processing_attachments,
     update_document_status,
 )
 from app.repositories.session_repository import create_session, list_sessions
@@ -283,9 +284,13 @@ def test_all_allowed_document_status_transitions_succeed(monkeypatch, tmp_path):
     ).status is DocumentStatus.PARSING
     assert update_document_status(
         ready_document.id,
-        DocumentStatus.READY,
+        DocumentStatus.INDEXING,
         parsed_path="parsed/ready.txt",
         page_count=2,
+    ).status is DocumentStatus.INDEXING
+    assert update_document_status(
+        ready_document.id,
+        DocumentStatus.READY,
     ).status is DocumentStatus.READY
     assert update_document_status(
         ready_document.id,
@@ -301,12 +306,21 @@ def test_all_allowed_document_status_transitions_succeed(monkeypatch, tmp_path):
         session.id,
         filename="partial.pdf",
     )
-    update_document_status(partial_document.id, DocumentStatus.PARSING)
+    update_document_status(
+        partial_document.id,
+        DocumentStatus.PARSING,
+        parser_name="test-parser",
+        parser_version="1.0",
+    )
+    assert update_document_status(
+        partial_document.id,
+        DocumentStatus.INDEXING,
+        parsed_path="parsed/partial.txt",
+        page_count=1,
+    ).status is DocumentStatus.INDEXING
     assert update_document_status(
         partial_document.id,
         DocumentStatus.PARTIAL,
-        parsed_path="parsed/partial.txt",
-        page_count=1,
         error_code="PAGE_SKIPPED",
     ).status is DocumentStatus.PARTIAL
     assert update_document_status(
@@ -339,8 +353,8 @@ def test_illegal_status_transition_raises_and_leaves_database_unchanged(
     session = create_session("alice")
     document = create_attachment("alice", session.id)
 
-    with pytest.raises(InvalidDocumentStatusTransition, match="UPLOADED.*READY"):
-        update_document_status(document.id, DocumentStatus.READY)
+    with pytest.raises(InvalidDocumentStatusTransition, match="UPLOADED.*INDEXING"):
+        update_document_status(document.id, DocumentStatus.INDEXING)
 
     unchanged = get_document(document.id)
     assert unchanged.status is DocumentStatus.UPLOADED
@@ -392,12 +406,13 @@ def test_failed_document_can_retry_and_continue_to_ready(monkeypatch, tmp_path):
         parser_name="retry-parser",
         parser_version="2.0",
     )
-    ready = update_document_status(
+    indexing = update_document_status(
         document.id,
-        DocumentStatus.READY,
+        DocumentStatus.INDEXING,
         parsed_path="parsed/retry.txt",
         page_count=3,
     )
+    ready = update_document_status(document.id, DocumentStatus.READY)
 
     assert parsing.status is DocumentStatus.PARSING
     assert parsing.parsed_path is None
@@ -422,15 +437,21 @@ def test_ready_clears_errors_from_previous_failed_attempt(monkeypatch, tmp_path)
         error_code="PARSER_TIMEOUT",
         error_message="Timed out.",
     )
-    update_document_status(document.id, DocumentStatus.PARSING)
-
-    ready = update_document_status(
+    update_document_status(
         document.id,
-        DocumentStatus.READY,
+        DocumentStatus.PARSING,
+        parser_name="retry-parser",
+        parser_version="2.0",
+    )
+    indexing = update_document_status(
+        document.id,
+        DocumentStatus.INDEXING,
         parsed_path="parsed/ready-after-retry.txt",
         page_count=1,
     )
+    ready = update_document_status(document.id, DocumentStatus.READY)
 
+    assert indexing.error_code is None
     assert ready.error_code is None
     assert ready.error_message is None
 
@@ -677,10 +698,13 @@ def test_stale_parsing_query_filters_orders_and_limits(monkeypatch, tmp_path):
         update_document_status(document.id, DocumentStatus.PARSING)
     update_document_status(
         ready.id,
-        DocumentStatus.READY,
+        DocumentStatus.INDEXING,
         parsed_path="parsed/ready.json",
         page_count=1,
+        parser_name="test-parser",
+        parser_version="1.0",
     )
+    update_document_status(ready.id, DocumentStatus.READY)
 
     timestamps = {
         first.id: "2028-01-01T00:00:00+00:00",
@@ -705,18 +729,18 @@ def test_stale_parsing_query_filters_orders_and_limits(monkeypatch, tmp_path):
 
     assert [record.id for record in candidates] == [first.id]
 
-def test_ready_requires_parsed_path_and_positive_page_count(monkeypatch, tmp_path):
+def test_indexing_requires_parsed_path_and_positive_page_count(monkeypatch, tmp_path):
     use_temp_database(monkeypatch, tmp_path)
     session = create_session("alice")
     document = create_attachment("alice", session.id)
     update_document_status(document.id, DocumentStatus.PARSING)
 
     with pytest.raises(InvalidDocumentRecord, match="parsed_path"):
-        update_document_status(document.id, DocumentStatus.READY)
+        update_document_status(document.id, DocumentStatus.INDEXING)
     with pytest.raises(InvalidDocumentRecord, match="page_count > 0"):
         update_document_status(
             document.id,
-            DocumentStatus.READY,
+            DocumentStatus.INDEXING,
             parsed_path="parsed/empty.txt",
             page_count=0,
         )
@@ -747,7 +771,7 @@ def test_parsed_path_must_be_a_relative_storage_key(
     with pytest.raises(InvalidDocumentRecord, match="relative storage key"):
         update_document_status(
             document.id,
-            DocumentStatus.READY,
+            DocumentStatus.INDEXING,
             parsed_path=parsed_path,
             page_count=1,
         )
@@ -762,21 +786,25 @@ def test_partial_requires_usable_result_and_stable_warning_code(
     use_temp_database(monkeypatch, tmp_path)
     session = create_session("alice")
     document = create_attachment("alice", session.id)
-    update_document_status(document.id, DocumentStatus.PARSING)
+    update_document_status(
+        document.id,
+        DocumentStatus.PARSING,
+        parser_name="test-parser",
+        parser_version="1.0",
+    )
+    update_document_status(
+        document.id,
+        DocumentStatus.INDEXING,
+        parsed_path="parsed/partial.txt",
+        page_count=1,
+    )
 
     with pytest.raises(InvalidDocumentRecord, match="stable error or warning code"):
-        update_document_status(
-            document.id,
-            DocumentStatus.PARTIAL,
-            parsed_path="parsed/partial.txt",
-            page_count=1,
-        )
+        update_document_status(document.id, DocumentStatus.PARTIAL)
 
     partial = update_document_status(
         document.id,
         DocumentStatus.PARTIAL,
-        parsed_path="parsed/partial.txt",
-        page_count=1,
         error_code="ONE_PAGE_SKIPPED",
     )
     assert partial.status is DocumentStatus.PARTIAL
@@ -1117,6 +1145,12 @@ def test_retrievable_query_allows_only_ready_and_partial(monkeypatch, tmp_path):
         filename="uploaded.pdf",
         expires_at=expires_at,
     )
+    indexing = create_attachment(
+        "alice",
+        session.id,
+        filename="indexing.pdf",
+        expires_at=expires_at,
+    )
     ready = create_attachment(
         "alice",
         session.id,
@@ -1129,25 +1163,55 @@ def test_retrievable_query_allows_only_ready_and_partial(monkeypatch, tmp_path):
         filename="partial.pdf",
         expires_at=expires_at,
     )
+    update_document_status(
+        indexing.id,
+        DocumentStatus.PARSING,
+        parser_name="test-parser",
+        parser_version="1.0",
+    )
+    update_document_status(
+        indexing.id,
+        DocumentStatus.INDEXING,
+        parsed_path="parsed/indexing.json",
+        page_count=1,
+    )
     update_document_status(ready.id, DocumentStatus.PARSING)
     update_document_status(
         ready.id,
-        DocumentStatus.READY,
+        DocumentStatus.INDEXING,
         parsed_path="parsed/ready.json",
         page_count=2,
+        parser_name="test-parser",
+        parser_version="1.0",
     )
+    update_document_status(ready.id, DocumentStatus.READY)
     update_document_status(partial.id, DocumentStatus.PARSING)
     update_document_status(
         partial.id,
-        DocumentStatus.PARTIAL,
+        DocumentStatus.INDEXING,
         parsed_path="parsed/partial.json",
         page_count=1,
+        parser_name="test-parser",
+        parser_version="1.0",
+    )
+    update_document_status(
+        partial.id,
+        DocumentStatus.PARTIAL,
         error_code="PARTIAL_TEXT",
     )
 
     assert (
         get_retrievable_attachment(
             uploaded.id,
+            "alice",
+            session.id,
+            query_now,
+        )
+        is None
+    )
+    assert (
+        get_retrievable_attachment(
+            indexing.id,
             "alice",
             session.id,
             query_now,
@@ -1181,3 +1245,182 @@ def test_retrievable_query_allows_only_ready_and_partial(monkeypatch, tmp_path):
         )
         is None
     )
+
+
+
+def test_stale_processing_query_includes_parsing_and_indexing(monkeypatch, tmp_path):
+    use_temp_database(monkeypatch, tmp_path)
+    session = create_session("alice")
+    parsing = create_attachment("alice", session.id, filename="parsing.pdf")
+    indexing = create_attachment("alice", session.id, filename="indexing.pdf")
+    ready = create_attachment("alice", session.id, filename="ready.pdf")
+    update_document_status(parsing.id, DocumentStatus.PARSING)
+    update_document_status(
+        indexing.id,
+        DocumentStatus.PARSING,
+        parser_name="test-parser",
+        parser_version="1.0",
+    )
+    update_document_status(
+        indexing.id,
+        DocumentStatus.INDEXING,
+        parsed_path="parsed/indexing.json",
+        page_count=1,
+    )
+    update_document_status(
+        ready.id,
+        DocumentStatus.PARSING,
+        parser_name="test-parser",
+        parser_version="1.0",
+    )
+    update_document_status(
+        ready.id,
+        DocumentStatus.INDEXING,
+        parsed_path="parsed/ready.json",
+        page_count=1,
+    )
+    update_document_status(ready.id, DocumentStatus.READY)
+
+    connection = database.get_connection()
+    try:
+        connection.executemany(
+            f"UPDATE {DOCUMENTS_TABLE} SET updated_at = ? WHERE id = ?",
+            [
+                ("2028-01-01T00:00:00+00:00", parsing.id),
+                ("2029-01-01T00:00:00+00:00", indexing.id),
+                ("2027-01-01T00:00:00+00:00", ready.id),
+            ],
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    records = list_stale_processing_attachments(
+        "2030-01-01T00:00:00+00:00",
+        limit=10,
+    )
+
+    assert [(record.id, record.status) for record in records] == [
+        (parsing.id, DocumentStatus.PARSING),
+        (indexing.id, DocumentStatus.INDEXING),
+    ]
+
+
+def test_initialize_database_migrates_legacy_ready_rows_for_reindex(
+    monkeypatch,
+    tmp_path,
+):
+    use_temp_database(monkeypatch, tmp_path)
+    connection = sqlite3.connect(database.DATABASE_PATH)
+    try:
+        connection.execute(
+            f"""
+            CREATE TABLE {CHAT_SESSIONS_TABLE} (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id TEXT NOT NULL,
+                title TEXT NOT NULL,
+                persona_id TEXT NOT NULL DEFAULT 'tutor',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                subject TEXT
+            )
+            """
+        )
+        connection.execute(
+            f"""
+            INSERT INTO {CHAT_SESSIONS_TABLE}
+                (id, user_id, title, persona_id, created_at, updated_at)
+            VALUES (1, 'alice', 'Legacy', 'tutor', ?, ?)
+            """,
+            ("2026-01-01T00:00:00+00:00", "2026-01-01T00:00:00+00:00"),
+        )
+        connection.execute(
+            f"""
+            CREATE TABLE {DOCUMENTS_TABLE} (
+                id TEXT PRIMARY KEY,
+                scope TEXT NOT NULL CHECK (scope IN ('INTERNAL', 'PRIVATE', 'ATTACHMENT')),
+                user_id TEXT,
+                session_id INTEGER REFERENCES {CHAT_SESSIONS_TABLE}(id) ON DELETE RESTRICT,
+                message_id INTEGER,
+                original_filename TEXT NOT NULL,
+                mime_type TEXT NOT NULL,
+                size_bytes INTEGER NOT NULL CHECK (size_bytes >= 0),
+                storage_path TEXT NOT NULL,
+                parsed_path TEXT,
+                content_hash TEXT,
+                status TEXT NOT NULL CHECK (status IN (
+                    'UPLOADED', 'PARSING', 'READY', 'PARTIAL',
+                    'FAILED', 'DELETING', 'DELETED'
+                )),
+                parser_name TEXT,
+                parser_version TEXT,
+                page_count INTEGER CHECK (page_count IS NULL OR page_count >= 0),
+                error_code TEXT,
+                error_message TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                expires_at TEXT,
+                CHECK (
+                    scope <> 'ATTACHMENT'
+                    OR (user_id IS NOT NULL AND session_id IS NOT NULL AND expires_at IS NOT NULL)
+                ),
+                CHECK (status <> 'FAILED' OR error_code IS NOT NULL)
+            )
+            """
+        )
+        for document_id, status in (("legacy-ready", "READY"), ("legacy-partial", "PARTIAL")):
+            connection.execute(
+                f"""
+                INSERT INTO {DOCUMENTS_TABLE} (
+                    id, scope, user_id, session_id, original_filename, mime_type,
+                    size_bytes, storage_path, parsed_path, status, parser_name,
+                    parser_version, page_count, created_at, updated_at, expires_at,
+                    error_code
+                ) VALUES (?, 'ATTACHMENT', 'alice', 1, ?, 'application/pdf',
+                    100, ?, ?, ?, 'pymupdf', '1.0', 2, ?, ?, ?, ?)
+                """,
+                (
+                    document_id,
+                    f"{document_id}.pdf",
+                    f"original/{document_id}.pdf",
+                    f"parsed/{document_id}.json",
+                    status,
+                    "2026-01-01T00:00:00+00:00",
+                    "2026-01-01T00:00:00+00:00",
+                    "2030-01-01T00:00:00+00:00",
+                    "OLD_PARTIAL_WARNING" if status == "PARTIAL" else None,
+                ),
+            )
+        connection.commit()
+    finally:
+        connection.close()
+
+    database.initialize_database()
+    database.initialize_database()
+
+    ready = get_document("legacy-ready")
+    partial = get_document("legacy-partial")
+    connection = database.get_connection()
+    try:
+        table_sql = connection.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name=?",
+            (DOCUMENTS_TABLE,),
+        ).fetchone()["sql"]
+        indexes = {
+            row["name"] for row in connection.execute(f"PRAGMA index_list({DOCUMENTS_TABLE})")
+        }
+    finally:
+        connection.close()
+
+    for record in (ready, partial):
+        assert record.status is DocumentStatus.FAILED
+        assert record.error_code == "REINDEX_REQUIRED"
+        assert record.error_message == "Existing parsed attachment requires indexing"
+        assert record.storage_path == f"original/{record.id}.pdf"
+        assert record.parsed_path == f"parsed/{record.id}.json"
+    assert "'INDEXING'" in table_sql
+    assert {
+        "idx_documents_user_session",
+        "idx_documents_status",
+        "idx_documents_expires_at",
+    }.issubset(indexes)

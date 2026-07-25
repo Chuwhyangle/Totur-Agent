@@ -10,6 +10,9 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.api.routes.attachments import get_temporary_document_service
+from app.services.documents.attachment_processing_service import (
+    get_attachment_processing_service,
+)
 from app.db import database
 from app.db.models import DocumentStatus
 from app.main import app
@@ -37,6 +40,23 @@ from app.services.documents.temporary_file_storage import (
 PDF_BYTES = b"%PDF-1.7\ntemporary attachment\n"
 
 
+class FakeVectorRepository:
+    def __init__(self):
+        self.deleted_document_ids = []
+
+    def delete_document(self, document_id):
+        self.deleted_document_ids.append(document_id)
+
+
+class FakeProcessingService:
+    def __init__(self):
+        self.document_ids = []
+
+    def process_attachment(self, document_id):
+        self.document_ids.append(document_id)
+        return get_document(document_id)
+
+
 def use_temp_database(monkeypatch, tmp_path):
     monkeypatch.setattr(database, "DATABASE_PATH", tmp_path / "attachments.db")
 
@@ -57,6 +77,7 @@ def make_service(
     )
     return TemporaryDocumentService(
         settings=settings,
+        vector_repository=FakeVectorRepository(),
         now_provider=now_provider,
     )
 
@@ -74,14 +95,17 @@ def make_upload(
 
 
 @contextmanager
-def api_client_for(service):
+def api_client_for(service, processing_service=None):
+    processor = processing_service or FakeProcessingService()
     app.dependency_overrides[get_temporary_document_service] = lambda: service
+    app.dependency_overrides[get_attachment_processing_service] = lambda: processor
     client = TestClient(app)
     try:
         yield client
     finally:
         client.close()
         app.dependency_overrides.pop(get_temporary_document_service, None)
+        app.dependency_overrides.pop(get_attachment_processing_service, None)
 
 
 def test_owner_can_create_uploaded_attachment(monkeypatch, tmp_path):
@@ -173,9 +197,11 @@ def test_delete_attachment_removes_future_parsed_artifact(monkeypatch, tmp_path)
     update_document_status(record.id, DocumentStatus.PARSING)
     update_document_status(
         record.id,
-        DocumentStatus.READY,
+        DocumentStatus.INDEXING,
         parsed_path=parsed_key,
         page_count=1,
+        parser_name="test-parser",
+        parser_version="1.0",
     )
 
     service.delete_attachment(record.id, "alice", session.id)
@@ -199,9 +225,11 @@ def test_delete_attachment_continues_when_original_is_already_missing(
     update_document_status(record.id, DocumentStatus.PARSING)
     update_document_status(
         record.id,
-        DocumentStatus.READY,
+        DocumentStatus.INDEXING,
         parsed_path=parsed_key,
         page_count=1,
+        parser_name="test-parser",
+        parser_version="1.0",
     )
     service.storage.delete(record.storage_path)
 
@@ -662,3 +690,55 @@ def test_attachment_routes_are_registered():
     )
 
 
+
+
+class FailOnceVectorRepository(FakeVectorRepository):
+    def __init__(self):
+        super().__init__()
+        self.failures_remaining = 1
+
+    def delete_document(self, document_id):
+        self.deleted_document_ids.append(document_id)
+        if self.failures_remaining:
+            self.failures_remaining -= 1
+            raise RuntimeError("vector cleanup failed")
+
+
+def test_upload_returns_uploaded_and_schedules_background_processing(monkeypatch, tmp_path):
+    use_temp_database(monkeypatch, tmp_path)
+    session = create_session("alice")
+    service = make_service(tmp_path)
+    processor = FakeProcessingService()
+
+    with api_client_for(service, processor) as client:
+        response = client.post(
+            f"/sessions/{session.id}/attachments",
+            data={"user_id": "alice"},
+            files={"file": ("notes.pdf", PDF_BYTES, "application/pdf")},
+        )
+
+    assert response.status_code == 201
+    payload = response.json()
+    assert payload["status"] == "UPLOADED"
+    assert processor.document_ids == [payload["id"]]
+
+
+def test_vector_cleanup_failure_stays_deleting_and_retry_succeeds(monkeypatch, tmp_path):
+    use_temp_database(monkeypatch, tmp_path)
+    session = create_session("alice")
+    service = make_service(tmp_path)
+    service.vector_repository = FailOnceVectorRepository()
+    record = service.create_attachment("alice", session.id, make_upload())
+    original_path = service.storage.resolve(record.storage_path)
+
+    with pytest.raises(AttachmentCleanupError):
+        service.delete_attachment(record.id, "alice", session.id)
+
+    retained = get_document(record.id)
+    assert retained.status is DocumentStatus.DELETING
+    assert original_path.exists() is False
+
+    service.delete_attachment(record.id, "alice", session.id)
+
+    assert get_document(record.id) is None
+    assert service.vector_repository.deleted_document_ids == [record.id, record.id]

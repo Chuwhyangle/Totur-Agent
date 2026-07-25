@@ -15,11 +15,16 @@ from app.repositories.document_repository import (
     update_document_status,
 )
 from app.repositories.session_repository import create_session
+from app.services.documents.parsed_document import (
+    ParsedDocument,
+    ParsedPage,
+    ParsedTextBlock,
+)
 from app.services.documents.parsed_document_storage import (
     ParsedDocumentStorage,
     ParsedDocumentStorageError,
 )
-from app.services.documents.pdf_parser import PdfParser
+from app.services.documents.pdf_parser import PdfContentLimitExceeded, PdfParser
 from app.services.documents.pdf_parsing_service import (
     AlreadyParsingError,
     AttachmentParsingExpired,
@@ -113,7 +118,7 @@ def make_context(
     return service, record, source_path, parsed_storage
 
 
-def test_uploaded_transitions_through_parsing_to_ready(monkeypatch, tmp_path):
+def test_uploaded_transitions_through_parsing_to_indexing(monkeypatch, tmp_path):
     service, record, _source, _parsed_storage = make_context(
         monkeypatch,
         tmp_path,
@@ -129,11 +134,11 @@ def test_uploaded_transitions_through_parsing_to_ready(monkeypatch, tmp_path):
 
     ready = service.parse_attachment(record.id)
 
-    assert transitions == [DocumentStatus.PARSING, DocumentStatus.READY]
-    assert ready.status is DocumentStatus.READY
+    assert transitions == [DocumentStatus.PARSING, DocumentStatus.INDEXING]
+    assert ready.status is DocumentStatus.INDEXING
 
 
-def test_ready_metadata_and_json_are_consistent(monkeypatch, tmp_path):
+def test_indexing_metadata_and_json_are_consistent(monkeypatch, tmp_path):
     service, record, _source, parsed_storage = make_context(monkeypatch, tmp_path)
 
     ready = service.parse_attachment(record.id)
@@ -177,7 +182,7 @@ def test_known_parser_failures_become_stable_failed_records(
     assert failed.parsed_path is None
 
 
-def test_failed_attachment_can_retry_to_ready(monkeypatch, tmp_path):
+def test_failed_attachment_can_retry_to_indexing(monkeypatch, tmp_path):
     service, record, source_path, _storage = make_context(
         monkeypatch,
         tmp_path,
@@ -189,18 +194,18 @@ def test_failed_attachment_can_retry_to_ready(monkeypatch, tmp_path):
     create_pdf(source_path, "Valid text after a retry")
     ready = service.parse_attachment(record.id)
 
-    assert ready.status is DocumentStatus.READY
+    assert ready.status is DocumentStatus.INDEXING
     assert ready.error_code is None
     assert ready.error_message is None
     assert ready.parsed_path is not None
 
 
-def test_ready_attachment_is_returned_without_reparsing(monkeypatch, tmp_path):
+def test_indexing_attachment_is_returned_without_reparsing(monkeypatch, tmp_path):
     service, record, _source, _storage = make_context(monkeypatch, tmp_path)
     first = service.parse_attachment(record.id)
 
     def fail_parse(**_kwargs):
-        raise AssertionError("READY attachments must not be parsed again")
+        raise AssertionError("INDEXING attachments must not be parsed again")
 
     monkeypatch.setattr(service.parser, "parse", fail_parse)
 
@@ -281,12 +286,12 @@ def test_json_write_failure_marks_failed_without_artifacts(monkeypatch, tmp_path
     assert list(service.settings.root_path.rglob("*.part")) == []
 
 
-def test_ready_update_failure_deletes_json_and_marks_failed(monkeypatch, tmp_path):
+def test_indexing_update_failure_deletes_json_and_marks_failed(monkeypatch, tmp_path):
     service, record, source_path, _storage = make_context(monkeypatch, tmp_path)
     real_update = document_repository.update_document_status
 
     def fail_ready(document_id, status, **metadata):
-        if DocumentStatus(status) is DocumentStatus.READY:
+        if DocumentStatus(status) is DocumentStatus.INDEXING:
             raise RuntimeError("database unavailable")
         return real_update(document_id, status, **metadata)
 
@@ -311,3 +316,53 @@ def test_parser_failure_never_deletes_original_pdf(monkeypatch, tmp_path):
     service.parse_attachment(record.id)
 
     assert source_path.exists()
+
+
+def test_parser_identity_mismatch_marks_failed_without_json(monkeypatch, tmp_path):
+    service, record, source_path, _storage = make_context(monkeypatch, tmp_path)
+
+    class WrongIdentityParser:
+        name = "wrong-parser"
+        version = "1.0"
+
+        def parse(self, **_kwargs):
+            return ParsedDocument(
+                schema_version=1,
+                document_id="wrong-id",
+                original_filename=record.original_filename,
+                page_count=1,
+                extracted_char_count=4,
+                pages=(
+                    ParsedPage(
+                        1,
+                        10.0,
+                        10.0,
+                        (ParsedTextBlock(0, "text", (0.0, 0.0, 1.0, 1.0)),),
+                    ),
+                ),
+            )
+
+    service.parser = WrongIdentityParser()
+
+    failed = service.parse_attachment(record.id)
+
+    assert failed.status is DocumentStatus.FAILED
+    assert failed.error_code == "PARSED_DOCUMENT_INVALID"
+    assert source_path.exists()
+    assert list(service.settings.root_path.rglob("*.json")) == []
+
+
+def test_content_limit_failure_writes_no_parsed_json(monkeypatch, tmp_path):
+    service, record, source_path, _storage = make_context(monkeypatch, tmp_path)
+
+    def fail_limit(**_kwargs):
+        raise PdfContentLimitExceeded("too much extracted text")
+
+    monkeypatch.setattr(service.parser, "parse", fail_limit)
+
+    failed = service.parse_attachment(record.id)
+
+    assert failed.status is DocumentStatus.FAILED
+    assert failed.error_code == "PDF_CONTENT_LIMIT_EXCEEDED"
+    assert source_path.exists()
+    assert list(service.settings.root_path.rglob("*.json")) == []

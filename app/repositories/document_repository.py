@@ -33,6 +33,7 @@ class DocumentOwnershipError(DocumentRepositoryError):
 _ACTIVE_ATTACHMENT_STATUSES = (
     DocumentStatus.UPLOADED.value,
     DocumentStatus.PARSING.value,
+    DocumentStatus.INDEXING.value,
     DocumentStatus.READY.value,
     DocumentStatus.PARTIAL.value,
     DocumentStatus.FAILED.value,
@@ -481,6 +482,7 @@ def update_document_status(
     }
     metadata_statuses = {
         DocumentStatus.PARSING,
+        DocumentStatus.INDEXING,
         DocumentStatus.READY,
         DocumentStatus.PARTIAL,
         DocumentStatus.FAILED,
@@ -545,15 +547,27 @@ def update_document_status(
                 error_code if error_code is not None else current.error_code
             )
 
-            if target_status in {DocumentStatus.READY, DocumentStatus.PARTIAL}:
+            if target_status in {
+                DocumentStatus.INDEXING,
+                DocumentStatus.READY,
+                DocumentStatus.PARTIAL,
+            }:
                 _validate_usable_parse_result(
                     target_status,
                     effective_parsed_path,
                     effective_page_count,
                     effective_error_code,
+                    parser_name=(
+                        parser_name if parser_name is not None else current.parser_name
+                    ),
+                    parser_version=(
+                        parser_version
+                        if parser_version is not None
+                        else current.parser_version
+                    ),
                 )
 
-            if target_status is DocumentStatus.READY:
+            if target_status in {DocumentStatus.INDEXING, DocumentStatus.READY}:
                 updates["error_code"] = None
                 updates["error_message"] = None
             elif target_status is DocumentStatus.FAILED:
@@ -630,6 +644,19 @@ def list_stale_parsing_attachments(
         updated_before,
         limit,
         (DocumentStatus.PARSING,),
+    )
+
+
+def list_stale_processing_attachments(
+    updated_before: datetime | str,
+    limit: int,
+) -> list[DocumentRecord]:
+    """List stale PARSING/INDEXING attachments for worker recovery."""
+
+    return _list_stale_attachments(
+        updated_before,
+        limit,
+        (DocumentStatus.PARSING, DocumentStatus.INDEXING),
     )
 
 
@@ -781,6 +808,9 @@ def _validate_usable_parse_result(
     parsed_path: str | None,
     page_count: int | None,
     error_code: str | None,
+    *,
+    parser_name: str | None,
+    parser_version: str | None,
 ) -> None:
     if not parsed_path or not parsed_path.strip():
         raise InvalidDocumentRecord(
@@ -789,6 +819,15 @@ def _validate_usable_parse_result(
     if page_count is None or page_count <= 0:
         raise InvalidDocumentRecord(
             f"{status.value} requires page_count > 0"
+        )
+    if status is DocumentStatus.INDEXING and (
+        not parser_name
+        or not parser_name.strip()
+        or not parser_version
+        or not parser_version.strip()
+    ):
+        raise InvalidDocumentRecord(
+            "INDEXING requires parser_name and parser_version"
         )
     if status is DocumentStatus.PARTIAL and not (
         error_code and error_code.strip()

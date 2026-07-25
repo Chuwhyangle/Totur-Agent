@@ -1,4 +1,4 @@
-"""Application service orchestrating temporary PDF attachment parsing."""
+﻿"""Application service orchestrating temporary PDF attachment parsing."""
 
 from collections.abc import Callable
 from datetime import datetime, timezone
@@ -10,6 +10,7 @@ from app.db.models import (
     InvalidDocumentStatusTransition,
 )
 import app.repositories.document_repository as document_repository
+from app.services.documents.parsed_document import ParsedDocumentValidationError
 from app.services.documents.parsed_document_storage import (
     ParsedDocumentStorage,
     ParsedDocumentStorageError,
@@ -47,7 +48,7 @@ class PdfParsingCompensationError(PdfParsingServiceError):
 
 
 class PdfParsingService:
-    """Move ATTACHMENT records through PARSING into READY or FAILED."""
+    """Move ATTACHMENT records through PARSING into INDEXING or FAILED."""
 
     def __init__(
         self,
@@ -79,7 +80,11 @@ class PdfParsingService:
             raise ParsingAttachmentNotFound("Attachment not found")
         if self._is_expired(record):
             raise AttachmentParsingExpired("Attachment has expired")
-        if record.status in {DocumentStatus.READY, DocumentStatus.PARTIAL}:
+        if record.status in {
+            DocumentStatus.INDEXING,
+            DocumentStatus.READY,
+            DocumentStatus.PARTIAL,
+        }:
             return record
         if record.status is DocumentStatus.PARSING:
             raise AlreadyParsingError("Attachment is already being parsed")
@@ -95,8 +100,8 @@ class PdfParsingService:
         if record.status is DocumentStatus.FAILED and record.parsed_path:
             self.parsed_storage.delete(record.parsed_path)
 
-        # A future multi-worker queue must replace this read/transition pair with
-        # an atomic claim. The current stage intentionally has no distributed lock.
+        # This SQLite compare-and-swap is the local MVP claim. BackgroundTasks
+        # is not a persistent or distributed worker queue.
         try:
             parsing = document_repository.update_document_status(
                 record.id,
@@ -117,7 +122,11 @@ class PdfParsingService:
                 raise AlreadyParsingError(
                     "Attachment is already being parsed"
                 ) from exc
-            if current.status in {DocumentStatus.READY, DocumentStatus.PARTIAL}:
+            if current.status in {
+                DocumentStatus.INDEXING,
+                DocumentStatus.READY,
+                DocumentStatus.PARTIAL,
+            }:
                 return current
             raise AttachmentParsingNotAllowed(
                 f"Cannot claim attachment in {current.status.value}"
@@ -127,20 +136,35 @@ class PdfParsingService:
 
         try:
             source_path = self.file_storage.resolve(parsing.storage_path)
+        except AttachmentStorageError as exc:
+            return self._mark_failed(
+                parsing.id,
+                "PDF_SOURCE_UNAVAILABLE",
+                "PDF source is unavailable",
+                cause=exc,
+            )
+
+        try:
             parsed = self.parser.parse(
                 source_path=source_path,
                 document_id=parsing.id,
                 original_filename=parsing.original_filename,
                 max_pages=self.settings.max_pages,
                 min_extracted_chars=self.settings.min_extracted_chars,
+                max_extracted_chars=self.settings.max_extracted_chars,
+                max_blocks_per_page=self.settings.max_blocks_per_page,
+            )
+            parsed.validate_identity(
+                document_id=parsing.id,
+                original_filename=parsing.original_filename,
             )
         except PdfParsingError as exc:
             return self._mark_failed(parsing.id, exc.error_code, str(exc))
-        except (AttachmentStorageError, ParsedDocumentStorageError) as exc:
+        except ParsedDocumentValidationError as exc:
             return self._mark_failed(
                 parsing.id,
-                "PDF_PARSE_FAILED",
-                "PDF source or parse result storage failed",
+                "PARSED_DOCUMENT_INVALID",
+                "Parser returned inconsistent document metadata",
                 cause=exc,
             )
         except Exception as exc:
@@ -151,9 +175,16 @@ class PdfParsingService:
                 cause=exc,
             )
 
+        if self._is_expired(parsing):
+            return self._mark_failed(
+                parsing.id,
+                "ATTACHMENT_EXPIRED_DURING_PROCESSING",
+                "Attachment expired during parsing",
+            )
+
         try:
             parsed_path = self.parsed_storage.write_json(parsing.id, parsed)
-        except Exception as exc:
+        except ParsedDocumentStorageError as exc:
             return self._mark_failed(
                 parsing.id,
                 "PDF_PARSE_FAILED",
@@ -162,30 +193,30 @@ class PdfParsingService:
             )
 
         try:
-            ready = document_repository.update_document_status(
+            indexing = document_repository.update_document_status(
                 parsing.id,
-                DocumentStatus.READY,
+                DocumentStatus.INDEXING,
                 parsed_path=parsed_path,
                 parser_name=self.parser.name,
                 parser_version=self.parser.version,
                 page_count=parsed.page_count,
             )
-            if ready is None:
+            if indexing is None:
                 raise PdfParsingServiceError(
-                    "Attachment disappeared before READY update"
+                    "Attachment disappeared before INDEXING update"
                 )
-            return ready
+            return indexing
         except Exception as exc:
             try:
                 self.parsed_storage.delete(parsed_path)
-            except Exception as cleanup_error:
+            except ParsedDocumentStorageError as cleanup_error:
                 raise PdfParsingCompensationError(
-                    "READY metadata failed and parsed JSON cleanup failed"
+                    "INDEXING metadata failed and parsed JSON cleanup failed"
                 ) from cleanup_error
             return self._mark_failed(
                 parsing.id,
                 "PDF_PARSE_FAILED",
-                "READY metadata update failed",
+                "INDEXING metadata update failed",
                 cause=exc,
             )
 

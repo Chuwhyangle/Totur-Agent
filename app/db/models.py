@@ -25,6 +25,7 @@ class DocumentStatus(str, Enum):
 
     UPLOADED = "UPLOADED"
     PARSING = "PARSING"
+    INDEXING = "INDEXING"
     READY = "READY"
     PARTIAL = "PARTIAL"
     FAILED = "FAILED"
@@ -53,6 +54,13 @@ ALLOWED_DOCUMENT_STATUS_TRANSITIONS = {
         {DocumentStatus.PARSING, DocumentStatus.DELETING}
     ),
     DocumentStatus.PARSING: frozenset(
+        {
+            DocumentStatus.INDEXING,
+            DocumentStatus.FAILED,
+            DocumentStatus.DELETING,
+        }
+    ),
+    DocumentStatus.INDEXING: frozenset(
         {
             DocumentStatus.READY,
             DocumentStatus.PARTIAL,
@@ -207,7 +215,11 @@ class DocumentRecord:
                 "INTERNAL forbids user_id, session_id, and expires_at"
             )
 
-        if self.status in {DocumentStatus.READY, DocumentStatus.PARTIAL}:
+        if self.status in {
+            DocumentStatus.INDEXING,
+            DocumentStatus.READY,
+            DocumentStatus.PARTIAL,
+        }:
             if not self.parsed_path or not self.parsed_path.strip():
                 raise InvalidDocumentRecord(
                     f"{self.status.value} documents require parsed_path"
@@ -216,6 +228,16 @@ class DocumentRecord:
                 raise InvalidDocumentRecord(
                     f"{self.status.value} documents require page_count > 0"
                 )
+
+        if self.status is DocumentStatus.INDEXING and (
+            not self.parser_name
+            or not self.parser_name.strip()
+            or not self.parser_version
+            or not self.parser_version.strip()
+        ):
+            raise InvalidDocumentRecord(
+                "INDEXING documents require parser_name and parser_version"
+            )
 
         if self.status in {DocumentStatus.FAILED, DocumentStatus.PARTIAL} and not (
             self.error_code and self.error_code.strip()

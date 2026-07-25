@@ -1,9 +1,9 @@
-"""Validated runtime settings for temporary conversation attachments."""
+﻿"""Validated runtime settings for temporary conversation attachments."""
 
-from dataclasses import dataclass
-from pathlib import Path
 from collections.abc import Mapping
+from dataclasses import dataclass
 import os
+from pathlib import Path
 
 from dotenv import load_dotenv
 
@@ -15,6 +15,10 @@ DEFAULT_TEMP_DOCUMENT_MAX_FILES_PER_SESSION = 5
 DEFAULT_TEMP_DOCUMENT_WRITE_CHUNK_BYTES = 64 * 1024
 DEFAULT_TEMP_DOCUMENT_MAX_PAGES = 300
 DEFAULT_TEMP_DOCUMENT_MIN_EXTRACTED_CHARS = 20
+DEFAULT_TEMP_DOCUMENT_MAX_EXTRACTED_CHARS = 2_000_000
+DEFAULT_TEMP_DOCUMENT_MAX_BLOCKS_PER_PAGE = 5_000
+DEFAULT_TEMP_DOCUMENT_CHUNK_CHARS = 2_000
+DEFAULT_TEMP_DOCUMENT_CHUNK_OVERLAP_CHARS = 300
 
 _MIN_MAX_BYTES = 1024
 _MAX_MAX_BYTES = 100 * 1024 * 1024
@@ -27,7 +31,13 @@ _MAX_WRITE_CHUNK_BYTES = 1024 * 1024
 _MIN_MAX_PAGES = 1
 _MAX_MAX_PAGES = 2000
 _MIN_EXTRACTED_CHARS = 1
-_MAX_EXTRACTED_CHARS = 100_000
+_MAX_MIN_EXTRACTED_CHARS = 100_000
+_MIN_MAX_EXTRACTED_CHARS = 1_000
+_MAX_MAX_EXTRACTED_CHARS = 20_000_000
+_MIN_BLOCKS_PER_PAGE = 1
+_MAX_BLOCKS_PER_PAGE = 100_000
+_MIN_CHUNK_CHARS = 100
+_MAX_CHUNK_CHARS = 100_000
 
 
 class InvalidTemporaryDocumentSettings(ValueError):
@@ -45,16 +55,17 @@ class TemporaryDocumentSettings:
     write_chunk_bytes: int = DEFAULT_TEMP_DOCUMENT_WRITE_CHUNK_BYTES
     max_pages: int = DEFAULT_TEMP_DOCUMENT_MAX_PAGES
     min_extracted_chars: int = DEFAULT_TEMP_DOCUMENT_MIN_EXTRACTED_CHARS
+    max_extracted_chars: int = DEFAULT_TEMP_DOCUMENT_MAX_EXTRACTED_CHARS
+    max_blocks_per_page: int = DEFAULT_TEMP_DOCUMENT_MAX_BLOCKS_PER_PAGE
+    chunk_chars: int = DEFAULT_TEMP_DOCUMENT_CHUNK_CHARS
+    chunk_overlap_chars: int = DEFAULT_TEMP_DOCUMENT_CHUNK_OVERLAP_CHARS
 
     def __post_init__(self) -> None:
         root_path = Path(self.root_path).expanduser().resolve(strict=False)
         object.__setattr__(self, "root_path", root_path)
 
         _validate_range(
-            "TEMP_DOCUMENT_MAX_BYTES",
-            self.max_bytes,
-            _MIN_MAX_BYTES,
-            _MAX_MAX_BYTES,
+            "TEMP_DOCUMENT_MAX_BYTES", self.max_bytes, _MIN_MAX_BYTES, _MAX_MAX_BYTES
         )
         _validate_range(
             "TEMP_DOCUMENT_TTL_HOURS",
@@ -84,8 +95,36 @@ class TemporaryDocumentSettings:
             "TEMP_DOCUMENT_MIN_EXTRACTED_CHARS",
             self.min_extracted_chars,
             _MIN_EXTRACTED_CHARS,
-            _MAX_EXTRACTED_CHARS,
+            _MAX_MIN_EXTRACTED_CHARS,
         )
+        _validate_range(
+            "TEMP_DOCUMENT_MAX_EXTRACTED_CHARS",
+            self.max_extracted_chars,
+            _MIN_MAX_EXTRACTED_CHARS,
+            _MAX_MAX_EXTRACTED_CHARS,
+        )
+        if self.max_extracted_chars < self.min_extracted_chars:
+            raise InvalidTemporaryDocumentSettings(
+                "TEMP_DOCUMENT_MAX_EXTRACTED_CHARS must be >= "
+                "TEMP_DOCUMENT_MIN_EXTRACTED_CHARS"
+            )
+        _validate_range(
+            "TEMP_DOCUMENT_MAX_BLOCKS_PER_PAGE",
+            self.max_blocks_per_page,
+            _MIN_BLOCKS_PER_PAGE,
+            _MAX_BLOCKS_PER_PAGE,
+        )
+        _validate_range(
+            "TEMP_DOCUMENT_CHUNK_CHARS",
+            self.chunk_chars,
+            _MIN_CHUNK_CHARS,
+            _MAX_CHUNK_CHARS,
+        )
+        if not 0 <= self.chunk_overlap_chars < self.chunk_chars:
+            raise InvalidTemporaryDocumentSettings(
+                "TEMP_DOCUMENT_CHUNK_OVERLAP_CHARS must satisfy "
+                "0 <= overlap < chunk chars"
+            )
 
 
 def load_temporary_document_settings(
@@ -104,8 +143,7 @@ def load_temporary_document_settings(
         else Path(__file__).resolve().parents[3]
     )
     raw_root = environment.get(
-        "TEMP_DOCUMENT_ROOT",
-        DEFAULT_TEMP_DOCUMENT_ROOT,
+        "TEMP_DOCUMENT_ROOT", DEFAULT_TEMP_DOCUMENT_ROOT
     ).strip()
     if not raw_root:
         raise InvalidTemporaryDocumentSettings(
@@ -119,14 +157,10 @@ def load_temporary_document_settings(
     return TemporaryDocumentSettings(
         root_path=root_path,
         max_bytes=_read_integer(
-            environment,
-            "TEMP_DOCUMENT_MAX_BYTES",
-            DEFAULT_TEMP_DOCUMENT_MAX_BYTES,
+            environment, "TEMP_DOCUMENT_MAX_BYTES", DEFAULT_TEMP_DOCUMENT_MAX_BYTES
         ),
         ttl_hours=_read_integer(
-            environment,
-            "TEMP_DOCUMENT_TTL_HOURS",
-            DEFAULT_TEMP_DOCUMENT_TTL_HOURS,
+            environment, "TEMP_DOCUMENT_TTL_HOURS", DEFAULT_TEMP_DOCUMENT_TTL_HOURS
         ),
         max_files_per_session=_read_integer(
             environment,
@@ -139,14 +173,32 @@ def load_temporary_document_settings(
             DEFAULT_TEMP_DOCUMENT_WRITE_CHUNK_BYTES,
         ),
         max_pages=_read_integer(
-            environment,
-            "TEMP_DOCUMENT_MAX_PAGES",
-            DEFAULT_TEMP_DOCUMENT_MAX_PAGES,
+            environment, "TEMP_DOCUMENT_MAX_PAGES", DEFAULT_TEMP_DOCUMENT_MAX_PAGES
         ),
         min_extracted_chars=_read_integer(
             environment,
             "TEMP_DOCUMENT_MIN_EXTRACTED_CHARS",
             DEFAULT_TEMP_DOCUMENT_MIN_EXTRACTED_CHARS,
+        ),
+        max_extracted_chars=_read_integer(
+            environment,
+            "TEMP_DOCUMENT_MAX_EXTRACTED_CHARS",
+            DEFAULT_TEMP_DOCUMENT_MAX_EXTRACTED_CHARS,
+        ),
+        max_blocks_per_page=_read_integer(
+            environment,
+            "TEMP_DOCUMENT_MAX_BLOCKS_PER_PAGE",
+            DEFAULT_TEMP_DOCUMENT_MAX_BLOCKS_PER_PAGE,
+        ),
+        chunk_chars=_read_integer(
+            environment,
+            "TEMP_DOCUMENT_CHUNK_CHARS",
+            DEFAULT_TEMP_DOCUMENT_CHUNK_CHARS,
+        ),
+        chunk_overlap_chars=_read_integer(
+            environment,
+            "TEMP_DOCUMENT_CHUNK_OVERLAP_CHARS",
+            DEFAULT_TEMP_DOCUMENT_CHUNK_OVERLAP_CHARS,
         ),
     )
 
@@ -168,7 +220,7 @@ def _read_integer(
 def _validate_range(name: str, value: int, minimum: int, maximum: int) -> None:
     if isinstance(value, bool) or not isinstance(value, int):
         raise InvalidTemporaryDocumentSettings(f"{name} must be an integer")
-    if not minimum <= value <= maximum:
+    if value < minimum or value > maximum:
         raise InvalidTemporaryDocumentSettings(
             f"{name} must be between {minimum} and {maximum}"
         )

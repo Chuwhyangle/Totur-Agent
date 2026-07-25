@@ -2,10 +2,26 @@
 
 from typing import Annotated, NoReturn
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    Response,
+    UploadFile,
+    status,
+)
 
 from app.db.models import DocumentRecord, DocumentStatus
 from app.schemas.documents import AttachmentItem, AttachmentListResponse
+from app.services.documents.attachment_processing_service import (
+    AttachmentProcessingService,
+    get_attachment_processing_service,
+    process_attachment_background,
+)
 from app.services.documents.temporary_document_service import (
     AttachmentCleanupError,
     AttachmentCreationError,
@@ -43,11 +59,16 @@ _HANDLED_ATTACHMENT_ERRORS = (
 )
 def upload_attachment(
     session_id: int,
+    background_tasks: BackgroundTasks,
     user_id: Annotated[str, Form(min_length=1)],
     file: Annotated[UploadFile, File()],
     service: Annotated[
         TemporaryDocumentService,
         Depends(get_temporary_document_service),
+    ],
+    processing_service: Annotated[
+        AttachmentProcessingService,
+        Depends(get_attachment_processing_service),
     ],
 ) -> AttachmentItem:
     """Upload one temporary PDF using the current user_id identity bridge."""
@@ -56,6 +77,13 @@ def upload_attachment(
         record = service.create_attachment(user_id, session_id, file)
     except _HANDLED_ATTACHMENT_ERRORS as exc:
         _raise_attachment_http_error(exc)
+    # BackgroundTasks is an in-process MVP: it is not durable across restarts and
+    # does not coordinate multiple application instances.
+    background_tasks.add_task(
+        process_attachment_background,
+        record.id,
+        processing_service,
+    )
     return _item_from_record(record)
 
 

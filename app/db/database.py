@@ -131,7 +131,7 @@ def initialize_database() -> None:
         connection.execute(create_interview_jds_table_sql)
         # Document rows retain cleanup paths until lifecycle cleanup is complete.
         connection.execute(create_documents_table_sql)
-        _ensure_documents_session_delete_restrict(connection)
+        _ensure_documents_schema(connection)
         # 旧版 conversations 表没有 session_id，这里会自动补上。
         _ensure_conversations_session_id_column(connection)
         # 把旧数据按 user_id 归入一个“默认会话”。
@@ -170,6 +170,7 @@ def _create_documents_table_sql(table_name: str) -> str:
         status TEXT NOT NULL CHECK (status IN (
             'UPLOADED',
             'PARSING',
+            'INDEXING',
             'READY',
             'PARTIAL',
             'FAILED',
@@ -211,11 +212,18 @@ def _create_documents_table_sql(table_name: str) -> str:
     """
 
 
-def _ensure_documents_session_delete_restrict(
-    connection: sqlite3.Connection,
-) -> None:
-    """Migrate the initial CASCADE foreign key to cleanup-safe RESTRICT."""
+def _ensure_documents_schema(connection: sqlite3.Connection) -> None:
+    """Idempotently add INDEXING and retain cleanup-safe session ownership."""
 
+    table_row = connection.execute(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?",
+        (DOCUMENTS_TABLE,),
+    ).fetchone()
+    if table_row is None:
+        return
+
+    table_sql = str(table_row["sql"] or "").upper()
+    supports_indexing = "'INDEXING'" in table_sql
     foreign_keys = connection.execute(
         f"PRAGMA foreign_key_list({DOCUMENTS_TABLE})"
     ).fetchall()
@@ -228,13 +236,14 @@ def _ensure_documents_session_delete_restrict(
         ),
         None,
     )
-    if (
+    restricts_session_delete = (
         session_foreign_key is not None
         and session_foreign_key["on_delete"].upper() == "RESTRICT"
-    ):
+    )
+    if supports_indexing and restricts_session_delete:
         return
 
-    temporary_table = f"{DOCUMENTS_TABLE}_restrict_migration"
+    temporary_table = f"{DOCUMENTS_TABLE}_schema_migration"
     columns = """
         id,
         scope,
@@ -259,13 +268,56 @@ def _ensure_documents_session_delete_restrict(
     """
     connection.execute(f"DROP TABLE IF EXISTS {temporary_table}")
     connection.execute(_create_documents_table_sql(temporary_table))
-    connection.execute(
-        f"""
-        INSERT INTO {temporary_table} ({columns})
-        SELECT {columns}
-        FROM {DOCUMENTS_TABLE}
-        """
-    )
+
+    if supports_indexing:
+        connection.execute(
+            f"""
+            INSERT INTO {temporary_table} ({columns})
+            SELECT {columns}
+            FROM {DOCUMENTS_TABLE}
+            """
+        )
+    else:
+        # READY/PARTIAL rows created before attachment vector indexing existed
+        # must not remain retrievable after the schema gains INDEXING.
+        connection.execute(
+            f"""
+            INSERT INTO {temporary_table} ({columns})
+            SELECT
+                id,
+                scope,
+                user_id,
+                session_id,
+                message_id,
+                original_filename,
+                mime_type,
+                size_bytes,
+                storage_path,
+                parsed_path,
+                content_hash,
+                CASE
+                    WHEN status IN ('READY', 'PARTIAL') THEN 'FAILED'
+                    ELSE status
+                END,
+                parser_name,
+                parser_version,
+                page_count,
+                CASE
+                    WHEN status IN ('READY', 'PARTIAL') THEN 'REINDEX_REQUIRED'
+                    ELSE error_code
+                END,
+                CASE
+                    WHEN status IN ('READY', 'PARTIAL')
+                        THEN 'Existing parsed attachment requires indexing'
+                    ELSE error_message
+                END,
+                created_at,
+                updated_at,
+                expires_at
+            FROM {DOCUMENTS_TABLE}
+            """
+        )
+
     connection.execute(f"DROP TABLE {DOCUMENTS_TABLE}")
     connection.execute(
         f"ALTER TABLE {temporary_table} RENAME TO {DOCUMENTS_TABLE}"

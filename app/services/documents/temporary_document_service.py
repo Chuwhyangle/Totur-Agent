@@ -4,6 +4,7 @@ from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 
 from app.db.models import DocumentRecord, DocumentScope, DocumentStatus
+from app.repositories.attachment_vector_repository import AttachmentVectorRepository
 from app.repositories.document_repository import (
     count_accessible_session_attachments,
     create_attachment_document,
@@ -55,6 +56,7 @@ class TemporaryDocumentService:
         self,
         settings: TemporaryDocumentSettings,
         storage: TemporaryFileStorage | None = None,
+        vector_repository: AttachmentVectorRepository | None = None,
         now_provider: Callable[[], datetime] | None = None,
     ) -> None:
         self.settings = settings
@@ -62,6 +64,7 @@ class TemporaryDocumentService:
             settings.root_path,
             settings.write_chunk_bytes,
         )
+        self.vector_repository = vector_repository
         self._now_provider = now_provider or (lambda: datetime.now(timezone.utc))
 
     def create_attachment(
@@ -217,6 +220,17 @@ class TemporaryDocumentService:
                 ) from exc
 
             try:
+                vector_repository = (
+                    self.vector_repository or AttachmentVectorRepository()
+                )
+                vector_repository.delete_document(record.id)
+            except Exception as exc:
+                # File deletion is idempotent, so a retry can continue here.
+                raise AttachmentCleanupError(
+                    "Attachment vector cleanup failed"
+                ) from exc
+
+            try:
                 deleted = update_document_status(
                     record.id,
                     DocumentStatus.DELETED,
@@ -270,4 +284,7 @@ class TemporaryDocumentService:
 def get_temporary_document_service() -> TemporaryDocumentService:
     """Build a service from validated environment settings for one request."""
 
-    return TemporaryDocumentService(load_temporary_document_settings())
+    return TemporaryDocumentService(
+        load_temporary_document_settings(),
+        vector_repository=AttachmentVectorRepository(),
+    )
