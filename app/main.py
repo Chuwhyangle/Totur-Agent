@@ -1,8 +1,10 @@
 """FastAPI application entry point."""
 
 import asyncio
-from contextlib import asynccontextmanager
+from collections.abc import Callable
+from contextlib import asynccontextmanager, suppress
 import logging
+import threading
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -33,27 +35,55 @@ allowed_origins = [
 
 logger = logging.getLogger(__name__)
 
+ATTACHMENT_RECOVERY_SHUTDOWN_TIMEOUT_SECONDS = 2.0
 
-async def _run_attachment_recovery() -> None:
-    """Run one bounded local recovery pass without blocking startup."""
 
-    try:
-        service = get_attachment_recovery_service()
-        await asyncio.to_thread(service.recover_once)
-    except Exception as exc:
-        # Startup must remain available even if local recovery cannot initialize.
-        logger.error(
-            "attachment_startup_recovery_failed error_type=%s",
-            type(exc).__name__,
-        )
+def _mark_recovery_done(future: asyncio.Future[None]) -> None:
+    if not future.done():
+        future.set_result(None)
+
+
+async def _run_attachment_recovery(
+    *,
+    stop_requested: Callable[[], bool],
+) -> None:
+    """Run one bounded local recovery pass on a daemon worker thread."""
+
+    loop = asyncio.get_running_loop()
+    completed: asyncio.Future[None] = loop.create_future()
+
+    def recover() -> None:
+        try:
+            service = get_attachment_recovery_service()
+            service.recover_once(stop_requested=stop_requested)
+        except Exception as exc:
+            # Startup must remain available even if local recovery cannot initialize.
+            logger.error(
+                "attachment_startup_recovery_failed error_type=%s",
+                type(exc).__name__,
+            )
+        finally:
+            try:
+                loop.call_soon_threadsafe(_mark_recovery_done, completed)
+            except RuntimeError:
+                # The bounded shutdown wait may finish before a blocked dependency.
+                pass
+
+    threading.Thread(
+        target=recover,
+        name="attachment-startup-recovery-worker",
+        daemon=True,
+    ).start()
+    await completed
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     """Run bounded recovery and release shared clients on shutdown."""
 
+    stop_event = threading.Event()
     recovery_task = asyncio.create_task(
-        _run_attachment_recovery(),
+        _run_attachment_recovery(stop_requested=stop_event.is_set),
         name="attachment-startup-recovery",
     )
     try:
@@ -65,10 +95,23 @@ async def lifespan(_: FastAPI):
         else:
             yield
     finally:
-        # The pass is bounded; awaiting it prevents an unobserved task exception.
-        await recovery_task
-        close_reranker_client()
-        close_web_search_client()
+        stop_event.set()
+        try:
+            await asyncio.wait_for(
+                asyncio.shield(recovery_task),
+                timeout=ATTACHMENT_RECOVERY_SHUTDOWN_TIMEOUT_SECONDS,
+            )
+        except TimeoutError:
+            logger.warning(
+                "attachment_startup_recovery_shutdown_timeout timeout_seconds=%s",
+                ATTACHMENT_RECOVERY_SHUTDOWN_TIMEOUT_SECONDS,
+            )
+            recovery_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await recovery_task
+        finally:
+            close_reranker_client()
+            close_web_search_client()
 
 
 app = FastAPI(

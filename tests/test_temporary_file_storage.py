@@ -244,4 +244,5 @@ def test_injected_settings_validate_values_without_creating_root(tmp_path):
     settings = TemporaryDocumentSettings(root_path=root)
 
     assert settings.root_path == root.resolve()
+    assert settings.similarity_threshold == 0.45
     assert root.exists() is False

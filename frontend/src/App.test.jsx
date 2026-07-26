@@ -190,6 +190,48 @@ describe('App attachment scope and sending', () => {
     })
   })
 
+  it('refreshes a missing attachment index and blocks another send', async () => {
+    const user = userEvent.setup()
+    const attachment = readyAttachment('attachment-1', 'resume.pdf')
+    api.getAttachments
+      .mockResolvedValueOnce({ data: { items: [attachment] } })
+      .mockResolvedValueOnce({
+        data: {
+          items: [{
+            ...attachment,
+            status: 'FAILED',
+            error_code: 'ATTACHMENT_INDEX_MISSING',
+            user_safe_message: '附件索引缺失，请重试处理。',
+          }],
+        },
+      })
+    api.postChat.mockRejectedValue({
+      status: 409,
+      detail: { error: 'attachment_index_missing' },
+      isNetworkError: false,
+      message: 'attachment index missing',
+    })
+
+    render(<App />)
+    await openSession(user)
+    expect(await screen.findByText('resume.pdf')).not.toBeNull()
+
+    const input = screen.getByPlaceholderText('写下你的问题，或让导师帮你拆解下一步…')
+    await user.type(input, '总结附件')
+    await user.click(screen.getByRole('button', { name: '发送消息' }))
+
+    await waitFor(() => expect(api.getAttachments).toHaveBeenCalledTimes(2))
+    expect(await screen.findByText('处理失败')).not.toBeNull()
+    expect(screen.getByText('附件索引缺失，请重试处理。')).not.toBeNull()
+    expect(screen.getByRole('button', { name: '重试附件 resume.pdf' })).not.toBeNull()
+    expect(screen.getByRole('status').textContent).toContain('所选附件处理失败')
+
+    await user.type(input, '再次发送')
+    expect(screen.getByRole('button', { name: '发送消息' }).disabled).toBe(true)
+    await user.click(screen.getByRole('button', { name: '发送消息' }))
+    expect(api.postChat).toHaveBeenCalledTimes(1)
+  })
+
   it('keeps send disabled when a selected attachment is still pending', async () => {
     const user = userEvent.setup()
     api.getAttachments.mockResolvedValue({

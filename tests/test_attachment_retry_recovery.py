@@ -140,3 +140,31 @@ def test_recovery_does_not_downgrade_ready_record_from_stale_list(
     assert processed == []
     assert result.processing_recovered == 0
     assert result.failures == 1
+
+
+def test_recovery_stop_signal_prevents_starting_more_records(
+    monkeypatch,
+    tmp_path,
+):
+    _use_temp_database(monkeypatch, tmp_path)
+    session = create_session("alice")
+    first = _create_attachment(session.id, "first.pdf")
+    _create_attachment(session.id, "second.pdf")
+    stop = False
+    processed: list[str] = []
+
+    def process(document_id):
+        nonlocal stop
+        processed.append(document_id)
+        stop = True
+
+    recovery = AttachmentRecoveryService(
+        _settings(tmp_path, recovery_batch_size=2),
+        now_provider=lambda: datetime(2029, 1, 1, tzinfo=timezone.utc),
+        processing_callback=process,
+    )
+    result = recovery.recover_once(stop_requested=lambda: stop)
+
+    assert processed == [first.id]
+    assert result.scanned == 1
+    assert result.processing_recovered == 1

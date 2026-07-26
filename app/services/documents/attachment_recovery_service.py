@@ -2,7 +2,7 @@
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 import logging
 
 from app.db.models import DocumentRecord, DocumentStatus
@@ -53,13 +53,14 @@ class AttachmentRecoveryService:
         self.processing_callback = processing_callback
         self.cleanup_service_factory = cleanup_service_factory
 
-    def recover_once(self) -> AttachmentRecoveryResult:
+    def recover_once(
+        self,
+        *,
+        stop_requested: Callable[[], bool] | None = None,
+    ) -> AttachmentRecoveryResult:
         """Recover processing and cleanup records without exceeding one batch."""
 
         now = self._utc_now()
-        stale_before = now - timedelta(
-            seconds=self.settings.processing_stale_seconds
-        )
         remaining = self.settings.recovery_batch_size
         scanned = 0
         processing_recovered = 0
@@ -69,11 +70,12 @@ class AttachmentRecoveryService:
         processing_records = (
             document_repository.list_recoverable_processing_attachments(
                 now=now,
-                updated_before=stale_before,
                 limit=remaining,
             )
         )
         for record in processing_records:
+            if stop_requested is not None and stop_requested():
+                break
             scanned += 1
             remaining -= 1
             try:
@@ -103,13 +105,18 @@ class AttachmentRecoveryService:
                     current.status.value if current is not None else "MISSING",
                 )
 
-        if remaining > 0:
+        if (
+            remaining > 0
+            and not (stop_requested is not None and stop_requested())
+        ):
             cleanup_records = document_repository.list_stale_cleanup_attachments(
                 updated_before=now,
                 limit=remaining,
             )
             cleanup_service: TemporaryDocumentService | None = None
             for record in cleanup_records:
+                if stop_requested is not None and stop_requested():
+                    break
                 scanned += 1
                 try:
                     if cleanup_service is None:

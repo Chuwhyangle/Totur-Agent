@@ -631,10 +631,9 @@ def update_document_status(
 
 def list_recoverable_processing_attachments(
     now: datetime | str,
-    updated_before: datetime | str,
     limit: int,
 ) -> list[DocumentRecord]:
-    """List unexpired UPLOADED and stale in-flight attachments for recovery."""
+    """List all unexpired local attachment work left by a previous process."""
 
     if limit < 0:
         raise ValueError("limit must not be negative")
@@ -643,10 +642,6 @@ def list_recoverable_processing_attachments(
 
     initialize_database()
     normalized_now = _normalize_utc_iso(now, "now")
-    normalized_updated_before = _normalize_utc_iso(
-        updated_before,
-        "updated_before",
-    )
     connection = get_connection()
 
     try:
@@ -656,13 +651,7 @@ def list_recoverable_processing_attachments(
             FROM {DOCUMENTS_TABLE}
             WHERE scope = ?
                 AND expires_at > ?
-                AND (
-                    status = ?
-                    OR (
-                        status IN (?, ?)
-                        AND updated_at <= ?
-                    )
-                )
+                AND status IN (?, ?, ?)
             ORDER BY updated_at ASC, created_at ASC, id ASC
             LIMIT ?
             """,
@@ -672,7 +661,6 @@ def list_recoverable_processing_attachments(
                 DocumentStatus.UPLOADED.value,
                 DocumentStatus.PARSING.value,
                 DocumentStatus.INDEXING.value,
-                normalized_updated_before,
                 limit,
             ),
         ).fetchall()

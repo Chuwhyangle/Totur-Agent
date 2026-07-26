@@ -38,6 +38,12 @@ import {
 } from './utils/attachments.js'
 
 const DEFAULT_PERSONA_ID = 'tutor'
+const ATTACHMENT_ERRORS_REQUIRING_REFRESH = new Set([
+  'attachment_index_missing',
+  'attachment_not_found',
+  'attachment_not_ready',
+  'attachment_processing_failed',
+])
 
 function createErrorReply(error) {
   const errorCode = attachmentErrorCode(error)
@@ -611,6 +617,9 @@ function App() {
       }
       setMessages((currentMessages) => [...currentMessages, errorMessage])
       updateApiStatusAfterError(error)
+      if (ATTACHMENT_ERRORS_REQUIRING_REFRESH.has(attachmentErrorCode(error))) {
+        await refreshAttachments()
+      }
     } finally {
       setIsSending(false)
     }

@@ -514,6 +514,68 @@ def test_low_similarity_is_distinct_empty_recall_and_never_calls_llm(rag_harness
     assert rag_harness.fake_llm.calls == []
 
 
+def test_startup_recovery_immediately_requeues_fresh_inflight_records(
+    rag_harness,
+):
+    """A restart must reclaim fresh PARSING/INDEXING rows without aging them."""
+
+    session = create_session("alice")
+    created_after = datetime.now(timezone.utc)
+
+    parsing = _create_record(
+        rag_harness,
+        "alice",
+        session.id,
+        name="fresh-parsing.pdf",
+    )
+    parsing = update_document_status(
+        parsing.id,
+        DocumentStatus.PARSING,
+        parser_name="pymupdf",
+        parser_version="test",
+    )
+    indexing = _create_record(
+        rag_harness,
+        "alice",
+        session.id,
+        name="fresh-indexing.pdf",
+    )
+    indexing = rag_harness.processing.parsing_service.parse_attachment(indexing.id)
+
+    assert parsing is not None
+    assert indexing.status is DocumentStatus.INDEXING
+    assert datetime.fromisoformat(parsing.updated_at) >= created_after
+    assert datetime.fromisoformat(indexing.updated_at) >= created_after
+
+    interrupted_states = {}
+
+    def process_interrupted(document_id):
+        interrupted = get_document(document_id)
+        assert interrupted is not None
+        interrupted_states[document_id] = (
+            interrupted.status,
+            interrupted.error_code,
+        )
+        return rag_harness.processing.process_attachment(document_id)
+
+    result = AttachmentRecoveryService(
+        rag_harness.settings,
+        now_provider=lambda: datetime.now(timezone.utc),
+        processing_callback=process_interrupted,
+        cleanup_service_factory=lambda: rag_harness.documents,
+    ).recover_once()
+
+    assert result.processing_recovered == 2
+    assert interrupted_states == {
+        parsing.id: (DocumentStatus.FAILED, "PROCESS_INTERRUPTED"),
+        indexing.id: (DocumentStatus.FAILED, "PROCESS_INTERRUPTED"),
+    }
+    assert get_document(parsing.id).status is DocumentStatus.READY
+    assert get_document(indexing.id).status is DocumentStatus.READY
+    assert rag_harness.vectors.count_document(parsing.id) > 0
+    assert rag_harness.vectors.count_document(indexing.id) > 0
+
+
 def test_startup_recovery_state_matrix_is_bounded_and_failure_isolated(
     monkeypatch,
     rag_harness,
