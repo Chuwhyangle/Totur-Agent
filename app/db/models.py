@@ -51,7 +51,11 @@ class DocumentPurgeNotAllowedError(DocumentDomainError):
 
 ALLOWED_DOCUMENT_STATUS_TRANSITIONS = {
     DocumentStatus.UPLOADED: frozenset(
-        {DocumentStatus.PARSING, DocumentStatus.DELETING}
+        {
+            DocumentStatus.PARSING,
+            DocumentStatus.FAILED,
+            DocumentStatus.DELETING,
+        }
     ),
     DocumentStatus.PARSING: frozenset(
         {
@@ -71,8 +75,12 @@ ALLOWED_DOCUMENT_STATUS_TRANSITIONS = {
     DocumentStatus.FAILED: frozenset(
         {DocumentStatus.PARSING, DocumentStatus.DELETING}
     ),
-    DocumentStatus.READY: frozenset({DocumentStatus.DELETING}),
-    DocumentStatus.PARTIAL: frozenset({DocumentStatus.DELETING}),
+    DocumentStatus.READY: frozenset(
+        {DocumentStatus.FAILED, DocumentStatus.DELETING}
+    ),
+    DocumentStatus.PARTIAL: frozenset(
+        {DocumentStatus.FAILED, DocumentStatus.DELETING}
+    ),
     DocumentStatus.DELETING: frozenset({DocumentStatus.DELETED}),
     DocumentStatus.DELETED: frozenset(),
 }

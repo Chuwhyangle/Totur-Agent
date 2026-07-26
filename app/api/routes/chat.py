@@ -7,6 +7,8 @@ from app.services.agent.personas import (
     available_persona_ids,
 )
 from app.services.documents.attachment_retrieval_service import (
+    AttachmentIndexMissingError,
+    AttachmentNoRelevantEvidenceError,
     AttachmentNotFoundError,
     AttachmentNotReadyError,
     AttachmentProcessingFailedError,
@@ -62,6 +64,16 @@ def chat(request: ChatRequest) -> ChatResponse:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail={"error": "attachment_processing_failed"},
+        ) from error
+    except AttachmentIndexMissingError as error:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"error": "attachment_index_missing"},
+        ) from error
+    except AttachmentNoRelevantEvidenceError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={"error": "attachment_no_relevant_evidence"},
         ) from error
     except AttachmentRetrievalFailedError as error:
         raise HTTPException(

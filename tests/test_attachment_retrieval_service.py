@@ -11,6 +11,7 @@ from app.db.models import DocumentStatus
 from app.repositories.attachment_vector_repository import AttachmentVectorRepository
 from app.repositories.document_repository import (
     create_attachment_document,
+    get_document,
     update_document_status,
 )
 from app.repositories.session_repository import create_session
@@ -18,6 +19,7 @@ from app.services.documents.attachment_chunker import AttachmentChunk
 from app.services.documents.attachment_retrieval_service import (
     ATTACHMENT_CONTEXT_HEADER,
     AttachmentEvidence,
+    AttachmentIndexMissingError,
     AttachmentNotFoundError,
     AttachmentNotReadyError,
     AttachmentProcessingFailedError,
@@ -268,14 +270,39 @@ def test_retrieve_applies_similarity_threshold_and_sorting(monkeypatch, tmp_path
     assert evidence[0].similarity >= 0.5
 
 
+def test_missing_index_is_detected_before_query_embedding(monkeypatch, tmp_path):
+    use_temp_database(monkeypatch, tmp_path)
+    session = create_session("alice")
+    document = mark_ready(create_document("alice", session.id, "missing-index.pdf").id)
+    embedding_client = FakeEmbeddingClient(
+        error=AssertionError("query embedding must not run before index preflight")
+    )
+    service = make_service(
+        tmp_path,
+        embedding_client,
+        make_vector_repository(),
+    )
+
+    with pytest.raises(AttachmentIndexMissingError):
+        service.retrieve("alice", session.id, [document.id], "query")
+
+    current = get_document(document.id)
+    assert embedding_client.calls == []
+    assert current is not None
+    assert current.status is DocumentStatus.FAILED
+    assert current.error_code == "ATTACHMENT_INDEX_MISSING"
+
+
 def test_retrieve_wraps_embedding_or_vector_failure(monkeypatch, tmp_path):
     use_temp_database(monkeypatch, tmp_path)
     session = create_session("alice")
     document = mark_ready(create_document("alice", session.id, "ready.pdf").id)
+    repository = make_vector_repository()
+    add_chunk(repository, document, "indexed content", 1, [1.0, 0.0])
     service = make_service(
         tmp_path,
         FakeEmbeddingClient(error=RuntimeError("secret provider error")),
-        make_vector_repository(),
+        repository,
     )
 
     with pytest.raises(AttachmentRetrievalFailedError) as captured:

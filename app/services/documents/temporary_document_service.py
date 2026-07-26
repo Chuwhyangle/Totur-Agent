@@ -284,7 +284,6 @@ class TemporaryDocumentService:
 def get_temporary_document_service() -> TemporaryDocumentService:
     """Build a service from validated environment settings for one request."""
 
-    return TemporaryDocumentService(
-        load_temporary_document_settings(),
-        vector_repository=AttachmentVectorRepository(),
-    )
+    # Vector storage is initialized lazily by cleanup so upload/list/get do not
+    # fail before metadata is durable when Chroma is temporarily unavailable.
+    return TemporaryDocumentService(load_temporary_document_settings())

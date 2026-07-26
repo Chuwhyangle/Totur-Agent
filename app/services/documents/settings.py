@@ -23,6 +23,8 @@ DEFAULT_TEMP_DOCUMENT_CHUNK_OVERLAP_CHARS = 300
 DEFAULT_TEMP_DOCUMENT_RETRIEVAL_TOP_K = 6
 DEFAULT_TEMP_DOCUMENT_CONTEXT_MAX_CHARS = 8_000
 DEFAULT_TEMP_DOCUMENT_SIMILARITY_THRESHOLD = 0.0
+DEFAULT_TEMP_DOCUMENT_PROCESSING_STALE_SECONDS = 300
+DEFAULT_TEMP_DOCUMENT_RECOVERY_BATCH_SIZE = 50
 
 _MIN_MAX_BYTES = 1024
 _MAX_MAX_BYTES = 100 * 1024 * 1024
@@ -48,6 +50,10 @@ _MIN_CONTEXT_MAX_CHARS = 256
 _MAX_CONTEXT_MAX_CHARS = 200_000
 _MIN_SIMILARITY_THRESHOLD = -1.0
 _MAX_SIMILARITY_THRESHOLD = 1.0
+_MIN_PROCESSING_STALE_SECONDS = 1
+_MAX_PROCESSING_STALE_SECONDS = 24 * 60 * 60
+_MIN_RECOVERY_BATCH_SIZE = 1
+_MAX_RECOVERY_BATCH_SIZE = 500
 
 
 class InvalidTemporaryDocumentSettings(ValueError):
@@ -72,6 +78,8 @@ class TemporaryDocumentSettings:
     retrieval_top_k: int = DEFAULT_TEMP_DOCUMENT_RETRIEVAL_TOP_K
     context_max_chars: int = DEFAULT_TEMP_DOCUMENT_CONTEXT_MAX_CHARS
     similarity_threshold: float = DEFAULT_TEMP_DOCUMENT_SIMILARITY_THRESHOLD
+    processing_stale_seconds: int = DEFAULT_TEMP_DOCUMENT_PROCESSING_STALE_SECONDS
+    recovery_batch_size: int = DEFAULT_TEMP_DOCUMENT_RECOVERY_BATCH_SIZE
 
     def __post_init__(self) -> None:
         root_path = Path(self.root_path).expanduser().resolve(strict=False)
@@ -155,6 +163,18 @@ class TemporaryDocumentSettings:
             self.similarity_threshold,
             _MIN_SIMILARITY_THRESHOLD,
             _MAX_SIMILARITY_THRESHOLD,
+        )
+        _validate_range(
+            "TEMP_DOCUMENT_PROCESSING_STALE_SECONDS",
+            self.processing_stale_seconds,
+            _MIN_PROCESSING_STALE_SECONDS,
+            _MAX_PROCESSING_STALE_SECONDS,
+        )
+        _validate_range(
+            "TEMP_DOCUMENT_RECOVERY_BATCH_SIZE",
+            self.recovery_batch_size,
+            _MIN_RECOVERY_BATCH_SIZE,
+            _MAX_RECOVERY_BATCH_SIZE,
         )
 
 
@@ -245,6 +265,16 @@ def load_temporary_document_settings(
             environment,
             "TEMP_DOCUMENT_SIMILARITY_THRESHOLD",
             DEFAULT_TEMP_DOCUMENT_SIMILARITY_THRESHOLD,
+        ),
+        processing_stale_seconds=_read_integer(
+            environment,
+            "TEMP_DOCUMENT_PROCESSING_STALE_SECONDS",
+            DEFAULT_TEMP_DOCUMENT_PROCESSING_STALE_SECONDS,
+        ),
+        recovery_batch_size=_read_integer(
+            environment,
+            "TEMP_DOCUMENT_RECOVERY_BATCH_SIZE",
+            DEFAULT_TEMP_DOCUMENT_RECOVERY_BATCH_SIZE,
         ),
     )
 

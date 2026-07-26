@@ -73,7 +73,7 @@ class PdfParsingService:
         )
 
     def parse_attachment(self, document_id: str) -> DocumentRecord:
-        """Parse one trusted attachment id without exposing a public API."""
+        """Claim and parse one trusted attachment id."""
 
         record = document_repository.get_document(document_id)
         if record is None or record.scope is not DocumentScope.ATTACHMENT:
@@ -97,15 +97,13 @@ class PdfParsingService:
                 f"Cannot parse attachment in {record.status.value}"
             )
 
-        if record.status is DocumentStatus.FAILED and record.parsed_path:
-            self.parsed_storage.delete(record.parsed_path)
-
         # This SQLite compare-and-swap is the local MVP claim. BackgroundTasks
         # is not a persistent or distributed worker queue.
         try:
             parsing = document_repository.update_document_status(
                 record.id,
                 DocumentStatus.PARSING,
+                expected_status=record.status,
                 parser_name=self.parser.name,
                 parser_version=self.parser.version,
             )
@@ -134,6 +132,41 @@ class PdfParsingService:
         if parsing is None:
             raise ParsingAttachmentNotFound("Attachment disappeared")
 
+        # Only the CAS winner may remove stale parsed output. Deleting before
+        # the claim lets a losing retry erase a newer worker's JSON file.
+        if record.parsed_path:
+            try:
+                self.parsed_storage.delete(record.parsed_path)
+            except ParsedDocumentStorageError as exc:
+                return self._mark_failed(
+                    parsing.id,
+                    "ATTACHMENT_RETRY_PREPARATION_FAILED",
+                    "Attachment retry preparation failed",
+                    cause=exc,
+                )
+        return self._parse_claimed_record(parsing)
+
+    def parse_claimed_attachment(self, document_id: str) -> DocumentRecord:
+        """Resume a PARSING record already claimed by the retry API."""
+
+        record = document_repository.get_document(document_id)
+        if record is None or record.scope is not DocumentScope.ATTACHMENT:
+            raise ParsingAttachmentNotFound("Attachment not found")
+        if self._is_expired(record):
+            raise AttachmentParsingExpired("Attachment has expired")
+        if record.status in {
+            DocumentStatus.INDEXING,
+            DocumentStatus.READY,
+            DocumentStatus.PARTIAL,
+        }:
+            return record
+        if record.status is not DocumentStatus.PARSING:
+            raise AttachmentParsingNotAllowed(
+                f"Cannot resume attachment in {record.status.value}"
+            )
+        return self._parse_claimed_record(record)
+
+    def _parse_claimed_record(self, parsing: DocumentRecord) -> DocumentRecord:
         try:
             source_path = self.file_storage.resolve(parsing.storage_path)
         except AttachmentStorageError as exc:

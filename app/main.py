@@ -1,6 +1,8 @@
 """FastAPI application entry point."""
 
+import asyncio
 from contextlib import asynccontextmanager
+import logging
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -15,6 +17,9 @@ from app.api.routes.sessions import router as sessions_router
 from app.clients.reranker_client import close_reranker_client
 from app.clients.web_search_client import close_web_search_client
 from app.mcp.settings import get_mcp_http_path, is_mcp_http_enabled
+from app.services.documents.attachment_recovery_service import (
+    get_attachment_recovery_service,
+)
 
 allowed_origins = [
     "http://127.0.0.1:5173",
@@ -26,24 +31,42 @@ allowed_origins = [
 ]
 
 
-@asynccontextmanager
-async def lifespan(_: FastAPI):
-    """Release shared outbound clients when the application shuts down."""
+logger = logging.getLogger(__name__)
 
-    if is_mcp_http_enabled():
-        from app.mcp.server import get_mcp_http_lifespan
 
-        async with get_mcp_http_lifespan():
-            try:
-                yield
-            finally:
-                close_reranker_client()
-                close_web_search_client()
-        return
+async def _run_attachment_recovery() -> None:
+    """Run one bounded local recovery pass without blocking startup."""
 
     try:
-        yield
+        service = get_attachment_recovery_service()
+        await asyncio.to_thread(service.recover_once)
+    except Exception as exc:
+        # Startup must remain available even if local recovery cannot initialize.
+        logger.error(
+            "attachment_startup_recovery_failed error_type=%s",
+            type(exc).__name__,
+        )
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    """Run bounded recovery and release shared clients on shutdown."""
+
+    recovery_task = asyncio.create_task(
+        _run_attachment_recovery(),
+        name="attachment-startup-recovery",
+    )
+    try:
+        if is_mcp_http_enabled():
+            from app.mcp.server import get_mcp_http_lifespan
+
+            async with get_mcp_http_lifespan():
+                yield
+        else:
+            yield
     finally:
+        # The pass is bounded; awaiting it prevents an unobserved task exception.
+        await recovery_task
         close_reranker_client()
         close_web_search_client()
 

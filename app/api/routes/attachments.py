@@ -1,4 +1,4 @@
-﻿"""Temporary PDF attachment API routes."""
+"""Temporary PDF attachment API routes."""
 
 from typing import Annotated, NoReturn
 
@@ -18,9 +18,17 @@ from fastapi import (
 from app.db.models import DocumentRecord, DocumentStatus
 from app.schemas.documents import AttachmentItem, AttachmentListResponse
 from app.services.documents.attachment_processing_service import (
-    AttachmentProcessingService,
     get_attachment_processing_service,
     process_attachment_background,
+    process_claimed_attachment_background,
+)
+from app.services.documents.attachment_retry_service import (
+    AttachmentAlreadyProcessing as AttachmentRetryAlreadyProcessing,
+    AttachmentRetryNotAllowed,
+    AttachmentRetryNotFound,
+    AttachmentRetryPreparationError,
+    AttachmentRetryService,
+    get_attachment_retry_service,
 )
 from app.services.documents.temporary_document_service import (
     AttachmentCleanupError,
@@ -66,10 +74,6 @@ def upload_attachment(
         TemporaryDocumentService,
         Depends(get_temporary_document_service),
     ],
-    processing_service: Annotated[
-        AttachmentProcessingService,
-        Depends(get_attachment_processing_service),
-    ],
 ) -> AttachmentItem:
     """Upload one temporary PDF using the current user_id identity bridge."""
 
@@ -79,12 +83,52 @@ def upload_attachment(
         _raise_attachment_http_error(exc)
     # BackgroundTasks is an in-process MVP: it is not durable across restarts and
     # does not coordinate multiple application instances.
-    background_tasks.add_task(
-        process_attachment_background,
-        record.id,
-        processing_service,
-    )
+    background_tasks.add_task(process_attachment_background, record.id)
     return _item_from_record(record)
+
+
+@router.post(
+    "/sessions/{session_id}/attachments/{attachment_id}/retry",
+    response_model=AttachmentItem,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+def retry_attachment(
+    session_id: int,
+    attachment_id: str,
+    background_tasks: BackgroundTasks,
+    user_id: str = Query(..., min_length=1),
+    service: AttachmentRetryService = Depends(get_attachment_retry_service),
+) -> AttachmentItem:
+    """CAS one accessible attachment into PARSING and reschedule it."""
+
+    try:
+        claimed = service.claim_retry(attachment_id, user_id, session_id)
+    except AttachmentRetryNotFound as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": "attachment_not_found"},
+        ) from exc
+    except AttachmentRetryAlreadyProcessing as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"error": "attachment_already_processing"},
+        ) from exc
+    except AttachmentRetryNotAllowed as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"error": "attachment_retry_not_allowed"},
+        ) from exc
+    except AttachmentRetryPreparationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"error": "attachment_retry_failed"},
+        ) from exc
+
+    background_tasks.add_task(
+        process_claimed_attachment_background,
+        claimed.id,
+    )
+    return _item_from_record(claimed)
 
 
 @router.get(
@@ -214,5 +258,14 @@ def _user_safe_message(record: DocumentRecord) -> str | None:
             "当前版本只支持包含可提取文本层的 PDF，暂不支持扫描件。"
         ),
         "INVALID_PDF": "PDF 文件损坏或格式无效。",
+        "PROCESSING_SERVICE_UNAVAILABLE": (
+            "附件处理服务暂时不可用，请稍后重试。"
+        ),
+        "PROCESS_INTERRUPTED": "附件处理被中断，请重试。",
+        "ATTACHMENT_PROCESSING_FAILED": "附件处理失败，请稍后重试。",
+        "ATTACHMENT_INDEX_MISSING": "附件索引缺失，请重试处理。",
+        "ATTACHMENT_RETRY_PREPARATION_FAILED": (
+            "附件重新处理准备失败，请稍后重试。"
+        ),
     }
     return messages.get(record.error_code, "PDF 文档解析失败。")

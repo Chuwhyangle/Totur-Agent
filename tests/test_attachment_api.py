@@ -1,18 +1,17 @@
-﻿"""Service and API tests for temporary conversation PDF attachments."""
+"""Service and API tests for temporary conversation PDF attachments."""
 
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from hashlib import sha256
 from io import BytesIO
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
 
 from app.api.routes.attachments import get_temporary_document_service
-from app.services.documents.attachment_processing_service import (
-    get_attachment_processing_service,
-)
+import app.services.documents.attachment_processing_service as processing_module
 from app.db import database
 from app.db.models import DocumentStatus
 from app.main import app
@@ -98,14 +97,17 @@ def make_upload(
 def api_client_for(service, processing_service=None):
     processor = processing_service or FakeProcessingService()
     app.dependency_overrides[get_temporary_document_service] = lambda: service
-    app.dependency_overrides[get_attachment_processing_service] = lambda: processor
     client = TestClient(app)
     try:
-        yield client
+        with patch.object(
+            processing_module,
+            "get_attachment_processing_service",
+            return_value=processor,
+        ):
+            yield client
     finally:
         client.close()
         app.dependency_overrides.pop(get_temporary_document_service, None)
-        app.dependency_overrides.pop(get_attachment_processing_service, None)
 
 
 def test_owner_can_create_uploaded_attachment(monkeypatch, tmp_path):
@@ -648,6 +650,11 @@ def test_failed_attachment_api_hides_internal_error_message(
             "当前版本只支持包含可提取文本层的 PDF，暂不支持扫描件。",
         ),
         ("INVALID_PDF", "PDF 文件损坏或格式无效。"),
+        ("ATTACHMENT_INDEX_MISSING", "附件索引缺失，请重试处理。"),
+        (
+            "ATTACHMENT_RETRY_PREPARATION_FAILED",
+            "附件重新处理准备失败，请稍后重试。",
+        ),
         ("PDF_PARSE_FAILED", "PDF 文档解析失败。"),
     ],
 )

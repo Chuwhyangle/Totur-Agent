@@ -445,6 +445,7 @@ def update_document_status(
     document_id: str,
     status: DocumentStatus | str,
     *,
+    expected_status: DocumentStatus | str | None = None,
     parsed_path: str | None = None,
     content_hash: str | None = None,
     parser_name: str | None = None,
@@ -453,12 +454,25 @@ def update_document_status(
     error_code: str | None = None,
     error_message: str | None = None,
 ) -> DocumentRecord | None:
-    """Apply one validated lifecycle transition and optional parser metadata."""
+    """Apply one validated lifecycle transition and optional parser metadata.
+
+    ``expected_status`` lets callers preserve an earlier lifecycle claim across
+    the repository read/update boundary instead of acting on a newer state.
+    """
 
     try:
         target_status = DocumentStatus(status)
     except ValueError as exc:
         raise InvalidDocumentRecord(f"Unknown document status: {status}") from exc
+
+    try:
+        normalized_expected_status = (
+            DocumentStatus(expected_status) if expected_status is not None else None
+        )
+    except ValueError as exc:
+        raise InvalidDocumentRecord(
+            f"Unknown expected document status: {expected_status}"
+        ) from exc
 
     if page_count is not None and page_count < 0:
         raise InvalidDocumentRecord("page_count must not be negative")
@@ -515,6 +529,13 @@ def update_document_status(
             return None
 
         current = _record_from_row(row)
+        if (
+            normalized_expected_status is not None
+            and current.status is not normalized_expected_status
+        ):
+            raise DocumentRepositoryError(
+                "Document status changed concurrently; retry the transition"
+            )
         validate_document_status_transition(current.status, target_status)
 
         updates: dict[str, object] = {
@@ -604,6 +625,58 @@ def update_document_status(
         updated = _record_from_row(updated_row)
         connection.commit()
         return updated
+    finally:
+        connection.close()
+
+
+def list_recoverable_processing_attachments(
+    now: datetime | str,
+    updated_before: datetime | str,
+    limit: int,
+) -> list[DocumentRecord]:
+    """List unexpired UPLOADED and stale in-flight attachments for recovery."""
+
+    if limit < 0:
+        raise ValueError("limit must not be negative")
+    if limit == 0:
+        return []
+
+    initialize_database()
+    normalized_now = _normalize_utc_iso(now, "now")
+    normalized_updated_before = _normalize_utc_iso(
+        updated_before,
+        "updated_before",
+    )
+    connection = get_connection()
+
+    try:
+        rows = connection.execute(
+            f"""
+            SELECT {_DOCUMENT_COLUMNS}
+            FROM {DOCUMENTS_TABLE}
+            WHERE scope = ?
+                AND expires_at > ?
+                AND (
+                    status = ?
+                    OR (
+                        status IN (?, ?)
+                        AND updated_at <= ?
+                    )
+                )
+            ORDER BY updated_at ASC, created_at ASC, id ASC
+            LIMIT ?
+            """,
+            (
+                DocumentScope.ATTACHMENT.value,
+                normalized_now,
+                DocumentStatus.UPLOADED.value,
+                DocumentStatus.PARSING.value,
+                DocumentStatus.INDEXING.value,
+                normalized_updated_before,
+                limit,
+            ),
+        ).fetchall()
+        return [_record_from_row(row) for row in rows]
     finally:
         connection.close()
 

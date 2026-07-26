@@ -1,6 +1,7 @@
 """Retrieve user-selected temporary attachment evidence for one chat turn."""
 
 from dataclasses import dataclass
+import logging
 from datetime import datetime, timezone
 from typing import Callable
 
@@ -10,12 +11,15 @@ from app.repositories.attachment_vector_repository import AttachmentVectorReposi
 from app.repositories.document_repository import (
     get_accessible_attachment,
     get_retrievable_attachment,
+    update_document_status,
 )
 from app.services.documents.settings import (
     TemporaryDocumentSettings,
     load_temporary_document_settings,
 )
 
+
+logger = logging.getLogger(__name__)
 
 MAX_CHAT_ATTACHMENT_IDS = 5
 ATTACHMENT_CONTEXT_HEADER = (
@@ -39,6 +43,14 @@ class AttachmentNotReadyError(AttachmentRetrievalError):
 
 class AttachmentProcessingFailedError(AttachmentRetrievalError):
     """Attachment processing failed before it became retrievable."""
+
+
+class AttachmentIndexMissingError(AttachmentRetrievalError):
+    """A retrievable attachment has no scoped vectors in the index."""
+
+
+class AttachmentNoRelevantEvidenceError(AttachmentRetrievalError):
+    """The selected attachment index has no evidence above the threshold."""
 
 
 class AttachmentRetrievalFailedError(AttachmentRetrievalError):
@@ -144,9 +156,17 @@ class AttachmentRetrievalService:
                 raise AttachmentNotFoundError
             documents[document_id] = retrievable
 
+        # Ownership/session/TTL checks are complete before index inspection.
+        for document_id in selected_ids:
+            vector_count = self.vector_repository.count_document(document_id)
+            if vector_count == 0:
+                self._mark_index_missing(documents[document_id])
+                raise AttachmentIndexMissingError
+
         query_embeddings = self.embedding_client.embed_texts([query])
         if len(query_embeddings) != 1 or not query_embeddings[0]:
             raise RuntimeError("query embedding result is invalid")
+
         hits = self.vector_repository.search(
             query_embedding=query_embeddings[0],
             user_id=user_id,
@@ -165,6 +185,8 @@ class AttachmentRetrievalService:
             and hit.similarity >= self.settings.similarity_threshold
         ]
         eligible_hits.sort(key=lambda hit: hit.similarity, reverse=True)
+        if not eligible_hits:
+            raise AttachmentNoRelevantEvidenceError
 
         return [
             AttachmentEvidence(
@@ -178,6 +200,33 @@ class AttachmentRetrievalService:
             )
             for index, hit in enumerate(eligible_hits, start=1)
         ]
+
+
+    @staticmethod
+    def _mark_index_missing(document: DocumentRecord) -> None:
+        try:
+            failed = update_document_status(
+                document.id,
+                DocumentStatus.FAILED,
+                expected_status=document.status,
+                error_code="ATTACHMENT_INDEX_MISSING",
+                error_message="Attachment vector index is missing",
+            )
+            status_value = failed.status.value if failed is not None else "MISSING"
+            logger.warning(
+                "attachment_index_missing document_id=%s error_type=%s status=%s",
+                document.id,
+                AttachmentIndexMissingError.__name__,
+                status_value,
+            )
+        except Exception as exc:
+            logger.error(
+                "attachment_index_missing_state_update_failed document_id=%s "
+                "error_type=%s status=%s",
+                document.id,
+                type(exc).__name__,
+                "UNKNOWN",
+            )
 
 
 def normalize_attachment_ids(attachment_ids: list[str]) -> list[str]:

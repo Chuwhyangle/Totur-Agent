@@ -1424,3 +1424,27 @@ def test_initialize_database_migrates_legacy_ready_rows_for_reindex(
         "idx_documents_status",
         "idx_documents_expires_at",
     }.issubset(indexes)
+
+
+def test_expected_status_rejects_stale_transition(monkeypatch, tmp_path):
+    use_temp_database(monkeypatch, tmp_path)
+    session = create_session("alice")
+    document = create_attachment("alice", session.id)
+    update_document_status(document.id, DocumentStatus.PARSING)
+
+    with pytest.raises(
+        document_repository.DocumentRepositoryError,
+        match="changed concurrently",
+    ):
+        update_document_status(
+            document.id,
+            DocumentStatus.FAILED,
+            expected_status=DocumentStatus.UPLOADED,
+            error_code="STALE_WORKER",
+            error_message="A stale worker must not overwrite the current state",
+        )
+
+    current = get_document(document.id)
+    assert current is not None
+    assert current.status is DocumentStatus.PARSING
+    assert current.error_code is None
