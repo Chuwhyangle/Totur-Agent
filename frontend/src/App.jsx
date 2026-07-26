@@ -3,14 +3,19 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   createInterviewJD,
   createSession,
+  deleteAttachment,
+  getAttachments,
   getHealth,
   getInterviewJDs,
   getPersonas,
   getSessionConversations,
   getSessions,
   postChat,
+  retryAttachment,
+  uploadAttachment,
 } from './api/tutorApi.js'
 import ApiStatus from './components/ApiStatus.jsx'
+import AttachmentPanel from './components/AttachmentPanel.jsx'
 import ChatInput from './components/ChatInput.jsx'
 import ChatMessage from './components/ChatMessage.jsx'
 import InterviewJDPanel from './components/InterviewJDPanel.jsx'
@@ -18,24 +23,66 @@ import Icon from './components/Icon.jsx'
 import PersonaSelector from './components/PersonaSelector.jsx'
 import SessionSidebar from './components/SessionSidebar.jsx'
 import UserIdInput from './components/UserIdInput.jsx'
+import { useAttachmentPolling } from './hooks/useAttachmentPolling.js'
+import {
+  addSelectedAttachmentId,
+  attachmentErrorCode,
+  attachmentErrorMessage,
+  getAttachmentSendBlockReason,
+  getInitialSelectedAttachmentIds,
+  getSendableAttachmentIds,
+  isAttachmentPending,
+  reconcileSelectedAttachmentIds,
+  shouldMarkApiOffline,
+  validatePdfFile,
+} from './utils/attachments.js'
 
 const DEFAULT_PERSONA_ID = 'tutor'
-function createErrorReply() {
+
+function createErrorReply(error) {
+  const errorCode = attachmentErrorCode(error)
+  if (errorCode) {
+    const answer = errorCode === 'attachment_no_relevant_evidence'
+      ? '在所选附件中没有检索到与当前问题足够相关的内容。你可以换一种问法，或取消附件后继续普通提问。'
+      : attachmentErrorMessage(error)
+    return {
+      answer,
+      next_task: '检查附件状态，或调整当前选择后重试。',
+      exercise: '尝试换一种更具体的问法。',
+      checkpoints: ['附件仍只属于当前会话', '业务错误不会被误判为服务离线'],
+    }
+  }
+
   return {
     answer: '这次请求后端失败了，但页面没有崩溃。',
     next_task: '先确认后端是否运行在 http://127.0.0.1:8001。',
-    exercise: '点击顶部刷新按钮，观察 API 状态是否在线。',
+    exercise: '观察顶部 API 状态，并在服务恢复后重试。',
     checkpoints: ['用户消息已经保留', '错误被显示在聊天区', '调试详情里可以查看失败信息'],
   }
 }
 
-// App 是当前前端页面的主组件，负责组合组件和管理页面状态。
+function buildAttachmentScopeKey(userId, personaId, sessionId) {
+  return `${userId.trim()}::${personaId ?? ''}::${sessionId ?? 'none'}`
+}
+
+function upsertAttachment(items, nextAttachment) {
+  const withoutCurrent = items.filter((attachment) => attachment.id !== nextAttachment.id)
+  return [{ ...nextAttachment, clientAdded: true }, ...withoutCurrent]
+}
+
+function mergeListedAttachments(currentItems, listedItems) {
+  const listedIds = new Set(listedItems.map((attachment) => attachment.id))
+  const localItems = currentItems.filter(
+    (attachment) => attachment.clientAdded && !listedIds.has(attachment.id),
+  )
+  return [...listedItems, ...localItems]
+}
+
 function App() {
   const [apiStatus, setApiStatus] = useState('checking')
   const [userId, setUserId] = useState('demo-user')
   const [draftMessage, setDraftMessage] = useState('')
   const [forceWebSearch, setForceWebSearch] = useState(false)
-  // 聊天消息从空数组开始，页面启动时不再显示固定示例回复。
   const [messages, setMessages] = useState([])
   const [isSending, setIsSending] = useState(false)
   const [sessions, setSessions] = useState([])
@@ -51,16 +98,61 @@ function App() {
   const [selectedPersonaId, setSelectedPersonaId] = useState(DEFAULT_PERSONA_ID)
   const [isTargetPanelOpen, setIsTargetPanelOpen] = useState(false)
   const [theme, setTheme] = useState(() => localStorage.getItem('tutor-theme') ?? 'light')
+  const [attachments, setAttachments] = useState([])
+  const [attachmentStatus, setAttachmentStatus] = useState('idle')
+  const [selectedAttachmentIds, setSelectedAttachmentIds] = useState([])
+  const [attachmentError, setAttachmentError] = useState('')
+  const [attachmentActionStates, setAttachmentActionStates] = useState({})
+  const [attachmentActionErrors, setAttachmentActionErrors] = useState({})
+  const [isUploadingAttachment, setIsUploadingAttachment] = useState(false)
   const threadRef = useRef(null)
+  const attachmentScopeKeyRef = useRef('')
+  const attachmentListRequestIdRef = useRef(0)
+  const attachmentSelectionTouchedRef = useRef(false)
+  const sessionMessageRequestIdRef = useRef(0)
+  const sessionCreateRequestIdRef = useRef(0)
 
-  const canSend = draftMessage.trim().length > 0 && userId.trim().length > 0 && !isSending
+  const attachmentSendBlockReason = getAttachmentSendBlockReason(
+    attachments,
+    selectedAttachmentIds,
+  )
+  const canSend = draftMessage.trim().length > 0
+    && userId.trim().length > 0
+    && !isSending
+    && !attachmentSendBlockReason
+
+  function updateApiStatusAfterError(error) {
+    setApiStatus(shouldMarkApiOffline(error) ? 'offline' : 'online')
+  }
+
+  function activateAttachmentScope(
+    nextSessionId,
+    nextUserId,
+    nextPersonaId,
+    { preserveSessionCreation = false } = {},
+  ) {
+    const nextScopeKey = buildAttachmentScopeKey(nextUserId, nextPersonaId, nextSessionId)
+    if (!preserveSessionCreation) {
+      sessionCreateRequestIdRef.current += 1
+      setIsCreatingSession(false)
+    }
+    attachmentScopeKeyRef.current = nextScopeKey
+    attachmentListRequestIdRef.current += 1
+    attachmentSelectionTouchedRef.current = false
+    setAttachments([])
+    setSelectedAttachmentIds([])
+    setAttachmentStatus(nextSessionId ? 'loading' : 'idle')
+    setAttachmentError('')
+    setAttachmentActionStates({})
+    setAttachmentActionErrors({})
+    return nextScopeKey
+  }
+
   const loadPersonas = useCallback(async () => {
     setPersonasStatus('loading')
-
     try {
       const { data } = await getPersonas()
       const nextPersonas = Array.isArray(data) ? data : []
-
       setPersonas(nextPersonas)
       setPersonasStatus('success')
       setApiStatus('online')
@@ -68,24 +160,22 @@ function App() {
         const stillAvailable = nextPersonas.some(
           (persona) => persona.persona_id === currentPersonaId,
         )
-
         return stillAvailable
           ? currentPersonaId
           : nextPersonas[0]?.persona_id ?? DEFAULT_PERSONA_ID
       })
-
       return nextPersonas
-    } catch {
+    } catch (error) {
       setPersonas([])
       setPersonasStatus('error')
-      setApiStatus('offline')
-
+      updateApiStatusAfterError(error)
       return []
     }
   }, [])
 
   function handlePersonaChange(nextPersonaId) {
-    // v0.3 起人设绑定在会话上；切换人设会退出当前会话，下一次发送时创建新会话。
+    sessionMessageRequestIdRef.current += 1
+    activateAttachmentScope(null, userId, nextPersonaId)
     setSelectedPersonaId(nextPersonaId)
     setActiveSessionId(null)
     setActiveSessionStatus('idle')
@@ -93,7 +183,8 @@ function App() {
   }
 
   function handleUserIdChange(nextUserId) {
-    // 切换用户时清空页面本地状态，避免把不同 user_id 的对话混在一起看。
+    sessionMessageRequestIdRef.current += 1
+    activateAttachmentScope(null, nextUserId, selectedPersonaId)
     setUserId(nextUserId)
     setMessages([])
     setSessions([])
@@ -105,27 +196,15 @@ function App() {
   }
 
   function buildMessagesFromHistoryItems(items) {
-    // 后端历史是最新在前，聊天窗口显示时要改成旧到新。
     return [...items].reverse().flatMap((item) => [
-      {
-        id: `history-user-${item.id}`,
-        role: 'user',
-        text: item.message,
-      },
-      {
-        id: `history-assistant-${item.id}`,
-        role: 'assistant',
-        reply: item.reply,
-      },
+      { id: `history-user-${item.id}`, role: 'user', text: item.message },
+      { id: `history-assistant-${item.id}`, role: 'assistant', reply: item.reply },
     ])
   }
 
   function upsertSession(nextSession) {
     setSessions((currentSessions) => {
-      const withoutCurrent = currentSessions.filter(
-        (session) => session.id !== nextSession.id,
-      )
-
+      const withoutCurrent = currentSessions.filter((session) => session.id !== nextSession.id)
       return [nextSession, ...withoutCurrent]
     })
   }
@@ -137,25 +216,19 @@ function App() {
       setSessionsStatus('error')
       return []
     }
-
-    if (!silent) {
-      setSessionsStatus('loading')
-    }
+    if (!silent) setSessionsStatus('loading')
 
     try {
       const { data } = await getSessions(trimmedUserId)
       const nextSessions = Array.isArray(data?.items) ? data.items : []
-
       setSessions(nextSessions)
       setSessionsStatus('success')
       setApiStatus('online')
-
       return nextSessions
-    } catch {
+    } catch (error) {
       setSessions([])
       setSessionsStatus('error')
-      setApiStatus('offline')
-
+      updateApiStatusAfterError(error)
       return []
     }
   }, [userId])
@@ -167,48 +240,36 @@ function App() {
       setInterviewJDsStatus('error')
       return []
     }
-
-    if (!silent) {
-      setInterviewJDsStatus('loading')
-    }
+    if (!silent) setInterviewJDsStatus('loading')
 
     try {
       const { data } = await getInterviewJDs(trimmedUserId)
       const nextJDs = Array.isArray(data?.items) ? data.items : []
-
       setInterviewJDs(nextJDs)
       setInterviewJDsStatus('success')
       setApiStatus('online')
-
       return nextJDs
-    } catch {
+    } catch (error) {
       setInterviewJDs([])
       setInterviewJDsStatus('error')
-      setApiStatus('offline')
-
+      updateApiStatusAfterError(error)
       return []
     }
   }, [userId])
 
   async function handleSaveInterviewJD(requestBody) {
-    if (isSavingInterviewJD) {
-      return null
-    }
-
+    if (isSavingInterviewJD) return null
     setIsSavingInterviewJD(true)
 
     try {
       const { data } = await createInterviewJD(requestBody)
-
       setInterviewJDs((currentJDs) => [data, ...currentJDs])
       setInterviewJDsStatus('success')
       setApiStatus('online')
-
       return data
-    } catch {
+    } catch (error) {
       setInterviewJDsStatus('error')
-      setApiStatus('offline')
-
+      updateApiStatusAfterError(error)
       return null
     } finally {
       setIsSavingInterviewJD(false)
@@ -216,6 +277,9 @@ function App() {
   }
 
   async function loadSessionMessages(session) {
+    const requestId = sessionMessageRequestIdRef.current + 1
+    sessionMessageRequestIdRef.current = requestId
+    activateAttachmentScope(session.id, userId, session.persona_id ?? DEFAULT_PERSONA_ID)
     setActiveSessionId(session.id)
     setSelectedPersonaId(session.persona_id ?? DEFAULT_PERSONA_ID)
     setActiveSessionStatus('loading')
@@ -223,58 +287,257 @@ function App() {
 
     try {
       const { data } = await getSessionConversations(session.id)
+      if (requestId !== sessionMessageRequestIdRef.current) return
       const items = Array.isArray(data?.items) ? data.items : []
-
       setMessages(buildMessagesFromHistoryItems(items))
       setActiveSessionStatus('success')
       setApiStatus('online')
-    } catch {
+    } catch (error) {
+      if (requestId !== sessionMessageRequestIdRef.current || error?.isAbortError) return
       setMessages([])
       setActiveSessionStatus('error')
-      setApiStatus('offline')
+      updateApiStatusAfterError(error)
     }
   }
 
   async function handleCreateSession() {
     const trimmedUserId = userId.trim()
-    if (!trimmedUserId || isCreatingSession) {
-      return null
-    }
+    if (!trimmedUserId || isCreatingSession) return null
 
+    const requestId = sessionCreateRequestIdRef.current + 1
+    sessionCreateRequestIdRef.current = requestId
     setIsCreatingSession(true)
 
     try {
-      // 不传 title，让后端在第一条消息后用用户问题生成标题。
       const { data } = await createSession({
         user_id: trimmedUserId,
         persona_id: selectedPersonaId,
       })
+      if (requestId !== sessionCreateRequestIdRef.current) return null
 
       upsertSession(data)
       setSessionsStatus('success')
+      activateAttachmentScope(data.id, trimmedUserId, selectedPersonaId, {
+        preserveSessionCreation: true,
+      })
       setActiveSessionId(data.id)
       setActiveSessionStatus('success')
       setMessages([])
       setApiStatus('online')
-
       return data
-    } catch {
+    } catch (error) {
+      if (requestId !== sessionCreateRequestIdRef.current || error?.isAbortError) return null
       setSessionsStatus('error')
-      setApiStatus('offline')
-
+      updateApiStatusAfterError(error)
       return null
     } finally {
-      setIsCreatingSession(false)
+      if (requestId === sessionCreateRequestIdRef.current) setIsCreatingSession(false)
     }
   }
 
   async function ensureActiveSession() {
     const currentSession = sessions.find((session) => session.id === activeSessionId)
-    if (currentSession) {
-      return currentSession
+    return currentSession ?? handleCreateSession()
+  }
+
+  const refreshAttachments = useCallback(async ({ signal, initial = false } = {}) => {
+    const trimmedUserId = userId.trim()
+    const sessionId = activeSessionId
+    if (!trimmedUserId || !sessionId) return []
+
+    const scopeKey = buildAttachmentScopeKey(trimmedUserId, selectedPersonaId, sessionId)
+    const requestId = attachmentListRequestIdRef.current + 1
+    attachmentListRequestIdRef.current = requestId
+    if (initial) setAttachmentStatus('loading')
+
+    try {
+      const { data } = await getAttachments(sessionId, trimmedUserId, { signal })
+      if (
+        scopeKey !== attachmentScopeKeyRef.current
+        || requestId !== attachmentListRequestIdRef.current
+      ) return []
+
+      const listedItems = Array.isArray(data?.items) ? data.items : []
+      setAttachments((currentItems) => {
+        const nextItems = mergeListedAttachments(currentItems, listedItems)
+        setSelectedAttachmentIds((currentIds) => {
+          if (initial && !attachmentSelectionTouchedRef.current) {
+            return getInitialSelectedAttachmentIds(nextItems)
+          }
+          return reconcileSelectedAttachmentIds(currentIds, nextItems)
+        })
+        return nextItems
+      })
+      setAttachmentStatus('success')
+      setAttachmentError('')
+      setApiStatus('online')
+      return listedItems
+    } catch (error) {
+      if (
+        error?.isAbortError
+        || scopeKey !== attachmentScopeKeyRef.current
+        || requestId !== attachmentListRequestIdRef.current
+      ) return []
+      setAttachmentStatus('error')
+      setAttachmentError(attachmentErrorMessage(error, '附件列表读取失败，请稍后重试。'))
+      updateApiStatusAfterError(error)
+      return []
+    }
+  }, [activeSessionId, selectedPersonaId, userId])
+
+  useEffect(() => {
+    const scopeKey = buildAttachmentScopeKey(userId, selectedPersonaId, activeSessionId)
+    if (attachmentScopeKeyRef.current !== scopeKey) {
+      activateAttachmentScope(activeSessionId, userId, selectedPersonaId)
+    }
+    if (!activeSessionId || !userId.trim()) return undefined
+
+    const controller = new AbortController()
+    void refreshAttachments({ signal: controller.signal, initial: true })
+    return () => controller.abort()
+  }, [activeSessionId, refreshAttachments, selectedPersonaId, userId])
+
+  const hasPendingAttachments = attachments.some(
+    (attachment) => isAttachmentPending(attachment.status),
+  )
+  useAttachmentPolling({
+    enabled: Boolean(activeSessionId && hasPendingAttachments),
+    poll: refreshAttachments,
+    scopeKey: attachmentScopeKeyRef.current,
+  })
+
+  async function handleUploadAttachment(file) {
+    if (isUploadingAttachment) return
+    const validationMessage = validatePdfFile(file)
+    if (validationMessage) {
+      setAttachmentError(validationMessage)
+      return
     }
 
-    return handleCreateSession()
+    const trimmedUserId = userId.trim()
+    const personaId = selectedPersonaId
+    if (!trimmedUserId) {
+      setAttachmentError('请先填写用户 ID。')
+      return
+    }
+
+    const initialScopeKey = attachmentScopeKeyRef.current
+    let operationScopeKey = initialScopeKey
+    setIsUploadingAttachment(true)
+    setAttachmentError('')
+
+    try {
+      const session = await ensureActiveSession()
+      if (!session) {
+        if (initialScopeKey !== attachmentScopeKeyRef.current) return
+        throw new Error('没有可用的会话')
+      }
+
+      operationScopeKey = buildAttachmentScopeKey(trimmedUserId, personaId, session.id)
+      if (operationScopeKey !== attachmentScopeKeyRef.current) return
+      attachmentListRequestIdRef.current += 1
+
+      const { data } = await uploadAttachment(session.id, trimmedUserId, file)
+      if (operationScopeKey !== attachmentScopeKeyRef.current) return
+
+      attachmentSelectionTouchedRef.current = true
+      setAttachments((currentItems) => upsertAttachment(currentItems, data))
+      setSelectedAttachmentIds((currentIds) => addSelectedAttachmentId(currentIds, data.id))
+      setAttachmentStatus('success')
+      setAttachmentError('')
+      setApiStatus('online')
+    } catch (error) {
+      if (error?.isAbortError || operationScopeKey !== attachmentScopeKeyRef.current) return
+      setAttachmentError(attachmentErrorMessage(error, 'PDF 上传失败，请稍后重试。'))
+      updateApiStatusAfterError(error)
+    } finally {
+      setIsUploadingAttachment(false)
+    }
+  }
+
+  function handleToggleAttachment(attachmentId) {
+    attachmentSelectionTouchedRef.current = true
+    setAttachmentError('')
+    setSelectedAttachmentIds((currentIds) => {
+      if (currentIds.includes(attachmentId)) {
+        return currentIds.filter((currentId) => currentId !== attachmentId)
+      }
+      if (currentIds.length >= 5) {
+        setAttachmentError('每次最多选择 5 个附件。')
+        return currentIds
+      }
+      return [...currentIds, attachmentId]
+    })
+  }
+
+  async function handleRetryAttachment(attachmentId) {
+    const trimmedUserId = userId.trim()
+    const sessionId = activeSessionId
+    const scopeKey = buildAttachmentScopeKey(trimmedUserId, selectedPersonaId, sessionId)
+    if (!trimmedUserId || !sessionId || scopeKey !== attachmentScopeKeyRef.current) return
+
+    attachmentListRequestIdRef.current += 1
+    setAttachmentActionStates((current) => ({ ...current, [attachmentId]: 'retrying' }))
+    setAttachmentActionErrors((current) => ({ ...current, [attachmentId]: '' }))
+
+    try {
+      const { data } = await retryAttachment(sessionId, attachmentId, trimmedUserId)
+      if (scopeKey !== attachmentScopeKeyRef.current) return
+      setAttachments((currentItems) => currentItems.map(
+        (attachment) => attachment.id === attachmentId ? data : attachment,
+      ))
+      setAttachmentStatus('success')
+      setAttachmentError('')
+      setApiStatus('online')
+    } catch (error) {
+      if (scopeKey !== attachmentScopeKeyRef.current || error?.isAbortError) return
+      setAttachmentActionErrors((current) => ({
+        ...current,
+        [attachmentId]: attachmentErrorMessage(error, '附件重试失败，请稍后再试。'),
+      }))
+      updateApiStatusAfterError(error)
+    } finally {
+      if (scopeKey === attachmentScopeKeyRef.current) {
+        setAttachmentActionStates((current) => ({ ...current, [attachmentId]: '' }))
+      }
+    }
+  }
+
+  async function handleDeleteAttachment(attachmentId) {
+    const trimmedUserId = userId.trim()
+    const sessionId = activeSessionId
+    const scopeKey = buildAttachmentScopeKey(trimmedUserId, selectedPersonaId, sessionId)
+    if (!trimmedUserId || !sessionId || scopeKey !== attachmentScopeKeyRef.current) return
+
+    attachmentListRequestIdRef.current += 1
+    setAttachmentActionStates((current) => ({ ...current, [attachmentId]: 'deleting' }))
+    setAttachmentActionErrors((current) => ({ ...current, [attachmentId]: '' }))
+
+    try {
+      await deleteAttachment(sessionId, attachmentId, trimmedUserId)
+      if (scopeKey !== attachmentScopeKeyRef.current) return
+      attachmentListRequestIdRef.current += 1
+      setAttachments((currentItems) => currentItems.filter(
+        (attachment) => attachment.id !== attachmentId,
+      ))
+      setSelectedAttachmentIds((currentIds) => currentIds.filter(
+        (currentId) => currentId !== attachmentId,
+      ))
+      setAttachmentStatus('success')
+      setAttachmentError('')
+      setApiStatus('online')
+    } catch (error) {
+      if (scopeKey !== attachmentScopeKeyRef.current || error?.isAbortError) return
+      setAttachmentActionErrors((current) => ({
+        ...current,
+        [attachmentId]: attachmentErrorMessage(error, '附件删除失败，请稍后再试。'),
+      }))
+      updateApiStatusAfterError(error)
+    } finally {
+      if (scopeKey === attachmentScopeKeyRef.current) {
+        setAttachmentActionStates((current) => ({ ...current, [attachmentId]: '' }))
+      }
+    }
   }
 
   async function handleSendMessage(event) {
@@ -282,17 +545,20 @@ function App() {
 
     const trimmedMessage = draftMessage.trim()
     const trimmedUserId = userId.trim()
-    if (!trimmedMessage || !trimmedUserId || isSending) {
+    if (!trimmedMessage || !trimmedUserId || isSending) return
+    if (attachmentSendBlockReason) {
+      setAttachmentError(attachmentSendBlockReason)
       return
     }
 
-    const requestBody = {
-      // 后端第一阶段短期记忆按 user_id 查询历史，所以这里发送去空格后的值。
+    const attachmentIds = getSendableAttachmentIds(attachments, selectedAttachmentIds)
+    const baseRequestBody = {
       user_id: trimmedUserId,
       session_id: activeSessionId,
       persona_id: selectedPersonaId,
       message: trimmedMessage,
       force_web_search: forceWebSearch,
+      attachment_ids: attachmentIds,
     }
     const userMessage = {
       id: `message-user-${Date.now()}`,
@@ -300,54 +566,51 @@ function App() {
       text: trimmedMessage,
     }
 
+    let chatScopeKey = attachmentScopeKeyRef.current
     setMessages((currentMessages) => [...currentMessages, userMessage])
     setDraftMessage('')
     setIsSending(true)
 
     try {
       const activeSession = await ensureActiveSession()
+      if (!activeSession) throw new Error('没有可用的会话')
 
-      if (!activeSession) {
-        throw new Error('没有可用的会话')
-      }
-
-      const chatRequestBody = {
-        ...requestBody,
-        session_id: activeSession.id,
-      }
+      const chatRequestBody = { ...baseRequestBody, session_id: activeSession.id }
+      chatScopeKey = buildAttachmentScopeKey(
+        trimmedUserId,
+        selectedPersonaId,
+        activeSession.id,
+      )
       const { data, debug } = await postChat(chatRequestBody)
+      if (chatScopeKey !== attachmentScopeKeyRef.current) return
+
       const assistantMessage = {
         id: `message-assistant-${Date.now()}`,
         role: 'assistant',
         reply: data?.reply,
         debug,
       }
-
       setMessages((currentMessages) => [...currentMessages, assistantMessage])
       setActiveSessionId(data?.session_id ?? activeSession.id)
       setActiveSessionStatus('success')
       setApiStatus('online')
-
-      // 每次成功发送后刷新会话列表，拿到最新标题和 updated_at。
       void loadSessions({ silent: true })
     } catch (error) {
+      if (chatScopeKey !== attachmentScopeKeyRef.current || error?.isAbortError) return
+
       const errorMessage = {
         id: `message-error-${Date.now()}`,
         role: 'assistant',
-        reply: createErrorReply(),
+        reply: createErrorReply(error),
         debug: error.debug ?? {
           url: 'http://127.0.0.1:8001/chat',
           method: 'POST',
-          requestBody: {
-            ...requestBody,
-            session_id: activeSessionId,
-          },
+          requestBody: baseRequestBody,
           error: error.message,
         },
       }
-
       setMessages((currentMessages) => [...currentMessages, errorMessage])
-      setApiStatus('offline')
+      updateApiStatusAfterError(error)
     } finally {
       setIsSending(false)
     }
@@ -355,7 +618,6 @@ function App() {
 
   const checkApiHealth = useCallback(async () => {
     setApiStatus('checking')
-
     try {
       await getHealth()
       setApiStatus('online')
@@ -370,6 +632,7 @@ function App() {
     void loadSessions()
     void loadInterviewJDs()
   }, [checkApiHealth, loadPersonas, loadSessions, loadInterviewJDs])
+
   useEffect(() => {
     document.documentElement.dataset.theme = theme
     document.documentElement.classList.toggle('dark', theme === 'dark')
@@ -387,6 +650,23 @@ function App() {
     { title: '拆解一个概念', text: '请用清晰、可记忆的方式解释一个我正在学习的概念。', icon: 'sparkles' },
     { title: '模拟面试练习', text: '请围绕我的目标岗位，开始一轮循序渐进的模拟面试。', icon: 'message' },
   ]
+
+  const attachmentPanel = (
+    <AttachmentPanel
+      attachments={attachments}
+      selectedAttachmentIds={selectedAttachmentIds}
+      status={attachmentStatus}
+      error={attachmentError}
+      actionErrors={attachmentActionErrors}
+      actionStates={attachmentActionStates}
+      sendBlockReason={attachmentSendBlockReason}
+      disabled={isSending || isUploadingAttachment || !userId.trim()}
+      onUpload={handleUploadAttachment}
+      onToggle={handleToggleAttachment}
+      onRetry={handleRetryAttachment}
+      onDelete={handleDeleteAttachment}
+    />
+  )
 
   return (
     <main className="app-shell">
@@ -465,6 +745,7 @@ function App() {
             isSending={isSending}
             webSearchEnabled={forceWebSearch}
             onWebSearchEnabledChange={setForceWebSearch}
+            attachmentPanel={attachmentPanel}
           />
         </section>
       </div>

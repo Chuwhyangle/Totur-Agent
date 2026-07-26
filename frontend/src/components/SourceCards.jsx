@@ -1,4 +1,4 @@
-import { safeHttpUrl, sourceCardId } from '../utils/sourceLinks.js'
+﻿import { safeHttpUrl, sourceCardId } from '../utils/sourceLinks.js'
 
 function sourceTitle(source) {
   return typeof source?.title === 'string' && source.title.trim()
@@ -7,11 +7,9 @@ function sourceTitle(source) {
 }
 
 function sourceDomain(source, safeUrl) {
-  if (typeof source?.domain === 'string' && source.domain.trim()) {
-    return source.domain.trim()
-  }
-
-  return safeUrl ? new URL(safeUrl).hostname : '未知域名'
+  if (source?.domain === 'attachment') return '会话附件'
+  if (typeof source?.domain === 'string' && source.domain.trim()) return source.domain.trim()
+  return safeUrl ? new URL(safeUrl).hostname : '未知来源'
 }
 
 function SourceCardContent({ source, safeUrl }) {
@@ -31,10 +29,8 @@ function SourceCards({ sources }) {
   const sourceItems = Array.isArray(sources)
     ? sources.filter((source) => {
         if (!source || typeof source !== 'object' || !source.id) return false
-
         const sourceId = String(source.id)
         if (seenIds.has(sourceId)) return false
-
         seenIds.add(sourceId)
         return true
       })
@@ -43,11 +39,11 @@ function SourceCards({ sources }) {
   if (sourceItems.length === 0) return null
 
   return (
-    <section className="source-section" aria-label="网页来源">
-      <span className="reply-label">网页来源</span>
+    <section className="source-section" aria-label="参考来源">
+      <span className="reply-label">参考来源</span>
       <ul className="source-card-list">
         {sourceItems.map((source) => {
-          const safeUrl = safeHttpUrl(source.url)
+          const safeUrl = source.domain === 'attachment' ? null : safeHttpUrl(source.url)
           const content = <SourceCardContent source={source} safeUrl={safeUrl} />
 
           return (

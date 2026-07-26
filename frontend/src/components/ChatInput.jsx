@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+﻿import { useEffect, useRef } from 'react'
 import Icon from './Icon.jsx'
 
 function ChatInput({
@@ -9,6 +9,7 @@ function ChatInput({
   isSending = false,
   webSearchEnabled = false,
   onWebSearchEnabledChange,
+  attachmentPanel = null,
   placeholder = '写下你的问题，或让导师帮你拆解下一步…',
 }) {
   const textareaRef = useRef(null)
@@ -29,6 +30,7 @@ function ChatInput({
 
   return (
     <div className="composer-wrap">
+      {attachmentPanel}
       <form className="chat-input-form" aria-label="发送消息" onSubmit={onSubmit}>
         <textarea
           ref={textareaRef}

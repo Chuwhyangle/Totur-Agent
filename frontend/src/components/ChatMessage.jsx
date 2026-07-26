@@ -7,10 +7,10 @@ function AnswerWithCitations({ answer, sources }) {
   const sourceIds = new Set(
     (Array.isArray(sources) ? sources : []).map((source) => String(source?.id ?? '')),
   )
-  const parts = String(answer).split(/(\[web_\d+\])/g)
+  const parts = String(answer).split(/(\[(?:web|attachment)_\d+\])/g)
 
   return parts.map((part, index) => {
-    const match = /^\[(web_\d+)\]$/.exec(part)
+    const match = /^\[((?:web|attachment)_\d+)\]$/.exec(part)
     if (!match || !sourceIds.has(match[1])) return part
 
     return (

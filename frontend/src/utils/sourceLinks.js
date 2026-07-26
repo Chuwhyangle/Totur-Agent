@@ -1,9 +1,11 @@
-export function safeHttpUrl(rawUrl) {
+﻿export function safeHttpUrl(rawUrl) {
   if (typeof rawUrl !== 'string' || rawUrl.trim().length === 0) return null
 
   try {
     const parsedUrl = new URL(rawUrl)
-    return parsedUrl.protocol === 'https:' ? parsedUrl.toString() : null
+    return parsedUrl.protocol === 'https:' || parsedUrl.protocol === 'http:'
+      ? parsedUrl.toString()
+      : null
   } catch {
     return null
   }

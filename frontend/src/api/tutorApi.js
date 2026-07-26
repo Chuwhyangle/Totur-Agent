@@ -21,18 +21,26 @@ const INTERVIEW_JDS_URL = `${API_BASE_URL}/interview-jds`
 const PERSONAS_URL = `${API_BASE_URL}/personas`
 const SESSIONS_URL = `${API_BASE_URL}/sessions`
 
-// getHealth 负责请求后端健康检查接口，确认 API 是否在线。
-export async function getHealth() {
-  const response = await fetch(`${API_BASE_URL}/health`)
-
-  if (!response.ok) {
-    throw new Error(`Health check failed: ${response.status}`)
+export class TutorApiError extends Error {
+  constructor(message, { status = null, detail = null, responseBody = null, debug = null, cause = null } = {}) {
+    super(message, cause ? { cause } : undefined)
+    this.name = 'TutorApiError'
+    this.status = status
+    this.detail = detail
+    this.responseBody = responseBody
+    this.debug = debug
+    this.isNetworkError = status == null && cause?.name !== 'AbortError'
+    this.isAbortError = cause?.name === 'AbortError'
   }
+}
 
-  return response.json()
+function now() {
+  return typeof performance !== 'undefined' ? performance.now() : Date.now()
 }
 
 async function readJsonSafely(response) {
+  if (response.status === 204) return null
+
   try {
     return await response.json()
   } catch {
@@ -40,266 +48,192 @@ async function readJsonSafely(response) {
   }
 }
 
+function createHttpError(message, response, responseBody, debug) {
+  return new TutorApiError(`${message}: ${response.status}`, {
+    status: response.status,
+    detail: responseBody?.detail ?? null,
+    responseBody,
+    debug,
+  })
+}
+
+async function requestJson(url, options = {}, errorMessage = 'API request failed') {
+  const startedAt = now()
+  const { debugRequestBody, ...fetchOptions } = options
+  let response
+
+  try {
+    response = await fetch(url, fetchOptions)
+  } catch (cause) {
+    const debug = {
+      url,
+      method: fetchOptions.method ?? 'GET',
+      requestBody: debugRequestBody,
+      status: null,
+      durationMs: Math.round(now() - startedAt),
+      error: cause instanceof Error ? cause.message : String(cause),
+    }
+    throw new TutorApiError(errorMessage, { debug, cause })
+  }
+
+  const responseBody = await readJsonSafely(response)
+  const debug = {
+    url,
+    method: fetchOptions.method ?? 'GET',
+    requestBody: debugRequestBody,
+    responseBody,
+    status: response.status,
+    durationMs: Math.round(now() - startedAt),
+  }
+
+  if (!response.ok) {
+    throw createHttpError(errorMessage, response, responseBody, debug)
+  }
+
+  return { data: responseBody, debug }
+}
+
 function buildConversationsUrl(userId, limit) {
   const safeUserId = encodeURIComponent(userId)
   const searchParams = new URLSearchParams({ limit: String(limit) })
-
   return `${API_BASE_URL}/conversations/${safeUserId}?${searchParams.toString()}`
 }
 
 function buildSessionsUrl(userId, limit) {
-  const searchParams = new URLSearchParams({
-    user_id: userId,
-    limit: String(limit),
-  })
-
+  const searchParams = new URLSearchParams({ user_id: userId, limit: String(limit) })
   return `${SESSIONS_URL}?${searchParams.toString()}`
 }
 
 function buildSessionConversationsUrl(sessionId, limit) {
   const searchParams = new URLSearchParams({ limit: String(limit) })
-
   return `${SESSIONS_URL}/${sessionId}/conversations?${searchParams.toString()}`
 }
 
 function buildInterviewJDsUrl(userId, limit) {
-  const searchParams = new URLSearchParams({
-    user_id: userId,
-    limit: String(limit),
-  })
-
+  const searchParams = new URLSearchParams({ user_id: userId, limit: String(limit) })
   return `${INTERVIEW_JDS_URL}?${searchParams.toString()}`
 }
 
-// postChat 负责把用户消息发送给后端 /chat，并保留调试信息。
-export async function postChat(requestBody) {
-  const startedAt = performance.now()
-  const response = await fetch(CHAT_URL, {
+function buildAttachmentsUrl(sessionId, userId) {
+  const searchParams = new URLSearchParams({ user_id: userId })
+  return `${SESSIONS_URL}/${sessionId}/attachments?${searchParams.toString()}`
+}
+
+function buildAttachmentUrl(sessionId, attachmentId, userId) {
+  const searchParams = new URLSearchParams({ user_id: userId })
+  return `${SESSIONS_URL}/${sessionId}/attachments/${encodeURIComponent(attachmentId)}?${searchParams.toString()}`
+}
+
+function buildAttachmentRetryUrl(sessionId, attachmentId, userId) {
+  const searchParams = new URLSearchParams({ user_id: userId })
+  return `${SESSIONS_URL}/${sessionId}/attachments/${encodeURIComponent(attachmentId)}/retry?${searchParams.toString()}`
+}
+
+export async function getHealth(options = {}) {
+  const { data } = await requestJson(
+    `${API_BASE_URL}/health`,
+    { signal: options.signal },
+    'Health check failed',
+  )
+  return data
+}
+
+export function postChat(requestBody, options = {}) {
+  return requestJson(CHAT_URL, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(requestBody),
-  })
-  const responseBody = await readJsonSafely(response)
-  const durationMs = Math.round(performance.now() - startedAt)
-  const debug = {
-    url: CHAT_URL,
-    method: 'POST',
-    requestBody,
-    responseBody,
-    status: response.status,
-    durationMs,
-  }
-
-  if (!response.ok) {
-    const error = new Error(`Chat request failed: ${response.status}`)
-    error.debug = debug
-    throw error
-  }
-
-  return {
-    data: responseBody,
-    debug,
-  }
+    debugRequestBody: requestBody,
+    signal: options.signal,
+  }, 'Chat request failed')
 }
 
-// getPersonas 负责读取后端当前可用的人设列表。
-export async function getPersonas() {
-  const startedAt = performance.now()
-  const response = await fetch(PERSONAS_URL)
-  const responseBody = await readJsonSafely(response)
-  const durationMs = Math.round(performance.now() - startedAt)
-  const debug = {
-    url: PERSONAS_URL,
-    method: 'GET',
-    responseBody,
-    status: response.status,
-    durationMs,
-  }
-
-  if (!response.ok) {
-    const error = new Error(`Persona list request failed: ${response.status}`)
-    error.debug = debug
-    throw error
-  }
-
-  return {
-    data: responseBody,
-    debug,
-  }
+export function getPersonas(options = {}) {
+  return requestJson(PERSONAS_URL, { signal: options.signal }, 'Persona list request failed')
 }
 
-// createSession 负责创建一个新的聊天会话窗口。
-export async function createSession(requestBody) {
-  const startedAt = performance.now()
-  const response = await fetch(SESSIONS_URL, {
+export function createSession(requestBody, options = {}) {
+  return requestJson(SESSIONS_URL, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(requestBody),
-  })
-  const responseBody = await readJsonSafely(response)
-  const durationMs = Math.round(performance.now() - startedAt)
-  const debug = {
-    url: SESSIONS_URL,
-    method: 'POST',
-    requestBody,
-    responseBody,
-    status: response.status,
-    durationMs,
-  }
-
-  if (!response.ok) {
-    const error = new Error(`Create session failed: ${response.status}`)
-    error.debug = debug
-    throw error
-  }
-
-  return {
-    data: responseBody,
-    debug,
-  }
+    debugRequestBody: requestBody,
+    signal: options.signal,
+  }, 'Create session failed')
 }
 
-// createInterviewJD 负责保存用户整理出来的目标岗位 JD。
-export async function createInterviewJD(requestBody) {
-  const startedAt = performance.now()
-  const response = await fetch(INTERVIEW_JDS_URL, {
+export function createInterviewJD(requestBody, options = {}) {
+  return requestJson(INTERVIEW_JDS_URL, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(requestBody),
-  })
-  const responseBody = await readJsonSafely(response)
-  const durationMs = Math.round(performance.now() - startedAt)
-  const debug = {
-    url: INTERVIEW_JDS_URL,
-    method: 'POST',
-    requestBody,
-    responseBody,
-    status: response.status,
-    durationMs,
-  }
-
-  if (!response.ok) {
-    const error = new Error(`Create interview JD failed: ${response.status}`)
-    error.debug = debug
-    throw error
-  }
-
-  return {
-    data: responseBody,
-    debug,
-  }
+    debugRequestBody: requestBody,
+    signal: options.signal,
+  }, 'Create interview JD failed')
 }
 
-// getInterviewJDs 负责按 user_id 读取用户保存过的目标岗位 JD。
-export async function getInterviewJDs(userId, limit = 20) {
+export function getInterviewJDs(userId, limit = 20, options = {}) {
   const url = buildInterviewJDsUrl(userId, limit)
-  const startedAt = performance.now()
-  const response = await fetch(url)
-  const responseBody = await readJsonSafely(response)
-  const durationMs = Math.round(performance.now() - startedAt)
-  const debug = {
-    url,
-    method: 'GET',
-    responseBody,
-    status: response.status,
-    durationMs,
-  }
-
-  if (!response.ok) {
-    const error = new Error(`Interview JD list request failed: ${response.status}`)
-    error.debug = debug
-    throw error
-  }
-
-  return {
-    data: responseBody,
-    debug,
-  }
+  return requestJson(url, { signal: options.signal }, 'Interview JD list request failed')
 }
 
-// getSessions 负责按 user_id 查询这个用户的会话列表。
-export async function getSessions(userId, limit = 50) {
+export function getSessions(userId, limit = 50, options = {}) {
   const url = buildSessionsUrl(userId, limit)
-  const startedAt = performance.now()
-  const response = await fetch(url)
-  const responseBody = await readJsonSafely(response)
-  const durationMs = Math.round(performance.now() - startedAt)
-  const debug = {
-    url,
-    method: 'GET',
-    responseBody,
-    status: response.status,
-    durationMs,
-  }
-
-  if (!response.ok) {
-    const error = new Error(`Session list request failed: ${response.status}`)
-    error.debug = debug
-    throw error
-  }
-
-  return {
-    data: responseBody,
-    debug,
-  }
+  return requestJson(url, { signal: options.signal }, 'Session list request failed')
 }
 
-// getSessionConversations 负责查询某个会话窗口里的历史消息。
-export async function getSessionConversations(sessionId, limit = 50) {
+export function getSessionConversations(sessionId, limit = 50, options = {}) {
   const url = buildSessionConversationsUrl(sessionId, limit)
-  const startedAt = performance.now()
-  const response = await fetch(url)
-  const responseBody = await readJsonSafely(response)
-  const durationMs = Math.round(performance.now() - startedAt)
-  const debug = {
-    url,
-    method: 'GET',
-    responseBody,
-    status: response.status,
-    durationMs,
-  }
-
-  if (!response.ok) {
-    const error = new Error(`Session conversations request failed: ${response.status}`)
-    error.debug = debug
-    throw error
-  }
-
-  return {
-    data: responseBody,
-    debug,
-  }
+  return requestJson(url, { signal: options.signal }, 'Session conversations request failed')
 }
 
-// getConversations 负责按 user_id 查询最近几条历史对话。
-export async function getConversations(userId, limit = 20) {
+export function getConversations(userId, limit = 20, options = {}) {
   const url = buildConversationsUrl(userId, limit)
-  const startedAt = performance.now()
-  const response = await fetch(url)
-  const responseBody = await readJsonSafely(response)
-  const durationMs = Math.round(performance.now() - startedAt)
-  const debug = {
-    url,
-    method: 'GET',
-    responseBody,
-    status: response.status,
-    durationMs,
-  }
+  return requestJson(url, { signal: options.signal }, 'Conversation history request failed')
+}
 
-  if (!response.ok) {
-    const error = new Error(`Conversation history request failed: ${response.status}`)
-    error.debug = debug
-    throw error
-  }
+export function uploadAttachment(sessionId, userId, file, options = {}) {
+  const formData = new FormData()
+  formData.append('user_id', userId)
+  formData.append('file', file)
 
-  return {
-    data: responseBody,
-    debug,
-  }
+  return requestJson(`${SESSIONS_URL}/${sessionId}/attachments`, {
+    method: 'POST',
+    body: formData,
+    debugRequestBody: {
+      user_id: userId,
+      file: {
+        name: file?.name ?? '',
+        size: file?.size ?? 0,
+        type: file?.type ?? '',
+      },
+    },
+    signal: options.signal,
+  }, 'Attachment upload failed')
+}
+
+export function getAttachments(sessionId, userId, options = {}) {
+  const url = buildAttachmentsUrl(sessionId, userId)
+  return requestJson(url, { signal: options.signal }, 'Attachment list request failed')
+}
+
+export function getAttachment(sessionId, attachmentId, userId, options = {}) {
+  const url = buildAttachmentUrl(sessionId, attachmentId, userId)
+  return requestJson(url, { signal: options.signal }, 'Attachment request failed')
+}
+
+export function retryAttachment(sessionId, attachmentId, userId, options = {}) {
+  const url = buildAttachmentRetryUrl(sessionId, attachmentId, userId)
+  return requestJson(url, {
+    method: 'POST',
+    signal: options.signal,
+  }, 'Attachment retry failed')
+}
+
+export function deleteAttachment(sessionId, attachmentId, userId, options = {}) {
+  const url = buildAttachmentUrl(sessionId, attachmentId, userId)
+  return requestJson(url, {
+    method: 'DELETE',
+    signal: options.signal,
+  }, 'Attachment delete failed')
 }
