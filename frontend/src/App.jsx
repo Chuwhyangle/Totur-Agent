@@ -11,8 +11,10 @@ import {
   getSessionConversations,
   getSessions,
   postChat,
+  postChatStream,
   retryAttachment,
   uploadAttachment,
+  API_BASE_URL,
 } from './api/tutorApi.js'
 import ApiStatus from './components/ApiStatus.jsx'
 import AttachmentPanel from './components/AttachmentPanel.jsx'
@@ -61,7 +63,7 @@ function createErrorReply(error) {
 
   return {
     answer: '这次请求后端失败了，但页面没有崩溃。',
-    next_task: '先确认后端是否运行在 http://127.0.0.1:8001。',
+    next_task: `先确认后端是否运行在 ${API_BASE_URL}。`,
     exercise: '观察顶部 API 状态，并在服务恢复后重试。',
     checkpoints: ['用户消息已经保留', '错误被显示在聊天区', '调试详情里可以查看失败信息'],
   }
@@ -91,6 +93,9 @@ function App() {
   const [forceWebSearch, setForceWebSearch] = useState(false)
   const [messages, setMessages] = useState([])
   const [isSending, setIsSending] = useState(false)
+  const [streamingEnabled, setStreamingEnabled] = useState(() => localStorage.getItem('tutor-streaming') !== 'false')
+  const [streamingMessage, setStreamingMessage] = useState(null) // In-progress streaming message
+  const [streamingTool, setStreamingTool] = useState(null) // Currently running tool
   const [sessions, setSessions] = useState([])
   const [sessionsStatus, setSessionsStatus] = useState('idle')
   const [activeSessionId, setActiveSessionId] = useState(null)
@@ -117,6 +122,7 @@ function App() {
   const attachmentSelectionTouchedRef = useRef(false)
   const sessionMessageRequestIdRef = useRef(0)
   const sessionCreateRequestIdRef = useRef(0)
+  const streamAbortControllerRef = useRef(null)
 
   const attachmentSendBlockReason = getAttachmentSendBlockReason(
     attachments,
@@ -576,6 +582,11 @@ function App() {
     setMessages((currentMessages) => [...currentMessages, userMessage])
     setDraftMessage('')
     setIsSending(true)
+    setStreamingMessage(null)
+    const streamAbortController = streamingEnabled ? new AbortController() : null
+    streamAbortControllerRef.current = streamAbortController
+
+    setStreamingTool(null)
 
     try {
       const activeSession = await ensureActiveSession()
@@ -587,20 +598,88 @@ function App() {
         selectedPersonaId,
         activeSession.id,
       )
-      const { data, debug } = await postChat(chatRequestBody)
-      if (chatScopeKey !== attachmentScopeKeyRef.current) return
 
-      const assistantMessage = {
-        id: `message-assistant-${Date.now()}`,
-        role: 'assistant',
-        reply: data?.reply,
-        debug,
+      if (streamingEnabled) {
+        // Streaming mode
+        const messageId = `message-assistant-${Date.now()}`
+        let accumulatedText = ''
+        let finalData = null
+
+        await postChatStream(
+          chatRequestBody,
+          {
+            onToken: (text) => {
+              accumulatedText += text
+              setStreamingMessage({
+                id: messageId,
+                role: 'assistant',
+                text: accumulatedText,
+                isStreaming: true,
+              })
+            },
+            onToolCall: (tool, args) => {
+              setStreamingTool({ tool, args, status: 'running' })
+            },
+            onToolResult: (tool, result) => {
+              setStreamingTool(null)
+            },
+            onDone: (data) => {
+              finalData = data
+            },
+            onError: (message) => {
+              console.error('Stream error:', message)
+            },
+          },
+          { signal: streamAbortController.signal },
+        )
+
+
+        if (chatScopeKey !== attachmentScopeKeyRef.current) return
+
+        if (streamAbortController.signal.aborted) return
+
+        // Finalize the streaming message
+        const assistantMessage = {
+          id: messageId,
+          role: 'assistant',
+          reply: finalData?.reply ?? {
+            answer: accumulatedText,
+            next_task: '继续提问或探索其他话题。',
+            exercise: '用一句话总结你学到的内容。',
+            checkpoints: [],
+            sources: finalData?.sources ?? [],
+          },
+          debug: {
+            url: `${API_BASE_URL}/chat/stream`,
+            method: 'POST',
+            requestBody: chatRequestBody,
+            responseBody: { session_id: finalData?.session_id ?? activeSession.id },
+          },
+        }
+        setMessages((currentMessages) => [...currentMessages, assistantMessage])
+        setStreamingMessage(null)
+        setStreamingTool(null)
+        setActiveSessionId(finalData?.session_id ?? activeSession.id)
+        setActiveSessionStatus('success')
+        setApiStatus('online')
+        void loadSessions({ silent: true })
+      } else {
+        // Non-streaming mode (fallback)
+        const { data, debug } = await postChat(chatRequestBody)
+        if (chatScopeKey !== attachmentScopeKeyRef.current) return
+
+        const assistantMessage = {
+          id: `message-assistant-${Date.now()}`,
+          role: 'assistant',
+          reply: data?.reply,
+          debug,
+        }
+        setMessages((currentMessages) => [...currentMessages, assistantMessage])
+        setActiveSessionId(data?.session_id ?? activeSession.id)
+        setActiveSessionStatus('success')
+        setApiStatus('online')
+        void loadSessions({ silent: true })
       }
-      setMessages((currentMessages) => [...currentMessages, assistantMessage])
-      setActiveSessionId(data?.session_id ?? activeSession.id)
-      setActiveSessionStatus('success')
-      setApiStatus('online')
-      void loadSessions({ silent: true })
     } catch (error) {
       if (chatScopeKey !== attachmentScopeKeyRef.current || error?.isAbortError) return
 
@@ -609,19 +688,24 @@ function App() {
         role: 'assistant',
         reply: createErrorReply(error),
         debug: error.debug ?? {
-          url: 'http://127.0.0.1:8001/chat',
+          url: `${API_BASE_URL}/${streamingEnabled ? 'chat/stream' : 'chat'}`,
           method: 'POST',
           requestBody: baseRequestBody,
           error: error.message,
         },
       }
       setMessages((currentMessages) => [...currentMessages, errorMessage])
+      setStreamingMessage(null)
+      setStreamingTool(null)
       updateApiStatusAfterError(error)
       if (ATTACHMENT_ERRORS_REQUIRING_REFRESH.has(attachmentErrorCode(error))) {
         await refreshAttachments()
       }
     } finally {
-      setIsSending(false)
+      if (streamAbortControllerRef.current === streamAbortController) {
+        streamAbortControllerRef.current = null
+        setIsSending(false)
+      }
     }
   }
 
@@ -651,7 +735,20 @@ function App() {
 
   useEffect(() => {
     threadRef.current?.scrollTo({ top: threadRef.current.scrollHeight, behavior: 'smooth' })
-  }, [messages, isSending])
+  }, [messages, isSending, streamingMessage])
+
+  function handleStreamingToggle() {
+    const next = !streamingEnabled
+    setStreamingEnabled(next)
+    localStorage.setItem('tutor-streaming', String(next))
+  }
+
+  function handleStopStreaming() {
+    streamAbortControllerRef.current?.abort()
+    setStreamingMessage(null)
+    setStreamingTool(null)
+    setIsSending(false)
+  }
 
   const activeSession = sessions.find((session) => session.id === activeSessionId)
   const quickPrompts = [
@@ -739,7 +836,16 @@ function App() {
             {messages.map((message) => (
               <ChatMessage key={message.id} role={message.role} text={message.text} reply={message.reply} debug={message.debug} />
             ))}
-            {isSending ? (
+            {isSending && streamingMessage ? (
+              <ChatMessage
+                key={streamingMessage.id}
+                role="assistant"
+                text={streamingMessage.text}
+                isStreaming={streamingMessage.isStreaming}
+                streamingTool={streamingTool}
+              />
+            ) : null}
+            {isSending && !streamingMessage ? (
               <div className="message-row assistant-row typing-row">
                 <div className="message-avatar assistant-avatar"><Icon name="sparkles" size={17} /></div>
                 <div className="typing-indicator"><span /><span /><span /></div>
@@ -754,6 +860,9 @@ function App() {
             isSending={isSending}
             webSearchEnabled={forceWebSearch}
             onWebSearchEnabledChange={setForceWebSearch}
+            streamingEnabled={streamingEnabled}
+            onStreamingEnabledChange={handleStreamingToggle}
+            onStopStreaming={streamingEnabled ? handleStopStreaming : undefined}
             attachmentPanel={attachmentPanel}
           />
         </section>

@@ -7,7 +7,7 @@ from types import SimpleNamespace
 from typing import Any
 
 from app.services import memory_settings
-from app.services.agent.react_orchestrator import ReactOrchestrator
+from app.services.agent.react_orchestrator import ReactOrchestrator, StreamEvent
 
 
 FINAL_REPLY = """
@@ -806,3 +806,59 @@ def test_web_search_ledger_survives_observation_truncation():
     assert len(observation) <= 120
     assert "truncated" in observation
     assert tool_trace.ledger["web_1"].url == "https://example.com/large"
+
+
+def test_streamed_reply_matches_generator_return_value():
+    """The persisted stream result must match the tokens sent to the user."""
+
+    orchestrator = make_orchestrator()
+    orchestrator._call_model_with_tools = lambda _messages: final_message("preflight reply")
+    orchestrator._stream_final_reply = lambda _messages: iter([
+        StreamEvent(type="token", data={"text": "streamed "}),
+        StreamEvent(type="token", data={"text": "reply"}),
+    ])
+
+    stream = orchestrator.run_stream([{"role": "user", "content": "Explain SSE"}])
+    token_text = []
+    while True:
+        try:
+            event = next(stream)
+            if event.type == "token":
+                token_text.append(event.data["text"])
+        except StopIteration as stop:
+            raw_reply, tool_trace = stop.value
+            break
+
+    assert "".join(token_text) == "streamed reply"
+    assert raw_reply == "streamed reply"
+    assert tool_trace.used is False
+
+def test_stream_final_reply_closes_upstream_stream_when_cancelled():
+    """Closing the response generator must release the provider stream."""
+
+    class CloseableStream:
+        def __init__(self):
+            self.closed = False
+
+        def __iter__(self):
+            return iter([
+                SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(content="first"))]),
+                SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(content="second"))]),
+            ])
+
+        def close(self):
+            self.closed = True
+
+    upstream_stream = CloseableStream()
+    orchestrator = make_orchestrator()
+    orchestrator.client = SimpleNamespace(
+        chat=SimpleNamespace(
+            completions=SimpleNamespace(create=lambda **_kwargs: upstream_stream),
+        ),
+    )
+
+    stream = orchestrator._stream_final_reply([])
+    assert next(stream).data == {"text": "first"}
+    stream.close()
+
+    assert upstream_stream.closed is True

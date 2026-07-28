@@ -88,14 +88,17 @@ function ToolTraceSummary({ trace }) {
   )
 }
 
-function ChatMessage({ role, text, reply, debug }) {
+function ChatMessage({ role, text, reply, debug, isStreaming, streamingTool }) {
   const isAssistant = role === 'assistant'
-  const answer = reply?.answer ?? '暂时没有拿到有效回答。'
+  const answer = reply?.answer ?? text ?? '暂时没有拿到有效回答。'
   const nextTask = reply?.next_task ?? '请稍后重试，或换一个更具体的问题。'
   const exercise = reply?.exercise ?? '用一句话描述你刚才想问的问题。'
   const checkpoints = Array.isArray(reply?.checkpoints) ? reply.checkpoints : []
   const sources = Array.isArray(reply?.sources) ? reply.sources : []
   const toolTrace = debug?.responseBody?.tool_trace
+
+  // Streaming state: show partial text with cursor
+  const showStreaming = isStreaming && !reply
 
   return (
     <article className={`message-row ${isAssistant ? 'assistant-row' : 'user-row'}`}>
@@ -105,9 +108,22 @@ function ChatMessage({ role, text, reply, debug }) {
       <div className={`message ${isAssistant ? 'assistant-message' : 'user-message'}`}>
         <div className="message-meta">
           <span className="message-author">{isAssistant ? '导师' : '你'}</span>
-          <span className="message-time">刚刚</span>
+          <span className="message-time">{showStreaming ? '正在输入...' : '刚刚'}</span>
         </div>
-        {reply ? (
+        {showStreaming ? (
+          <div className="streaming-reply">
+            {streamingTool ? (
+              <div className="streaming-tool-status">
+                <span className="streaming-tool-spinner" />
+                <span>正在调用 {streamingTool.tool}...</span>
+              </div>
+            ) : null}
+            <p className="answer-text streaming-text">
+              {answer}
+              <span className="streaming-cursor">▋</span>
+            </p>
+          </div>
+        ) : reply ? (
           <div className="structured-reply">
             <p className="answer-text"><AnswerWithCitations answer={answer} sources={sources} /></p>
             <div className="reply-grid">
@@ -131,8 +147,8 @@ function ChatMessage({ role, text, reply, debug }) {
             <SourceCards sources={sources} />
           </div>
         ) : <p className="user-text">{text}</p>}
-        <ToolTraceSummary trace={toolTrace} />
-        {debug ? <DebugDetails data={debug} /> : null}
+        {!showStreaming && toolTrace ? <ToolTraceSummary trace={toolTrace} /> : null}
+        {!showStreaming && debug ? <DebugDetails data={debug} /> : null}
       </div>
     </article>
   )

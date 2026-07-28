@@ -15,11 +15,13 @@
  * @property {TutorSource[] | undefined} sources Legacy replies may omit this field.
  */
 
-const API_BASE_URL = 'http://127.0.0.1:8001'
+export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8001'
 const CHAT_URL = `${API_BASE_URL}/chat`
+const CHAT_STREAM_URL = `${API_BASE_URL}/chat/stream`
 const INTERVIEW_JDS_URL = `${API_BASE_URL}/interview-jds`
 const PERSONAS_URL = `${API_BASE_URL}/personas`
 const SESSIONS_URL = `${API_BASE_URL}/sessions`
+const JOURNAL_URL = `${API_BASE_URL}/api/journal`
 
 export class TutorApiError extends Error {
   constructor(message, { status = null, detail = null, responseBody = null, debug = null, cause = null } = {}) {
@@ -148,6 +150,109 @@ export function postChat(requestBody, options = {}) {
   }, 'Chat request failed')
 }
 
+/**
+ * Post a chat request and stream the response via SSE.
+ * @param {Object} requestBody - The chat request body
+ * @param {Object} callbacks - Event callbacks
+ * @param {function} callbacks.onToken - Called for each token: (text) => void
+ * @param {function} callbacks.onToolCall - Called when a tool starts: (tool, args) => void
+ * @param {function} callbacks.onToolResult - Called when a tool finishes: (tool, result) => void
+ * @param {function} callbacks.onDone - Called when complete: (data) => void
+ * @param {function} callbacks.onError - Called on error: (message) => void
+ * @param {Object} options - Options like signal
+ * @returns {Promise<void>}
+ */
+export async function postChatStream(requestBody, callbacks, options = {}) {
+  const { onToken, onToolCall, onToolResult, onDone, onError } = callbacks
+  const { signal } = options
+
+  let response
+  try {
+    response = await fetch(CHAT_STREAM_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(requestBody),
+      signal,
+    })
+  } catch (cause) {
+    if (cause?.name === 'AbortError') return
+    onError?.(cause?.message ?? 'Network request failed')
+    throw new TutorApiError('Chat stream request failed', { debug: { url: CHAT_STREAM_URL, method: 'POST' }, cause })
+  }
+
+  if (!response.ok) {
+    const errorBody = await readJsonSafely(response)
+    const message = errorBody?.detail ?? `HTTP ${response.status}`
+    onError?.(message)
+    throw createHttpError('Chat stream request failed', response, errorBody, {
+      url: CHAT_STREAM_URL,
+      method: 'POST',
+      status: response.status,
+    })
+  }
+
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  let currentEvent = null
+  let terminalEventReceived = false
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+
+      buffer += decoder.decode(value, { stream: true })
+
+      // Parse SSE events from buffer
+      const lines = buffer.split('\n')
+      buffer = lines.pop() || '' // Keep incomplete line in buffer
+
+      for (const line of lines) {
+        if (line.startsWith('event: ')) {
+          currentEvent = line.slice(7).trim()
+        } else if (line.startsWith('data: ')) {
+          const dataStr = line.slice(6)
+          try {
+            const data = JSON.parse(dataStr)
+            if (currentEvent === 'token') {
+              onToken?.(data.text ?? '')
+            } else if (currentEvent === 'tool_call') {
+              onToolCall?.(data.tool, data.args)
+            } else if (currentEvent === 'tool_result') {
+              onToolResult?.(data.tool, data.result)
+            } else if (currentEvent === 'done') {
+              terminalEventReceived = true
+              onDone?.(data)
+              return
+            } else if (currentEvent === 'error') {
+              const message = data.message ?? 'Unknown error'
+              onError?.(message)
+              throw new TutorApiError('Chat stream failed', {
+                detail: data,
+                debug: { url: CHAT_STREAM_URL, method: 'POST' },
+              })
+            }
+          } catch (cause) {
+            if (cause instanceof TutorApiError) throw cause
+            // Ignore malformed JSON
+          }
+          currentEvent = null
+      }
+    }
+    }
+    if (!terminalEventReceived) {
+      const message = 'Chat stream ended unexpectedly'
+      onError?.(message)
+      throw new TutorApiError(message, { debug: { url: CHAT_STREAM_URL, method: 'POST' } })
+    }
+  } catch (cause) {
+    if (cause?.name === 'AbortError') return
+    if (cause instanceof TutorApiError) throw cause
+    onError?.(cause?.message ?? 'Stream read failed')
+  }
+}
+
 export function getPersonas(options = {}) {
   return requestJson(PERSONAS_URL, { signal: options.signal }, 'Persona list request failed')
 }
@@ -236,4 +341,46 @@ export function deleteAttachment(sessionId, attachmentId, userId, options = {}) 
     method: 'DELETE',
     signal: options.signal,
   }, 'Attachment delete failed')
+}
+
+// Journal API functions
+
+export function getJournalEntries(params = {}, options = {}) {
+  const searchParams = new URLSearchParams()
+  if (params.date) searchParams.set('date', params.date)
+  if (params.tag) searchParams.set('tag', params.tag)
+  if (params.limit) searchParams.set('limit', String(params.limit))
+  const url = `${JOURNAL_URL}/entries${searchParams.toString() ? '?' + searchParams.toString() : ''}`
+  return requestJson(url, { signal: options.signal }, 'Get journal entries failed')
+}
+
+export function getJournalEntry(entryId, options = {}) {
+  return requestJson(`${JOURNAL_URL}/entries/${entryId}`, { signal: options.signal }, 'Get journal entry failed')
+}
+
+export function createJournalEntry(requestBody, options = {}) {
+  return requestJson(`${JOURNAL_URL}/entries`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(requestBody),
+    debugRequestBody: requestBody,
+    signal: options.signal,
+  }, 'Create journal entry failed')
+}
+
+export function updateJournalEntry(entryId, requestBody, options = {}) {
+  return requestJson(`${JOURNAL_URL}/entries/${entryId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(requestBody),
+    debugRequestBody: requestBody,
+    signal: options.signal,
+  }, 'Update journal entry failed')
+}
+
+export function deleteJournalEntry(entryId, options = {}) {
+  return requestJson(`${JOURNAL_URL}/entries/${entryId}`, {
+    method: 'DELETE',
+    signal: options.signal,
+  }, 'Delete journal entry failed')
 }

@@ -1,6 +1,9 @@
 """聊天 API 路由。"""
 
+import json
+
 from fastapi import APIRouter, HTTPException, status
+from fastapi.responses import StreamingResponse
 from app.schemas.chat import ChatRequest, ChatResponse
 from app.services.agent.personas import (
     InvalidPersonaError,
@@ -23,6 +26,53 @@ from app.services.tutor_agent_service import (
 router = APIRouter(tags=["chat"])
 
 tutor_agent_service = TutorAgentService()
+
+
+def _format_sse_event(event_type: str, data: dict) -> str:
+    """Format a dict as an SSE event string."""
+    json_data = json.dumps(data, ensure_ascii=False)
+    return f"event: {event_type}\ndata: {json_data}\n\n"
+
+
+@router.post("/chat/stream")
+def chat_stream(request: ChatRequest) -> StreamingResponse:
+    """Handle a chat request with SSE streaming.
+
+    Returns a text/event-stream response with events:
+        - token: partial reply text
+        - tool_call: tool invocation started
+        - tool_result: tool invocation completed
+        - done: full response with sources
+        - error: error message
+    """
+
+    def event_generator():
+        terminal_event_sent = False
+        try:
+            for event in tutor_agent_service.chat_stream(request):
+                event_type = event.get("event", "token")
+                data = event.get("data", {})
+                yield _format_sse_event(event_type, data)
+                if event_type in {"done", "error"}:
+                    terminal_event_sent = True
+                    break
+            if not terminal_event_sent:
+                yield _format_sse_event(
+                    "error",
+                    {"message": "Stream ended before completion"},
+                )
+        except Exception as exc:
+            yield _format_sse_event("error", {"message": str(exc)})
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",  # Disable nginx buffering
+        },
+    )
 
 
 @router.post("/chat", response_model=ChatResponse)

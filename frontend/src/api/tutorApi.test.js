@@ -176,13 +176,41 @@ describe('tutorApi SSE API', () => {
     expect(callbacks.onError).not.toHaveBeenCalled()
   })
 
+  it('keeps an SSE frame buffered when its event and data arrive in separate chunks', async () => {
+    fetch.mockResolvedValue(streamResponse([
+      'event: token\r\n',
+      'data: {"text":"split frame"}\r\n\r\n'
+        + 'event: done\r\ndata: {"session_id":"session-1"}\r\n\r\n',
+    ]))
+    const callbacks = { onToken: vi.fn(), onDone: vi.fn(), onError: vi.fn() }
+
+    await postChatStream({ user_id: 'user-1', message: 'hello' }, callbacks)
+
+    expect(callbacks.onToken).toHaveBeenCalledWith('split frame')
+    expect(callbacks.onDone).toHaveBeenCalledWith({ session_id: 'session-1' })
+    expect(callbacks.onError).not.toHaveBeenCalled()
+  })
+
+  it('rejects an EOF without a terminal SSE event', async () => {
+    fetch.mockResolvedValue(streamResponse([
+      'event: token\ndata: {"text":"partial"}\n\n',
+    ]))
+    const callbacks = { onToken: vi.fn(), onError: vi.fn() }
+
+    await expect(postChatStream({ user_id: 'user-1', message: 'hello' }, callbacks))
+      .rejects.toMatchObject({ name: 'TutorApiError', message: 'Chat stream ended unexpectedly' })
+
+    expect(callbacks.onToken).toHaveBeenCalledWith('partial')
+    expect(callbacks.onError).toHaveBeenCalledWith('Chat stream ended unexpectedly')
+  })
   it('dispatches a well-formed SSE error event', async () => {
     fetch.mockResolvedValue(streamResponse([
       'event: error\ndata: {"message":"generation failed"}\n\n',
     ]))
     const onError = vi.fn()
 
-    await postChatStream({ user_id: 'user-1', message: 'hello' }, { onError })
+    await expect(postChatStream({ user_id: 'user-1', message: 'hello' }, { onError }))
+      .rejects.toMatchObject({ name: 'TutorApiError', message: 'Chat stream failed' })
 
     expect(onError).toHaveBeenCalledWith('generation failed')
   })
