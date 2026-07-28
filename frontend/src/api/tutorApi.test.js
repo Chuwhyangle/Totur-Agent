@@ -1,10 +1,12 @@
-﻿import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
+  API_BASE_URL,
   TutorApiError,
   deleteAttachment,
   getAttachments,
   postChat,
+  postChatStream,
   retryAttachment,
   uploadAttachment,
 } from './tutorApi.js'
@@ -35,7 +37,7 @@ describe('tutorApi attachment API', () => {
     expect(result.data.id).toBe('attachment-1')
     expect(fetch).toHaveBeenCalledTimes(1)
     const [url, options] = fetch.mock.calls[0]
-    expect(url).toBe('http://127.0.0.1:8001/sessions/session-1/attachments')
+    expect(url).toBe(`${API_BASE_URL}/sessions/session-1/attachments`)
     expect(options.method).toBe('POST')
     expect(options.headers).toBeUndefined()
     expect(options.debugRequestBody).toBeUndefined()
@@ -55,14 +57,14 @@ describe('tutorApi attachment API', () => {
     await deleteAttachment('session-1', 'attachment/1', 'user one')
 
     expect(fetch.mock.calls[0][0]).toBe(
-      'http://127.0.0.1:8001/sessions/session-1/attachments?user_id=user+one',
+      `${API_BASE_URL}/sessions/session-1/attachments?user_id=user+one`,
     )
     expect(fetch.mock.calls[1][0]).toBe(
-      'http://127.0.0.1:8001/sessions/session-1/attachments/attachment%2F1/retry?user_id=user+one',
+      `${API_BASE_URL}/sessions/session-1/attachments/attachment%2F1/retry?user_id=user+one`,
     )
     expect(fetch.mock.calls[1][1].method).toBe('POST')
     expect(fetch.mock.calls[2][0]).toBe(
-      'http://127.0.0.1:8001/sessions/session-1/attachments/attachment%2F1?user_id=user+one',
+      `${API_BASE_URL}/sessions/session-1/attachments/attachment%2F1?user_id=user+one`,
     )
     expect(fetch.mock.calls[2][1].method).toBe('DELETE')
   })
@@ -114,5 +116,100 @@ describe('tutorApi attachment API', () => {
     const [, options] = fetch.mock.calls[0]
     expect(options.headers).toEqual({ 'Content-Type': 'application/json' })
     expect(JSON.parse(options.body)).toEqual(requestBody)
+  })
+})
+
+
+describe('tutorApi SSE API', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  function streamResponse(chunks) {
+    const encoder = new TextEncoder()
+    const reads = chunks.map((chunk) => ({ done: false, value: encoder.encode(chunk) }))
+    reads.push({ done: true, value: undefined })
+    return {
+      ok: true,
+      status: 200,
+      body: {
+        getReader: () => ({ read: vi.fn().mockImplementation(() => Promise.resolve(reads.shift())) }),
+      },
+    }
+  }
+
+  it('posts JSON to the stream URL and dispatches token, tool, and done events', async () => {
+    fetch.mockResolvedValue(streamResponse([
+      'event: token\ndata: {"text":"Hello "}\n\n'
+      + 'event: tool_call\ndata: {"tool":"search","args":{"q":"SSE"}}\n\n'
+      + 'event: tool_result\ndata: {"tool":"search","result":{"ok":true}}\n\n'
+      + 'event: token\ndata: {"text":"world"}\n\n'
+      + 'event: done\ndata: {"session_id":"session-1","reply":{"answer":"Hello world"}}\n\n',
+    ]))
+    const callbacks = {
+      onToken: vi.fn(),
+      onToolCall: vi.fn(),
+      onToolResult: vi.fn(),
+      onDone: vi.fn(),
+      onError: vi.fn(),
+    }
+    const body = { user_id: 'user-1', message: 'hello' }
+
+    await postChatStream(body, callbacks)
+
+    expect(fetch).toHaveBeenCalledWith(`${API_BASE_URL}/chat/stream`, expect.objectContaining({
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }))
+    expect(callbacks.onToken.mock.calls).toEqual([['Hello '], ['world']])
+    expect(callbacks.onToolCall).toHaveBeenCalledWith('search', { q: 'SSE' })
+    expect(callbacks.onToolResult).toHaveBeenCalledWith('search', { ok: true })
+    expect(callbacks.onDone).toHaveBeenCalledWith({
+      session_id: 'session-1',
+      reply: { answer: 'Hello world' },
+    })
+    expect(callbacks.onError).not.toHaveBeenCalled()
+  })
+
+  it('dispatches a well-formed SSE error event', async () => {
+    fetch.mockResolvedValue(streamResponse([
+      'event: error\ndata: {"message":"generation failed"}\n\n',
+    ]))
+    const onError = vi.fn()
+
+    await postChatStream({ user_id: 'user-1', message: 'hello' }, { onError })
+
+    expect(onError).toHaveBeenCalledWith('generation failed')
+  })
+})
+
+
+describe('tutorApi SSE cancellation', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('treats an aborted request as cancellation instead of an error', async () => {
+    const abortError = new Error('aborted')
+    abortError.name = 'AbortError'
+    fetch.mockRejectedValue(abortError)
+    const onError = vi.fn()
+
+    await expect(postChatStream(
+      { user_id: 'user-1', message: 'cancel' },
+      { onError },
+      { signal: new AbortController().signal },
+    )).resolves.toBeUndefined()
+
+    expect(onError).not.toHaveBeenCalled()
   })
 })

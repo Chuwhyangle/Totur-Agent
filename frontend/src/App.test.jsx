@@ -1,8 +1,9 @@
-﻿import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const api = vi.hoisted(() => ({
+  API_BASE_URL: 'http://127.0.0.1:8001',
   createInterviewJD: vi.fn(),
   createSession: vi.fn(),
   deleteAttachment: vi.fn(),
@@ -13,6 +14,7 @@ const api = vi.hoisted(() => ({
   getSessionConversations: vi.fn(),
   getSessions: vi.fn(),
   postChat: vi.fn(),
+  postChatStream: vi.fn(),
   retryAttachment: vi.fn(),
   uploadAttachment: vi.fn(),
 }))
@@ -91,8 +93,9 @@ async function openSession(user, title = 'Session One') {
 
 describe('App attachment scope and sending', () => {
   beforeEach(() => {
-    Object.values(api).forEach((mock) => mock.mockReset())
+    Object.values(api).forEach((mock) => typeof mock === 'function' && mock.mockReset())
     localStorage.clear()
+    localStorage.setItem('tutor-streaming', 'false')
     mockAppBootstrap()
   })
 
@@ -258,3 +261,65 @@ describe('App attachment scope and sending', () => {
   })
 })
 
+
+
+describe('App SSE sending', () => {
+  beforeEach(() => {
+    Object.values(api).forEach((mock) => typeof mock === 'function' && mock.mockReset())
+    localStorage.clear()
+    localStorage.setItem('tutor-streaming', 'true')
+    mockAppBootstrap()
+  })
+
+  it('accumulates stream tokens into a displayable assistant reply and clears sending state on done', async () => {
+    const user = userEvent.setup()
+    api.getAttachments.mockResolvedValue({ data: { items: [] } })
+    api.postChatStream.mockImplementation(async (_request, callbacks) => {
+      callbacks.onToken('Hello ')
+      callbacks.onToken('world')
+      callbacks.onDone({ session_id: 'session-1' })
+    })
+
+    render(<App />)
+    await openSession(user)
+    await user.type(screen.getByPlaceholderText('写下你的问题，或让导师帮你拆解下一步…'), 'stream this')
+    await user.click(screen.getByRole('button', { name: '发送消息' }))
+
+    expect(await screen.findByText('Hello world')).not.toBeNull()
+    expect(api.postChatStream).toHaveBeenCalledTimes(1)
+    expect(api.postChat).not.toHaveBeenCalled()
+    await waitFor(() => expect(screen.getByRole('button', { name: '流式' }).disabled).toBe(false))
+  })
+
+  it('clears sending state after a stream error callback', async () => {
+    const user = userEvent.setup()
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    api.getAttachments.mockResolvedValue({ data: { items: [] } })
+    api.postChatStream.mockImplementation(async (_request, callbacks) => {
+      callbacks.onError('generation failed')
+    })
+
+    render(<App />)
+    await openSession(user)
+    await user.type(screen.getByPlaceholderText('写下你的问题，或让导师帮你拆解下一步…'), 'fail stream')
+    await user.click(screen.getByRole('button', { name: '发送消息' }))
+
+    await waitFor(() => expect(screen.getByRole('button', { name: '流式' }).disabled).toBe(false))
+    expect(consoleError).toHaveBeenCalledWith('Stream error:', 'generation failed')
+    consoleError.mockRestore()
+  })
+
+  it('uses ordinary chat when the streaming toggle is off', async () => {
+    const user = userEvent.setup()
+    localStorage.setItem('tutor-streaming', 'false')
+    api.getAttachments.mockResolvedValue({ data: { items: [] } })
+
+    render(<App />)
+    await openSession(user)
+    await user.type(screen.getByPlaceholderText('写下你的问题，或让导师帮你拆解下一步…'), 'normal chat')
+    await user.click(screen.getByRole('button', { name: '发送消息' }))
+
+    await waitFor(() => expect(api.postChat).toHaveBeenCalledTimes(1))
+    expect(api.postChatStream).not.toHaveBeenCalled()
+  })
+})
