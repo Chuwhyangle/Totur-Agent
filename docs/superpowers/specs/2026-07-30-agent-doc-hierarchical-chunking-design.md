@@ -63,6 +63,8 @@
 - 约 95.1% 不超过 1000 字符；
 - 最长单元约 2610 字符。
 
+上述字符统计只用于说明原始语料形态，不作为程序的长度预算。实际构建统一使用与 Embedding 模型匹配的 Tokenizer 计数。
+
 这说明“按题聚合，超长再拆”比统一固定长度更符合语料分布。
 
 ### 2.2 课程知识地图
@@ -127,15 +129,24 @@ CLI 负责：
 ```text
 --source-dir corpus/Agent_doc
 --output-dir corpus/Agent_doc/processed
---max-chars 1200
---fallback-overlap 100
+--tokenizer-model Qwen/Qwen3-Embedding-8B
+--tokenizer-revision <optional-commit>
+--split-threshold-tokens 1024
+--target-min-tokens 500
+--target-max-tokens 700
+--fallback-overlap-tokens 64
 ```
 
 不提前增加模型总结、并发、增量索引或 Chroma 参数。
 
-### 3.3 HTML 解析依赖
+### 3.3 解析与 Tokenizer 依赖
 
-在 `requirements.txt` 增加 `beautifulsoup4`，使用 Python 内置 `html.parser` 后端，避免第一版额外引入 Windows 二进制解析依赖。
+在 `requirements.txt` 增加：
+
+- `beautifulsoup4`：使用 Python 内置 `html.parser` 后端，避免第一版额外引入 Windows 二进制解析依赖；
+- `transformers>=4.51.0`：通过 `AutoTokenizer.from_pretrained(..., use_fast=True)` 加载与 Embedding 模型匹配的 Tokenizer。
+
+切块服务接收注入的 Token 计数器，不直接下载模型、不读取环境变量。CLI 默认从 `EMBEDDING_MODEL` 取得 Tokenizer 名称，也允许通过 `--tokenizer-model` 指向明确的 Hugging Face 模型名或本地目录。无法加载匹配 Tokenizer 时必须失败，不允许退回字符估算或改用 `tiktoken` 近似。
 
 ## 4. HTML 清理与规范化
 
@@ -203,7 +214,7 @@ ordered_slides
 - “Agent 面试应该准备哪些方向？”
 - “这套课程包含什么？”
 
-如果整体超过 `max_chars`，只允许在课程卡片之间拆分，每个子块重复课程标题并标记 `part_index/part_count`。
+如果最终 `embedding_text` 超过 `split_threshold_tokens`，只允许在课程卡片之间拆分；拆分时尽量落入软目标范围，每个子块重复课程标题并标记 `part_index/part_count`。
 
 ### 6.2 `lesson_overview`
 
@@ -268,35 +279,74 @@ ReAct = Reasoning + Acting（推理 + 行动）
 
 `time_tags` 只反映原文，例如 `[2025, 2026]`；切块程序不得把没有日期的内容推断为“当前最新”。
 
-## 7. 长度与拆分规则
+## 7. Token 长度与拆分规则
 
-第一版使用字符计数，参数为候选基线，最终必须通过检索评测校准：
+### 7.1 Tokenizer 与计数对象
+
+长度预算统一使用与 Embedding 模型匹配的 Tokenizer。当前默认模型为 `Qwen/Qwen3-Embedding-8B`，不得使用 `tiktoken`、字符数或其他模型的 Tokenizer 近似。
+
+Tokenizer 配置必须进入 Manifest 和 fingerprint：
 
 ```text
-max_chars = 1200
-fallback_overlap = 100
+tokenizer_model = Qwen/Qwen3-Embedding-8B
+tokenizer_revision = 实际解析出的模型提交版本
+tokenizer_library = transformers
+tokenizer_library_version = 实际安装版本
+add_special_tokens = true
 ```
 
-不设置强制最小长度，也不为了填满窗口合并不同题目。
+长度约束针对最终送入 Embedding 的 `embedding_text`，课程、讲次、章节和问题标题都计入 Token。`content` 的 Token 数只用于统计，不能单独作为是否超限的判断依据。
 
-超长单元按以下顺序拆分：
+### 7.2 软目标与安全阈值
 
-1. 段落边界；
-2. 列表项组；
-3. 表格行组；
-4. 完整代码块；
-5. 单个结构块仍超长时，按空行、函数或类定义边界尝试拆分；
-6. 最后才使用固定字符滑窗，并保留 `fallback_overlap`。
+第一版候选参数：
+
+```text
+split_threshold_tokens = 1024
+target_min_tokens = 500
+target_max_tokens = 700
+fallback_overlap_tokens = 64
+```
+
+参数语义：
+
+- `500～700 Tokens` 是拆分超长内容时的软目标，不是完整语义单元的强制范围；
+- 完整问答、专题或段落的 `embedding_text <= 1024 Tokens` 时保持原样，即使它有 600、850 或 1000 Tokens；
+- 只有 `embedding_text > 1024 Tokens` 时才启动拆分；
+- 每个拆分后的最终 `embedding_text` 必须 `<= 1024 Tokens`；
+- 不设置强制最小长度，也不为了填满窗口合并不同题目。
+
+字符数只保留为构建报告中的观察指标，不参与切分判断。候选参数最终通过真实语料 Token 分布和检索评测校准。
+
+### 7.3 结构优先拆分
+
+超长语义单元按以下顺序处理：
+
+1. 先保留完整段落、列表项组、表格行组和代码块；
+2. 在同一父语义单元内按原顺序贪心组合，尽量让子块落入 `500～700 Tokens`；
+3. 一个完整结构块虽然超过软目标、但最终 `embedding_text <= 1024 Tokens` 时，仍保持完整；
+4. 普通段落自身超限时，按保留标点的完整句子切分，主要边界为 `。！？；.!?;`；
+5. 单句仍超限时，再按 `，、：,`、换行和空白等次级边界切分；
+6. 列表按列表项组合，单个列表项超限后递归使用段落和句子规则；
+7. 表格在每个子块重复表头并按数据行组合，单行超限时再处理单元格正文；
+8. 代码依次按类或函数、空行、代码行拆分；
+9. 仍无法自然拆分时，最后才使用固定 Token 窗口，并保留 `fallback_overlap_tokens`。
+
+固定 Token 窗口使用 Fast Tokenizer 的 offset mapping 从规范化原文取回文本，避免 decode 改变中文空格、标点或代码格式。窗口以 `target_max_tokens` 为目标，正文窗口预算为 `target_max_tokens - header_tokens`，步长为 `正文窗口预算 - fallback_overlap_tokens`；如果正文窗口预算小于或等于 overlap，构建直接失败。构建后重新编码完整 `embedding_text`，超限则继续收缩。只有这种非语义兜底切分允许 overlap，正常段落和句子边界的 `overlap_tokens` 为 `0`。
+
+如果重复标题本身已经超过 `split_threshold_tokens`，构建直接失败并报告来源，不静默截断标题。
+
+### 7.4 子块约束
 
 每个子块必须：
 
 - 重复课程、讲次、章节与题目标题；
 - 设置相同 `parent_id`；
 - 设置递增 `part_index` 和最终 `part_count`；
+- 记录 `split_method`、`overlap_tokens`、`content_token_count` 和 `embedding_token_count`；
 - 不把普通题目正文与下一题合并；
-- 不产生空块。
-
-`max_chars` 约束正文 `content`；`embedding_text` 因重复层级标题可略长于该值。
+- 不产生空块；
+- 保持原文顺序，合并全部子块后能够还原规范化正文，允许的唯一重复是机械窗口 overlap。
 
 ## 8. JSONL Schema
 
@@ -323,6 +373,10 @@ fallback_overlap = 100
   "part_index": 0,
   "part_count": 1,
   "contains_code": true,
+  "split_method": "none",
+  "overlap_tokens": 0,
+  "content_token_count": 156,
+  "embedding_token_count": 207,
   "content": "ReAct = Reasoning + Acting……",
   "embedding_text": "课程：Agent 求职面试全攻略\n讲次：04 · 理论面试\n章节：Agent 核心\n问题：Q8……\n\nReAct = Reasoning + Acting……",
   "content_sha256": "sha256:<hex>"
@@ -339,6 +393,9 @@ fallback_overlap = 100
 - `slide_start/slide_end` 是解析后的 1-based 内容幻灯片序号；知识地图概览为 `null`；
 - `content_sha256` 对规范化后的 `content` 计算；
 - `embedding_text` 包含完整层级，后续生成向量时使用；
+- `content_token_count` 是正文 Token 数；`embedding_token_count` 是完整 `embedding_text` Token 数，也是阈值校验依据；
+- `split_method` 取 `none/structure/sentence/clause/token_window`；
+- `overlap_tokens` 只有 `token_window` 可以大于 `0`；
 - `content` 是提供给 Agent 阅读、引用和展示的正文。
 
 输出顺序固定为：规范化 `source`、`unit_index`、`part_index`。
@@ -354,8 +411,19 @@ fallback_overlap = 100
   "source_file_count": 11,
   "chunk_count": 0,
   "chunk_counts_by_type": {},
-  "max_chars": 1200,
-  "fallback_overlap": 100,
+  "tokenizer": {
+    "model": "Qwen/Qwen3-Embedding-8B",
+    "revision": "<resolved-commit>",
+    "library": "transformers",
+    "library_version": "<resolved-version>",
+    "add_special_tokens": true
+  },
+  "chunking": {
+    "split_threshold_tokens": 1024,
+    "target_min_tokens": 500,
+    "target_max_tokens": 700,
+    "fallback_overlap_tokens": 64
+  },
   "files": [
     {
       "source": "corpus/Agent_doc/.../04-理论面试.html",
@@ -405,8 +473,15 @@ Chroma 接入时应对 `embedding_text` 生成向量，但保存并返回 `conte
 - 空白页与装饰控件被过滤；
 - 段落、列表、表格和代码结构保留；
 - 代码缩进与换行不被压平；
-- 超长单元优先按结构边界拆分；
-- 单个超长结构块才使用重叠滑窗；
+- `embedding_text <= 1024 Tokens` 的完整语义单元不因超过软目标而拆分；
+- 600 Token 的完整段落保持为一个 Chunk；
+- 超长单元优先按段落、列表项组、表格行组和代码块边界拆分；
+- 超长段落优先按完整句子、再按次级分句边界拆分；
+- 单个不可自然拆分的超长结构块才使用 Token 重叠滑窗；
+- 每个最终 `embedding_text` 不超过 `split_threshold_tokens`；
+- JSONL Token 计数与配置的 Tokenizer 实际编码结果一致；
+- Tokenizer 无法加载时明确失败，不退回字符计数或其他 Tokenizer；
+- Token 窗口扣除重复标题预算，且 overlap 只出现在 `token_window`；
 - 每个子块重复完整标题上下文；
 - `知识地图` 的 `.course-card` 生成课程概览；
 - `2025-2026 最新进展` 提取 `time_tags=[2025, 2026]`；
@@ -425,7 +500,9 @@ Q8 ReAct 的问题页和续页位于同一个 parent_id
 不存在 script/style/Reveal 控件文本
 不存在空 content
 所有 source 均为相对 POSIX 路径
-相同输入连续运行得到相同 JSONL SHA-256 与 Manifest fingerprint
+所有 embedding_token_count <= 1024
+Manifest 记录 Tokenizer 模型、解析版本和切块参数
+相同输入与 Tokenizer 版本连续运行得到相同 JSONL SHA-256 与 Manifest fingerprint
 ```
 
 验证命令：
