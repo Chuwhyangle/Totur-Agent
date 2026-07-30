@@ -41,6 +41,7 @@ def test_tool_registry_exposes_score_jd_skill_fit_schema():
         "interview_jd_search",
         "search_learning_notes",
         "score_jd_skill_fit",
+        "save_journal_entry",
         "web_search",
     ]
     assert tool["type"] == "function"

@@ -41,7 +41,7 @@ def test_get_personas_returns_builtin_prompt_profiles():
     assert response.status_code == 200
     personas = response.json()
     persona_ids = [persona["persona_id"] for persona in personas]
-    assert persona_ids == ["tutor", "algorithm_coach", "interviewer"]
+    assert persona_ids == ["tutor", "algorithm_coach", "interviewer", "journal"]
     assert all({"persona_id", "name", "description"} == set(persona) for persona in personas)
     assert all("system_prompt" not in persona for persona in personas)
 
@@ -97,7 +97,7 @@ def test_chat_rejects_unknown_persona_with_available_personas(monkeypatch, tmp_p
     assert response.json()["detail"] == {
         "error": "invalid_persona_id",
         "persona_id": "ghost",
-        "available_personas": ["tutor", "algorithm_coach", "interviewer"],
+        "available_personas": ["tutor", "algorithm_coach", "interviewer", "journal"],
     }
 
 
