@@ -7,6 +7,7 @@ from copy import deepcopy
 from typing import Any
 
 from app.services.agent.tools.interview_jd_search import search_interview_jds
+from app.services.agent.tools.save_journal_entry import save_journal_entry
 from app.services.agent.tools.search_learning_notes import search_learning_notes
 from app.services.agent.tools.score_jd_skill_fit import score_jd_skill_fit
 from app.services.agent.tools.web_search import web_search
@@ -199,12 +200,50 @@ WEB_SEARCH_SCHEMA: dict[str, Any] = {
 }
 
 
+SAVE_JOURNAL_ENTRY_SCHEMA: dict[str, Any] = {
+    "type": "function",
+    "function": {
+        "name": "save_journal_entry",
+        "description": (
+            "Save a daily journal/diary entry recording what the user learned, "
+            "accomplished, or reflected on today. Content should be in markdown format."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "title": {
+                    "type": "string",
+                    "description": "A concise title for the journal entry.",
+                },
+                "content": {
+                    "type": "string",
+                    "description": "The journal entry content in markdown format.",
+                },
+                "tags": {
+                    "type": "string",
+                    "description": (
+                        "Comma-separated tags for categorization, e.g. 'FastAPI,学习,项目进展'."
+                    ),
+                },
+                "entry_date": {
+                    "type": "string",
+                    "description": "Date in YYYY-MM-DD format. Defaults to today if omitted.",
+                },
+            },
+            "required": ["title", "content"],
+            "additionalProperties": False,
+        },
+    },
+}
+
+
 class ToolRegistry:
     """Keeps tool schemas and Python callables in one small boundary."""
 
     def __init__(self, mcp_client_adapter: Any | None = None) -> None:
         self._tools: dict[str, Callable[..., dict[str, Any]]] = {
             "interview_jd_search": search_interview_jds,
+            "save_journal_entry": save_journal_entry,
             "search_learning_notes": search_learning_notes,
             "score_jd_skill_fit": score_jd_skill_fit,
             "web_search": web_search,
@@ -235,6 +274,7 @@ class ToolRegistry:
             deepcopy(INTERVIEW_JD_SEARCH_SCHEMA),
             learning_notes_schema,
             deepcopy(SCORE_JD_SKILL_FIT_SCHEMA),
+            deepcopy(SAVE_JOURNAL_ENTRY_SCHEMA),
             deepcopy(WEB_SEARCH_SCHEMA),
         ]
         if self._mcp_client_adapter is not None:

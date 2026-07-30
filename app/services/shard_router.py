@@ -35,6 +35,10 @@ from app.services.rag_settings import (
 logger = logging.getLogger(__name__)
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
+# Journal persona uses a dedicated tool set and does not need knowledge retrieval.
+JOURNAL_PERSONA_ID = "journal"
+JOURNAL_TOOL_NAMES = frozenset({"save_journal_entry"})
+
 
 @dataclass(frozen=True)
 class ShardHandle:
@@ -156,3 +160,15 @@ class ShardRouter:
         except Exception as exc:  # shard isolation is a routing invariant
             logger.warning("subject shard %s failed; returning partial results: %s", shard.subject, exc)
             return []
+
+
+def is_journal_persona(persona_id: str | None) -> bool:
+    """Check whether the persona is the journal persona."""
+
+    return persona_id == JOURNAL_PERSONA_ID
+
+
+def get_journal_tool_names() -> frozenset[str]:
+    """Return the tool names relevant to the journal persona."""
+
+    return JOURNAL_TOOL_NAMES

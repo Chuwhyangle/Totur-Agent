@@ -9,6 +9,7 @@ CHAT_SESSIONS_TABLE = "chat_sessions"
 SESSION_SUMMARIES_TABLE = "session_summaries"
 INTERVIEW_JDS_TABLE = "interview_jds"
 DOCUMENTS_TABLE = "documents"
+JOURNAL_ENTRIES_TABLE = "journal_entries"
 DEFAULT_SESSION_TITLE = "默认会话"
 
 
@@ -253,3 +254,18 @@ class DocumentRecord:
             raise InvalidDocumentRecord(
                 f"{self.status.value} documents require a stable error_code"
             )
+
+
+@dataclass
+class JournalEntryRecord:
+    """journal_entries 表中的一行日记记录。"""
+
+    id: int
+    session_id: int | None
+    persona_id: str
+    title: str
+    content: str
+    tags: str
+    entry_date: str
+    created_at: str
+    updated_at: str

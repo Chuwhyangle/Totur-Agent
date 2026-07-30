@@ -14,6 +14,7 @@ from app.api.routes.chat import router as chat_router
 from app.api.routes.conversations import router as conversations_router
 from app.api.routes.health import router as health_router
 from app.api.routes.interview_jds import router as interview_jds_router
+from app.api.routes.journal import router as journal_router
 from app.api.routes.personas import router as personas_router
 from app.api.routes.sessions import router as sessions_router
 from app.clients.reranker_client import close_reranker_client
@@ -138,6 +139,8 @@ app.include_router(personas_router)
 app.include_router(sessions_router)
 # Interview JD endpoints: store user profiles before matching tools.
 app.include_router(interview_jds_router)
+# Journal endpoints: daily learning diary entries.
+app.include_router(journal_router)
 
 if is_mcp_http_enabled():
     from app.mcp.server import MCPMountPathMiddleware, get_mcp_http_app

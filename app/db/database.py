@@ -9,6 +9,7 @@ from app.db.models import (
     DEFAULT_SESSION_TITLE,
     DOCUMENTS_TABLE,
     INTERVIEW_JDS_TABLE,
+    JOURNAL_ENTRIES_TABLE,
     SESSION_SUMMARIES_TABLE,
 )
 
@@ -85,6 +86,19 @@ def initialize_database() -> None:
     );
     """
     create_documents_table_sql = _create_documents_table_sql(DOCUMENTS_TABLE)
+    create_journal_entries_table_sql = f"""
+    CREATE TABLE IF NOT EXISTS {JOURNAL_ENTRIES_TABLE} (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id INTEGER REFERENCES {CHAT_SESSIONS_TABLE}(id) ON DELETE SET NULL,
+        persona_id TEXT NOT NULL DEFAULT 'journal',
+        title TEXT NOT NULL,
+        content TEXT NOT NULL DEFAULT '',
+        tags TEXT NOT NULL DEFAULT '',
+        entry_date TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    );
+    """
     create_sessions_index_sql = f"""
     CREATE INDEX IF NOT EXISTS idx_chat_sessions_user_updated
     ON {CHAT_SESSIONS_TABLE} (user_id, updated_at DESC, id DESC);
@@ -117,6 +131,10 @@ def initialize_database() -> None:
     CREATE INDEX IF NOT EXISTS idx_documents_expires_at
     ON {DOCUMENTS_TABLE} (expires_at);
     """
+    create_journal_entries_date_index_sql = f"""
+    CREATE INDEX IF NOT EXISTS idx_journal_entries_entry_date
+    ON {JOURNAL_ENTRIES_TABLE} (entry_date DESC);
+    """
 
     connection = get_connection()
     try:
@@ -132,6 +150,8 @@ def initialize_database() -> None:
         # Document rows retain cleanup paths until lifecycle cleanup is complete.
         connection.execute(create_documents_table_sql)
         _ensure_documents_schema(connection)
+        # Journal entries for daily learning logs.
+        connection.execute(create_journal_entries_table_sql)
         # 旧版 conversations 表没有 session_id，这里会自动补上。
         _ensure_conversations_session_id_column(connection)
         # 把旧数据按 user_id 归入一个“默认会话”。
@@ -144,6 +164,7 @@ def initialize_database() -> None:
         connection.execute(create_documents_user_session_index_sql)
         connection.execute(create_documents_status_index_sql)
         connection.execute(create_documents_expires_at_index_sql)
+        connection.execute(create_journal_entries_date_index_sql)
         connection.commit()
     finally:
         connection.close()
