@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Generator
 from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
@@ -24,6 +25,14 @@ from app.services.web_search_settings import WEB_SEARCH_MAX_CALLS_PER_CHAT
 
 
 WEB_SEARCH_TOOL_NAME = "web_search"
+
+
+@dataclass
+class StreamEvent:
+    """An event yielded during streaming ReAct execution."""
+
+    type: str  # "tool_call", "tool_result", "token", "done", "error"
+    data: dict[str, Any]
 
 
 @dataclass
@@ -118,6 +127,152 @@ class ReactOrchestrator:
             calls=tool_call_traces,
             ledger=run_state.ledger,
         )
+
+    def run_stream(
+        self,
+        messages: list[ChatCompletionMessageParam],
+        force_web_search: bool = False,
+    ) -> Generator[StreamEvent, None, tuple[str, ToolTrace]]:
+        """Execute the ReAct loop, yielding StreamEvents for progress.
+
+        Yields:
+            StreamEvent for tool calls, tool results, and final tokens.
+
+        Returns:
+            Tuple of (raw_reply, ToolTrace) — accessible via generator.return_value.
+        """
+
+        working_messages: list[ChatCompletionMessageParam] = [*messages]
+        tool_call_traces: list[ToolCallTrace] = []
+        run_state = _RunState()
+        failure_count = 0
+        first_model_round = 1
+
+        if force_web_search:
+            yield StreamEvent(type="tool_call", data={"tool": WEB_SEARCH_TOOL_NAME, "args": {"query": "..."}, "status": "running"})
+            working_messages, forced_trace = self._execute_forced_web_search(
+                working_messages,
+                run_state,
+            )
+            tool_call_traces.append(forced_trace)
+            failure_count += int(not forced_trace.ok)
+            first_model_round = 2
+            yield StreamEvent(type="tool_result", data={"tool": WEB_SEARCH_TOOL_NAME, "result": {"ok": forced_trace.ok}})
+
+        for round_number in range(first_model_round, self.max_steps + 1):
+            model_message = self._call_model_with_tools(working_messages)
+            tool_calls = self._message_tool_calls(model_message)
+
+            if not tool_calls:
+                raw_reply = self._message_content(model_message)
+                if not raw_reply:
+                    raise RuntimeError("模型没有返回内容")
+
+                streamed_parts: list[str] = []
+                for token_event in self._stream_final_reply(working_messages):
+                    if token_event.type == "token":
+                        streamed_parts.append(token_event.data.get("text", ""))
+                    yield token_event
+
+                raw_reply = "".join(streamed_parts)
+                if not raw_reply:
+                    raise RuntimeError("Model stream returned no content")
+
+                final_trace = ToolTrace(
+                    used=bool(tool_call_traces),
+                    calls=tool_call_traces,
+                    ledger=run_state.ledger,
+                )
+                return raw_reply, final_trace
+
+            # Yield tool_call events and execute tools
+            for tool_call in tool_calls:
+                tool_name = self._tool_call_name(tool_call)
+                tool_args_str = self._tool_call_arguments(tool_call)
+                try:
+                    tool_args = json.loads(tool_args_str)
+                except json.JSONDecodeError:
+                    tool_args = {}
+                yield StreamEvent(
+                    type="tool_call",
+                    data={"tool": tool_name, "args": tool_args, "status": "running"},
+                )
+
+            working_messages, step_traces = self._build_messages_with_tool_results(
+                messages=working_messages,
+                first_message=model_message,
+                tool_calls=tool_calls,
+                round_number=round_number,
+                run_state=run_state,
+            )
+            tool_call_traces.extend(step_traces)
+            failure_count += sum(1 for trace in step_traces if not trace.ok)
+
+            # Yield tool_result events
+            for trace in step_traces:
+                yield StreamEvent(
+                    type="tool_result",
+                    data={
+                        "tool": trace.name,
+                        "result": {"ok": trace.ok, "returned_count": trace.returned_count},
+                    },
+                )
+
+            if failure_count >= self.max_failures:
+                break
+
+        # Final model call (no streaming, fallback after tool budget exhausted)
+        raw_reply = self._call_model(working_messages)
+        if not raw_reply:
+            raise RuntimeError("模型没有返回内容")
+
+        # Yield the full reply as a single token event
+        yield StreamEvent(type="token", data={"text": raw_reply})
+
+        final_trace = ToolTrace(
+            used=bool(tool_call_traces),
+            calls=tool_call_traces,
+            ledger=run_state.ledger,
+        )
+        return raw_reply, final_trace
+
+    def _stream_final_reply(
+        self,
+        messages: list[ChatCompletionMessageParam],
+    ) -> Generator[StreamEvent, None, None]:
+        """Stream the final model reply token-by-token."""
+
+        stream = None
+        try:
+            stream = self.client.chat.completions.create(
+                model=self.config.model,
+                messages=messages,
+                stream=True,
+            )
+            for chunk in stream:
+                if not chunk.choices:
+                    continue
+                delta = chunk.choices[0].delta
+                content = delta.content if hasattr(delta, "content") else None
+                if content:
+                    yield StreamEvent(type="token", data={"text": content})
+        except Exception:
+            # Fallback to non-streaming if streaming fails
+            completion = self.client.chat.completions.create(
+                model=self.config.model,
+                messages=messages,
+            )
+            raw_reply = completion.choices[0].message.content or ""
+            if raw_reply:
+                yield StreamEvent(type="token", data={"text": raw_reply})
+        finally:
+            close = getattr(stream, "close", None)
+            if callable(close):
+                try:
+                    close()
+                except Exception:
+                    # Cleanup must not mask the model error or client cancellation.
+                    pass
 
     def _execute_forced_web_search(
         self,

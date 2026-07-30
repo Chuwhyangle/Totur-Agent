@@ -9,7 +9,10 @@ function ChatInput({
   isSending = false,
   webSearchEnabled = false,
   onWebSearchEnabledChange,
+  streamingEnabled = true,
+  onStreamingEnabledChange,
   attachmentPanel = null,
+  onStopStreaming,
   placeholder = '写下你的问题，或让导师帮你拆解下一步…',
 }) {
   const textareaRef = useRef(null)
@@ -41,9 +44,15 @@ function ChatInput({
           onChange={(event) => onMessageChange(event.target.value)}
           onKeyDown={handleKeyDown}
         />
-        <button className="send-button" type="submit" disabled={disabled} aria-label="发送消息">
-          {isSending ? <span className="send-loader" /> : <Icon name="send" size={17} strokeWidth={1.7} />}
-        </button>
+        {isSending && onStopStreaming ? (
+          <button className="send-button" type="button" aria-label="停止生成" title="停止生成" onClick={onStopStreaming}>
+            停止
+          </button>
+        ) : (
+          <button className="send-button" type="submit" disabled={disabled} aria-label="发送消息">
+            {isSending ? <span className="send-loader" /> : <Icon name="send" size={17} strokeWidth={1.7} />}
+          </button>
+        )}
       </form>
       <div className="composer-options">
         <button
@@ -57,6 +66,19 @@ function ChatInput({
           <span>联网搜索</span>
           <small>{webSearchEnabled ? '本轮强制使用' : '自动判断'}</small>
         </button>
+        {onStreamingEnabledChange ? (
+          <button
+            className={`streaming-toggle${streamingEnabled ? ' is-active' : ''}`}
+            type="button"
+            aria-pressed={streamingEnabled}
+            disabled={isSending}
+            onClick={() => onStreamingEnabledChange(!streamingEnabled)}
+            title={streamingEnabled ? '流式输出已开启' : '流式输出已关闭'}
+          >
+            <Icon name="sparkles" size={14} strokeWidth={1.7} />
+            <span>流式</span>
+          </button>
+        ) : null}
       </div>
       <p className="composer-hint">Enter 发送 · Shift + Enter 换行 · AI 可能出错，重要信息请再核对</p>
     </div>

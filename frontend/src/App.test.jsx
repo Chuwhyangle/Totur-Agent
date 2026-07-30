@@ -309,6 +309,59 @@ describe('App SSE sending', () => {
     consoleError.mockRestore()
   })
 
+  it('does not promote partial stream text to a successful reply after rejection', async () => {
+    const user = userEvent.setup()
+    api.getAttachments.mockResolvedValue({ data: { items: [] } })
+    api.postChatStream.mockImplementation(async (_request, callbacks) => {
+      callbacks.onToken('partial answer')
+      throw new Error('stream failed')
+    })
+
+    render(<App />)
+    await openSession(user)
+    await user.type(document.querySelector('.chat-input'), 'fail stream')
+    await user.click(document.querySelector('.send-button'))
+
+    await waitFor(() => expect(document.querySelector('.streaming-toggle').disabled).toBe(false))
+    expect(screen.queryByText('partial answer')).toBeNull()
+  })
+
+  it('aborts an active stream and removes transient output when stopped', async () => {
+    const user = userEvent.setup()
+    const streamFinished = deferred()
+    api.getAttachments.mockResolvedValue({ data: { items: [] } })
+    api.postChatStream.mockImplementation(async (_request, callbacks, options) => {
+      callbacks.onToken('partial answer')
+      options.signal.addEventListener('abort', () => {
+        queueMicrotask(() => {
+          callbacks.onToken('late token')
+          streamFinished.resolve()
+        })
+      })
+      await streamFinished.promise
+    })
+
+    render(<App />)
+    await openSession(user)
+    await user.type(document.querySelector('.chat-input'), 'stop stream')
+    await user.click(document.querySelector('.send-button'))
+
+    await waitFor(() => expect(api.postChatStream).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.any(Object),
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    ))
+    expect(await screen.findByText('partial answer')).not.toBeNull()
+
+    await user.click(document.querySelector('.send-button[type="button"]'))
+
+    await waitFor(() => expect(screen.queryByText('partial answer')).toBeNull())
+    expect(screen.queryByText('late token')).toBeNull()
+    expect(api.postChatStream.mock.calls[0][2].signal.aborted).toBe(true)
+    expect(document.querySelector('.send-button[type="button"]')).toBeNull()
+    await waitFor(() => expect(document.querySelector('.streaming-toggle').disabled).toBe(false))
+  })
+
   it('uses ordinary chat when the streaming toggle is off', async () => {
     const user = userEvent.setup()
     localStorage.setItem('tutor-streaming', 'false')

@@ -72,13 +72,15 @@ def test_stream_converts_generator_exception_to_well_formed_error_event(monkeypa
     ]
 
 
-def test_stream_allows_empty_or_early_completed_generator(monkeypatch):
+def test_stream_converts_missing_terminal_event_to_error(monkeypatch):
     monkeypatch.setattr(chat_route.tutor_agent_service, "chat_stream", lambda _request: iter(()))
 
     response = client.post("/chat/stream", json=REQUEST)
 
     assert response.status_code == 200
-    assert response.text == ""
+    assert _parse_events(response.text) == [
+        ("error", {"message": "Stream ended before completion"}),
+    ]
 
 
 def test_stream_handles_generator_that_ends_after_one_token(monkeypatch):
@@ -90,4 +92,7 @@ def test_stream_handles_generator_that_ends_after_one_token(monkeypatch):
     response = client.post("/chat/stream", json=REQUEST)
 
     assert response.status_code == 200
-    assert _parse_events(response.text) == [("token", {"text": "only"})]
+    assert _parse_events(response.text) == [
+        ("token", {"text": "only"}),
+        ("error", {"message": "Stream ended before completion"}),
+    ]
