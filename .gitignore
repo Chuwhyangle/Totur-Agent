@@ -36,3 +36,15 @@ chroma_db/
 
 # Runtime-only temporary attachment files
 runtime_data/
+
+# Local IDE / agent tool directories
+.qoder/
+.run/
+.workbuddy/
+
+# Raw corpus sources: only processed/ artifacts are tracked
+corpus/Agent_doc/Agent 求职面试全攻略（10讲171页）/
+
+# Generated analysis and export outputs
+exports/
+section_length_stats.csv
