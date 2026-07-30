@@ -1,8 +1,8 @@
 """SQLite 连接和数据库表初始化。"""
 
-from pathlib import Path
 import sqlite3
 
+from app.config import StorageConfig
 from app.db.models import (
     CHAT_SESSIONS_TABLE,
     CONVERSATIONS_TABLE,
@@ -14,8 +14,8 @@ from app.db.models import (
 )
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-DATABASE_PATH = PROJECT_ROOT / "tutor_agent.db"
+_storage = StorageConfig.from_env()
+DATABASE_PATH = _storage.database_path
 
 
 def get_connection() -> sqlite3.Connection:
@@ -26,6 +26,10 @@ def get_connection() -> sqlite3.Connection:
     connection.row_factory = sqlite3.Row
     # 开启外键检查，让 conversations.session_id 能关联到 chat_sessions.id。
     connection.execute("PRAGMA foreign_keys = ON")
+    # WAL 模式：读写并发，减少锁竞争；对现有功能完全透明。
+    connection.execute("PRAGMA journal_mode = WAL")
+    # 并发写时最多等待 5 秒，避免 SQLITE_BUSY 立即报错。
+    connection.execute("PRAGMA busy_timeout = 5000")
 
     return connection
 

@@ -1,9 +1,51 @@
 """Application configuration."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import os
+from pathlib import Path
 
 from dotenv import load_dotenv
+
+
+@dataclass(frozen=True)
+class StorageConfig:
+    """存储路径配置：数据库和 Chroma 持久化目录的根路径。"""
+
+    DATA_DIR: Path
+
+    @property
+    def database_path(self) -> Path:
+        return self.DATA_DIR / "tutor_agent.db"
+
+    @property
+    def chroma_persist_dir(self) -> Path:
+        return self.DATA_DIR / "chroma_db"
+
+    @staticmethod
+    def from_env() -> "StorageConfig":
+        load_dotenv()
+        data_dir = Path(os.getenv("DATA_DIR", str(Path(__file__).resolve().parents[2])))
+        return StorageConfig(DATA_DIR=data_dir)
+
+
+@dataclass(frozen=True)
+class ServerConfig:
+    """服务器相关配置：CORS 白名单和 API 前缀。"""
+
+    ALLOWED_ORIGINS: list[str] = field(default_factory=list)
+    ROOT_PATH: str = ""
+
+    @staticmethod
+    def from_env() -> "ServerConfig":
+        load_dotenv()
+        raw_origins = os.getenv(
+            "ALLOWED_ORIGINS",
+            "http://127.0.0.1:5173,http://127.0.0.1:5174,http://127.0.0.1:5175,"
+            "http://localhost:5173,http://localhost:5174,http://localhost:5175",
+        )
+        origins = [o.strip() for o in raw_origins.split(",") if o.strip()]
+        root_path = os.getenv("ROOT_PATH", "").strip()
+        return ServerConfig(ALLOWED_ORIGINS=origins, ROOT_PATH=root_path)
 
 
 @dataclass

@@ -1,5 +1,11 @@
 """RAG 相关的统一配置。"""
 
+import os
+
+from app.config import StorageConfig
+
+_storage = StorageConfig.from_env()
+
 # 分块器默认块大小，对齐 v0.3 设计文档和 DeepTutor 的基础参数。
 CHUNK_SIZE = 512
 
@@ -23,7 +29,8 @@ SIMILARITY_THRESHOLD = 0.45
 KNOWLEDGE_COLLECTION_NAME = "learning_notes"
 
 # Chroma 本地持久化目录，默认位于项目根目录。
-CHROMA_PERSIST_DIR = "chroma_db"
+# 当 DATA_DIR 环境变量未设置时保持相对路径 "chroma_db" 以兼容旧行为。
+CHROMA_PERSIST_DIR = str(_storage.chroma_persist_dir) if os.getenv("DATA_DIR") else "chroma_db"
 
 # 第一版只索引本地 docs 目录下的 Markdown 笔记。
 KNOWLEDGE_SOURCE_DIR = "docs"

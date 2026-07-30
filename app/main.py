@@ -19,19 +19,15 @@ from app.api.routes.personas import router as personas_router
 from app.api.routes.sessions import router as sessions_router
 from app.clients.reranker_client import close_reranker_client
 from app.clients.web_search_client import close_web_search_client
+from app.config import ServerConfig
 from app.mcp.settings import get_mcp_http_path, is_mcp_http_enabled
 from app.services.documents.attachment_recovery_service import (
     get_attachment_recovery_service,
 )
 
-allowed_origins = [
-    "http://127.0.0.1:5173",
-    "http://127.0.0.1:5174",
-    "http://127.0.0.1:5175",
-    "http://localhost:5173",
-    "http://localhost:5174",
-    "http://localhost:5175",
-]
+_server_config = ServerConfig.from_env()
+
+allowed_origins = _server_config.ALLOWED_ORIGINS
 
 
 logger = logging.getLogger(__name__)
@@ -158,6 +154,7 @@ app = FastAPI(
     title="Tutor Agent API",
     version="0.1.0",
     lifespan=lifespan,
+    root_path=_server_config.ROOT_PATH,
 )
 
 # Allow local Vite frontends to call the API from the browser.
