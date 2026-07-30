@@ -1,0 +1,87 @@
+{
+  "chunk_count": 431,
+  "chunk_counts_by_type": {
+    "article": 102,
+    "course_overview": 1,
+    "lesson_overview": 10,
+    "qa": 34,
+    "section_overview": 59,
+    "topic": 199,
+    "trend": 26
+  },
+  "chunking": {
+    "fallback_overlap_tokens": 64,
+    "split_threshold_tokens": 1024,
+    "target_max_tokens": 700,
+    "target_min_tokens": 500
+  },
+  "files": [
+    {
+      "chunk_count": 72,
+      "content_sha256": "sha256:7e2009bd23ac98fc9b23f7c8dca860651cdb8d96aab415df97f4e6261bfececa",
+      "source": "corpus/Agent_doc/Agent 求职面试全攻略（10讲171页）/01-求职全景.html"
+    },
+    {
+      "chunk_count": 46,
+      "content_sha256": "sha256:f7c44bed75e7987ba9fb57f4bbde1ee51d1b2f5ec67a017bd146f46cdbfbac97",
+      "source": "corpus/Agent_doc/Agent 求职面试全攻略（10讲171页）/02-项目打造：做出能写进简历的Agent项目【持续更新‖免费提供：cunlove.cn】.html"
+    },
+    {
+      "chunk_count": 57,
+      "content_sha256": "sha256:930c5d5d012a736e05908b43c47d900a4605040b66424056b32189811166fdf6",
+      "source": "corpus/Agent_doc/Agent 求职面试全攻略（10讲171页）/03-简历写作：Agent项目的3D表达法【精挑细选‖免费提供：cunlovE.cn】.html"
+    },
+    {
+      "chunk_count": 49,
+      "content_sha256": "sha256:30140c44f31cb0e897bc14f2987b33214cc5412b3995c0a215c081e06b0e50c8",
+      "source": "corpus/Agent_doc/Agent 求职面试全攻略（10讲171页）/04-理论面试：LLM-Agent-RAG基础40题.html"
+    },
+    {
+      "chunk_count": 58,
+      "content_sha256": "sha256:62347e552c98a34d9cd719e2102859269cab33cabe90e6e3b4541efb1b610a82",
+      "source": "corpus/Agent_doc/Agent 求职面试全攻略（10讲171页）/05-工程面试：系统设计与架构25题【整理不易‖记得关注：CunWorKNotess】.html"
+    },
+    {
+      "chunk_count": 29,
+      "content_sha256": "sha256:9cf18018862d77035104860da425ea0abb07a5f72b9be51a98b02c57d0165d8c",
+      "source": "corpus/Agent_doc/Agent 求职面试全攻略（10讲171页）/06-代码面试：手写Agent核心代码15题.html"
+    },
+    {
+      "chunk_count": 25,
+      "content_sha256": "sha256:44ea0f2c3e4f9e92544362eccb802983052c3f40e7bbe8d1fa57c2887362f852",
+      "source": "corpus/Agent_doc/Agent 求职面试全攻略（10讲171页）/07-双轨策略：算法岗x开发岗一起面【花费时间‖免费获取：cunLove.cn】.html"
+    },
+    {
+      "chunk_count": 35,
+      "content_sha256": "sha256:f8f66aaa019044bd326c79b14d11d70d3be93e94ad13131073ba2b243024c1b3",
+      "source": "corpus/Agent_doc/Agent 求职面试全攻略（10讲171页）/08-大厂面经案例【整理不易‖记得关注：CunWorKNotess】.html"
+    },
+    {
+      "chunk_count": 27,
+      "content_sha256": "sha256:0d61d3771f12e5502d967af56aec48f86c77db0ea1e559fe8e90afc8e3aae21e",
+      "source": "corpus/Agent_doc/Agent 求职面试全攻略（10讲171页）/09-转岗攻略.html"
+    },
+    {
+      "chunk_count": 32,
+      "content_sha256": "sha256:38d8ef2e743468bd8d853d8b783fd0aee47368b2b3e32bd354ae7a57adee166a",
+      "source": "corpus/Agent_doc/Agent 求职面试全攻略（10讲171页）/10-谈薪策略.html"
+    },
+    {
+      "chunk_count": 1,
+      "content_sha256": "sha256:55b3ebfe44c10f98615c65e997bfad9eaacb462ac0d69ce818a1373d468d6568",
+      "source": "corpus/Agent_doc/Agent 求职面试全攻略（10讲171页）/知识地图【花费时间‖免费获取：cunLove.cn】.html"
+    }
+  ],
+  "fingerprint": "sha256:735dd2e25e26ad664a48be40cb5ca693595c4ba70def066a4f658719da8c285b",
+  "output_sha256": "sha256:c4c0038b050f02533045ba9e47ebe1ad2c859031d51578416c123ddc551312ba",
+  "schema_version": 1,
+  "source_file_count": 11,
+  "source_root": "corpus/Agent_doc",
+  "tokenizer": {
+    "add_special_tokens": true,
+    "library": "transformers",
+    "library_version": "5.14.1",
+    "model": "Qwen/Qwen3-Embedding-8B",
+    "revision": "1d8ad4ca9b3dd8059ad90a75d4983776a23d44af"
+  }
+}
