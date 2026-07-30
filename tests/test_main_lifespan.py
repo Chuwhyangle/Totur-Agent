@@ -54,3 +54,39 @@ def test_lifespan_shutdown_is_bounded_when_recovery_dependency_hangs(
 
     assert shutdown_elapsed < 0.5
     assert "attachment_startup_recovery_shutdown_timeout" in caplog.text
+
+
+def test_lifespan_periodic_sweep_repeats_recovery_until_shutdown(monkeypatch):
+    """Expired attachments need recurring passes, not just the startup one."""
+
+    calls: list[int] = []
+
+    class CountingRecoveryService:
+        def recover_once(self, *, stop_requested):
+            calls.append(len(calls) + 1)
+
+    monkeypatch.setattr(
+        main_module,
+        "get_attachment_recovery_service",
+        lambda: CountingRecoveryService(),
+    )
+    monkeypatch.setattr(main_module, "is_mcp_http_enabled", lambda: False)
+    monkeypatch.setattr(main_module, "close_reranker_client", lambda: None)
+    monkeypatch.setattr(main_module, "close_web_search_client", lambda: None)
+    monkeypatch.setattr(main_module, "ATTACHMENT_SWEEP_INTERVAL_SECONDS", 0.01)
+
+    async def exercise_lifespan():
+        async with main_module.lifespan(main_module.app):
+            loop = asyncio.get_running_loop()
+            deadline = loop.time() + 2
+            while len(calls) < 3 and loop.time() < deadline:
+                await asyncio.sleep(0.01)
+            assert len(calls) >= 3, "periodic sweep did not repeat"
+        at_shutdown = len(calls)
+        # Ten sweep intervals: a live loop would add far more than one pass.
+        await asyncio.sleep(0.1)
+        return at_shutdown, len(calls)
+
+    at_shutdown, final = asyncio.run(exercise_lifespan())
+
+    assert final - at_shutdown <= 1

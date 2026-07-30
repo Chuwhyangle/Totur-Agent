@@ -31,6 +31,7 @@ class AttachmentRecoveryResult:
     processing_recovered: int
     cleanup_recovered: int
     failures: int
+    expired_reclaimed: int = 0
 
 
 class AttachmentRecoveryService:
@@ -58,14 +59,16 @@ class AttachmentRecoveryService:
         *,
         stop_requested: Callable[[], bool] | None = None,
     ) -> AttachmentRecoveryResult:
-        """Recover processing and cleanup records without exceeding one batch."""
+        """Recover processing, cleanup, and expired records within one batch."""
 
         now = self._utc_now()
         remaining = self.settings.recovery_batch_size
         scanned = 0
         processing_recovered = 0
         cleanup_recovered = 0
+        expired_reclaimed = 0
         failures = 0
+        cleanup_service: TemporaryDocumentService | None = None
 
         processing_records = (
             document_repository.list_recoverable_processing_attachments(
@@ -113,11 +116,11 @@ class AttachmentRecoveryService:
                 updated_before=now,
                 limit=remaining,
             )
-            cleanup_service: TemporaryDocumentService | None = None
             for record in cleanup_records:
                 if stop_requested is not None and stop_requested():
                     break
                 scanned += 1
+                remaining -= 1
                 try:
                     if cleanup_service is None:
                         cleanup_service = self.cleanup_service_factory()
@@ -134,18 +137,51 @@ class AttachmentRecoveryService:
                         current.status.value if current is not None else "PURGED",
                     )
 
+        # Expired attachments are invisible to the accessible-attachment
+        # queries, so nothing else ever reclaims their files or vectors.
+        if (
+            remaining > 0
+            and not (stop_requested is not None and stop_requested())
+        ):
+            expired_records = document_repository.list_expired_attachments(
+                now=now,
+                limit=remaining,
+            )
+            for record in expired_records:
+                if stop_requested is not None and stop_requested():
+                    break
+                scanned += 1
+                remaining -= 1
+                try:
+                    if cleanup_service is None:
+                        cleanup_service = self.cleanup_service_factory()
+                    if cleanup_service.reclaim_expired_attachment(record):
+                        expired_reclaimed += 1
+                except Exception as exc:
+                    failures += 1
+                    current = document_repository.get_document(record.id)
+                    logger.error(
+                        "attachment_recovery_expired_failed document_id=%s "
+                        "error_type=%s status=%s",
+                        record.id,
+                        type(exc).__name__,
+                        current.status.value if current is not None else "PURGED",
+                    )
+
         result = AttachmentRecoveryResult(
             scanned=scanned,
             processing_recovered=processing_recovered,
             cleanup_recovered=cleanup_recovered,
+            expired_reclaimed=expired_reclaimed,
             failures=failures,
         )
         logger.info(
             "attachment_recovery_completed scanned=%d processing_recovered=%d "
-            "cleanup_recovered=%d failures=%d",
+            "cleanup_recovered=%d expired_reclaimed=%d failures=%d",
             result.scanned,
             result.processing_recovered,
             result.cleanup_recovered,
+            result.expired_reclaimed,
             result.failures,
         )
         return result

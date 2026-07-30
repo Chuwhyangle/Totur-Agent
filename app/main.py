@@ -37,6 +37,7 @@ allowed_origins = [
 logger = logging.getLogger(__name__)
 
 ATTACHMENT_RECOVERY_SHUTDOWN_TIMEOUT_SECONDS = 2.0
+ATTACHMENT_SWEEP_INTERVAL_SECONDS = 900.0
 
 
 def _mark_recovery_done(future: asyncio.Future[None]) -> None:
@@ -78,14 +79,46 @@ async def _run_attachment_recovery(
     await completed
 
 
+async def _run_attachment_sweep(
+    *,
+    stop_requested: Callable[[], bool],
+    shutdown: asyncio.Event,
+) -> None:
+    """Repeat bounded recovery passes so expired attachments are reclaimed.
+
+    TTL expiry only hides attachments from the accessible-attachment queries,
+    so without a recurring pass their files and vectors accumulate forever.
+    This is still a single-instance local sweep, not a distributed scheduler.
+    """
+
+    while not shutdown.is_set():
+        with suppress(TimeoutError):
+            await asyncio.wait_for(
+                shutdown.wait(),
+                timeout=ATTACHMENT_SWEEP_INTERVAL_SECONDS,
+            )
+        if shutdown.is_set():
+            return
+        # One pass logs and swallows its own failures, so the loop survives.
+        await _run_attachment_recovery(stop_requested=stop_requested)
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     """Run bounded recovery and release shared clients on shutdown."""
 
     stop_event = threading.Event()
+    shutdown_event = asyncio.Event()
     recovery_task = asyncio.create_task(
         _run_attachment_recovery(stop_requested=stop_event.is_set),
         name="attachment-startup-recovery",
+    )
+    sweep_task = asyncio.create_task(
+        _run_attachment_sweep(
+            stop_requested=stop_event.is_set,
+            shutdown=shutdown_event,
+        ),
+        name="attachment-periodic-sweep",
     )
     try:
         if is_mcp_http_enabled():
@@ -97,6 +130,7 @@ async def lifespan(_: FastAPI):
             yield
     finally:
         stop_event.set()
+        shutdown_event.set()
         try:
             await asyncio.wait_for(
                 asyncio.shield(recovery_task),
@@ -111,6 +145,11 @@ async def lifespan(_: FastAPI):
             with suppress(asyncio.CancelledError):
                 await recovery_task
         finally:
+            # A pass in flight runs on a daemon thread, so cancelling the await
+            # keeps shutdown bounded without joining a blocked dependency.
+            sweep_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await sweep_task
             close_reranker_client()
             close_web_search_client()
 

@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 from app.db.models import DocumentRecord, DocumentScope, DocumentStatus
 from app.repositories.attachment_vector_repository import AttachmentVectorRepository
 from app.repositories.document_repository import (
+    DocumentRepositoryError,
     count_accessible_session_attachments,
     create_attachment_document,
     delete_document_record,
@@ -201,6 +202,35 @@ class TemporaryDocumentService:
         if record is None:
             return False
         self._cleanup_attachment_record(record)
+        return True
+
+    def reclaim_expired_attachment(self, record: DocumentRecord) -> bool:
+        """Claim one expired attachment into DELETING, then run full cleanup.
+
+        TTL expiry only hides a record from the accessible-attachment queries,
+        so its file, parsed JSON, vectors, and metadata still need reclaiming.
+        """
+
+        if record.scope is not DocumentScope.ATTACHMENT:
+            return False
+        # DELETING/DELETED records already belong to the stale cleanup path.
+        if record.status in {DocumentStatus.DELETING, DocumentStatus.DELETED}:
+            return False
+
+        # Compare-and-swap so a concurrent retry, delete, or processing
+        # transition wins instead of having its files removed underneath it.
+        try:
+            claimed = update_document_status(
+                record.id,
+                DocumentStatus.DELETING,
+                expected_status=record.status,
+            )
+        except DocumentRepositoryError:
+            return False
+        if claimed is None:
+            return False
+
+        self._cleanup_attachment_record(claimed)
         return True
 
     def _cleanup_attachment_record(self, record: DocumentRecord) -> None:
