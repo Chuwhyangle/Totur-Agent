@@ -10,6 +10,7 @@ from app.db.models import (
     DOCUMENTS_TABLE,
     INTERVIEW_JDS_TABLE,
     JOURNAL_ENTRIES_TABLE,
+    PUBLIC_JOB_DESCRIPTIONS_TABLE,
     SESSION_SUMMARIES_TABLE,
 )
 
@@ -90,6 +91,36 @@ def initialize_database() -> None:
     );
     """
     create_documents_table_sql = _create_documents_table_sql(DOCUMENTS_TABLE)
+    create_public_job_descriptions_table_sql = f"""
+    CREATE TABLE IF NOT EXISTS {PUBLIC_JOB_DESCRIPTIONS_TABLE} (
+        jd_id TEXT PRIMARY KEY,
+        fingerprint TEXT NOT NULL,
+        category TEXT NOT NULL,
+        source_path TEXT NOT NULL UNIQUE,
+        source_url TEXT NOT NULL,
+        title TEXT NOT NULL,
+        company TEXT NOT NULL,
+        salary_raw TEXT NOT NULL,
+        salary_min_k REAL NOT NULL,
+        salary_max_k REAL NOT NULL,
+        education TEXT NOT NULL,
+        recruitment_count TEXT NOT NULL,
+        major TEXT NOT NULL,
+        region TEXT NOT NULL,
+        province TEXT NOT NULL,
+        source_updated_at TEXT NOT NULL,
+        industry TEXT NOT NULL,
+        company_type TEXT NOT NULL,
+        company_size TEXT NOT NULL,
+        relevance TEXT NOT NULL,
+        relevance_score INTEGER NOT NULL,
+        function_category TEXT NOT NULL,
+        keywords_json TEXT NOT NULL,
+        duplicate_count INTEGER NOT NULL CHECK (duplicate_count >= 1),
+        row_sha256 TEXT NOT NULL,
+        parent_sha256 TEXT NOT NULL
+    );
+    """
     create_journal_entries_table_sql = f"""
     CREATE TABLE IF NOT EXISTS {JOURNAL_ENTRIES_TABLE} (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -139,6 +170,15 @@ def initialize_database() -> None:
     CREATE INDEX IF NOT EXISTS idx_journal_entries_entry_date
     ON {JOURNAL_ENTRIES_TABLE} (entry_date DESC);
     """
+    create_public_jds_filter_index_sql = f"""
+    CREATE INDEX IF NOT EXISTS idx_public_jds_filters
+    ON {PUBLIC_JOB_DESCRIPTIONS_TABLE}
+        (category, relevance, education, province, salary_min_k, salary_max_k);
+    """
+    create_public_jds_fingerprint_index_sql = f"""
+    CREATE INDEX IF NOT EXISTS idx_public_jds_fingerprint
+    ON {PUBLIC_JOB_DESCRIPTIONS_TABLE} (fingerprint);
+    """
 
     connection = get_connection()
     try:
@@ -151,6 +191,8 @@ def initialize_database() -> None:
         connection.execute(create_session_summaries_table_sql)
         # JD 是用户提供的目标岗位资料，先持久化，再让后续工具检索它。
         connection.execute(create_interview_jds_table_sql)
+        # Public corpus JDs are synchronized offline for search filters and analytics.
+        connection.execute(create_public_job_descriptions_table_sql)
         # Document rows retain cleanup paths until lifecycle cleanup is complete.
         connection.execute(create_documents_table_sql)
         _ensure_documents_schema(connection)
@@ -169,6 +211,8 @@ def initialize_database() -> None:
         connection.execute(create_documents_status_index_sql)
         connection.execute(create_documents_expires_at_index_sql)
         connection.execute(create_journal_entries_date_index_sql)
+        connection.execute(create_public_jds_filter_index_sql)
+        connection.execute(create_public_jds_fingerprint_index_sql)
         connection.commit()
     finally:
         connection.close()

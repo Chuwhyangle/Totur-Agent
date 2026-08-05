@@ -39,6 +39,8 @@ def test_tool_registry_exposes_score_jd_skill_fit_schema():
 
     assert names == [
         "interview_jd_search",
+        "search_job_descriptions",
+        "analyze_job_market",
         "search_learning_notes",
         "score_jd_skill_fit",
         "save_journal_entry",
@@ -70,6 +72,41 @@ def test_tool_registry_exposes_search_learning_notes_schema():
     assert set(parameters["properties"]) == {"query", "limit"}
     assert parameters["required"] == ["query"]
     assert parameters["properties"]["limit"]["maximum"] == 5
+
+
+def test_tool_registry_exposes_public_jd_search_and_market_analysis_schemas():
+    registry = ToolRegistry()
+
+    tools = registry.get_tools_schema()
+    search_tool = next(
+        tool for tool in tools if tool["function"]["name"] == "search_job_descriptions"
+    )
+    analysis_tool = next(
+        tool for tool in tools if tool["function"]["name"] == "analyze_job_market"
+    )
+
+    assert registry.has_tool("search_job_descriptions") is True
+    assert registry.has_tool("analyze_job_market") is True
+    assert set(search_tool["function"]["parameters"]["properties"]) == {
+        "query",
+        "limit",
+        "direction",
+        "relevance",
+        "education",
+        "province",
+        "salary_floor_k",
+        "salary_ceiling_k",
+    }
+    assert search_tool["function"]["parameters"]["required"] == ["query"]
+    assert analysis_tool["function"]["parameters"]["properties"]["metric"]["enum"] == [
+        "direction",
+        "function",
+        "skills",
+        "region",
+        "education",
+        "salary",
+    ]
+    assert analysis_tool["function"]["parameters"]["required"] == ["metric"]
 
 
 def test_tool_registry_exposes_web_search_schema():

@@ -62,6 +62,8 @@ def test_build_messages_without_summary_uses_system_and_current_message():
     assert [message["role"] for message in messages] == ["system", "user"]
     assert "新手友好的后端开发导师" in str(messages[0]["content"])
     assert "interview_jd_search" in str(messages[0]["content"])
+    assert "search_job_descriptions" in str(messages[0]["content"])
+    assert "analyze_job_market" in str(messages[0]["content"])
     assert "search_learning_notes" in str(messages[0]["content"])
     assert "score_jd_skill_fit" in str(messages[0]["content"])
     assert "LLM 先判断，工具只负责算分" in str(messages[0]["content"])
