@@ -1,29 +1,37 @@
+import ReactMarkdown from 'react-markdown'
+
 import DebugDetails from './DebugDetails.jsx'
 import Icon from './Icon.jsx'
 import SourceCards from './SourceCards.jsx'
 import { sourceCardId } from '../utils/sourceLinks.js'
 
-function AnswerWithCitations({ answer, sources }) {
+function MarkdownAnswer({ answer, sources }) {
+  // 把引用标记 [web_N]/[attachment_N]/[note_N] 转成 markdown 链接，让 ReactMarkdown 渲染成可点击的 a 标签
   const sourceIds = new Set(
     (Array.isArray(sources) ? sources : []).map((source) => String(source?.id ?? '')),
   )
-  const parts = String(answer).split(/(\[(?:web|attachment)_\d+\])/g)
+  const md = String(answer).replace(
+    /(\[(web|attachment|note)_\d+\])/g,
+    (raw) => {
+      const citationId = raw.replace(/^\[|\]$/g, '')
+      return sourceIds.has(citationId) ? `[${citationId}](#${sourceCardId(citationId)})` : raw
+    },
+  )
 
-  return parts.map((part, index) => {
-    const match = /^\[((?:web|attachment)_\d+)\]$/.exec(part)
-    if (!match || !sourceIds.has(match[1])) return part
-
-    return (
-      <a
-        className="source-citation"
-        href={`#${sourceCardId(match[1])}`}
-        key={`${match[1]}-${index}`}
-        aria-label={`查看来源 ${match[1]}`}
-      >
-        {part}
-      </a>
-    )
-  })
+  return (
+    <ReactMarkdown
+      components={{
+        a: ({ href, children }) => {
+          const citation = href?.startsWith('#source-')
+            ? { className: 'source-citation', 'aria-label': `查看来源 ${href.slice('#source-'.length)}` }
+            : {}
+          return <a href={href} {...citation}>{children}</a>
+        },
+      }}
+    >
+      {md}
+    </ReactMarkdown>
+  )
 }
 
 function joinValues(values) {
@@ -119,13 +127,15 @@ function ChatMessage({ role, text, reply, debug, isStreaming, streamingTool }) {
               </div>
             ) : null}
             <p className="answer-text streaming-text">
-              {answer}
+              <MarkdownAnswer answer={answer} sources={sources} />
               <span className="streaming-cursor">▋</span>
             </p>
           </div>
         ) : reply ? (
           <div className="structured-reply">
-            <p className="answer-text"><AnswerWithCitations answer={answer} sources={sources} /></p>
+            <div className="answer-text">
+              <MarkdownAnswer answer={answer} sources={sources} />
+            </div>
             <div className="reply-grid">
               <section className="reply-section reply-next">
                 <span className="reply-icon"><Icon name="chevron" size={15} /></span>
