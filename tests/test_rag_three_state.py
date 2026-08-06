@@ -133,6 +133,8 @@ class TestChatRequestThreeState:
         request = ChatRequest(user_id="alice", message="question")
         assert request.rag_enabled is True
         assert request.force_rag is False
+        assert request.web_search_enabled is True
+        assert request.force_web_search is False
 
     def test_force_mode_fields(self):
         request = ChatRequest(
@@ -160,6 +162,24 @@ class TestChatRequestThreeState:
                 message="question",
                 rag_enabled=False,
                 force_rag=True,
+            )
+
+    def test_web_search_off_mode_fields(self):
+        request = ChatRequest(
+            user_id="alice",
+            message="question",
+            web_search_enabled=False,
+            force_web_search=False,
+        )
+        assert request.web_search_enabled is False
+
+    def test_rejects_force_web_search_without_web_search_enabled(self):
+        with pytest.raises(ValidationError):
+            ChatRequest(
+                user_id="alice",
+                message="question",
+                web_search_enabled=False,
+                force_web_search=True,
             )
 
 
@@ -260,6 +280,123 @@ class TestRagDisabledMode:
             if message["role"] == "tool"
         ]
         assert "tool_disabled" in tool_messages[0]["content"]
+
+
+class TestWebSearchThreeState:
+    def test_web_search_disabled_removes_tool_from_model_schema(self):
+        registry = StubToolRegistry(
+            tools={"web_search": lambda query: {"ok": True, "items": []}},
+            schemas=[RAG_SCHEMA, WEB_SCHEMA, JD_SCHEMA],
+        )
+        captured_tools: dict[str, Any] = {}
+
+        def fake_create(**kwargs):
+            captured_tools["tools"] = kwargs.get("tools")
+            return SimpleNamespace(
+                choices=[SimpleNamespace(message={"content": "ok", "tool_calls": []})]
+            )
+
+        orchestrator = make_orchestrator(registry)
+        orchestrator.client = SimpleNamespace(
+            chat=SimpleNamespace(completions=SimpleNamespace(create=fake_create))
+        )
+        orchestrator._active_rag_enabled = True
+        orchestrator._active_web_search_enabled = False
+
+        orchestrator._call_model_with_tools([{"role": "user", "content": "hi"}])
+
+        names = [
+            tool["function"]["name"]
+            for tool in captured_tools["tools"]
+            if isinstance(tool, dict)
+        ]
+        assert "web_search" not in names
+        assert "search_learning_notes" in names
+        assert "score_jd_skill_fit" in names
+
+    def test_web_search_disabled_blocks_forged_model_call(self):
+        """关闭模式下，即使模型伪造联网搜索调用也不执行。"""
+
+        executed_queries: list[str] = []
+
+        def captured(query: str) -> dict[str, Any]:
+            executed_queries.append(query)
+            return {"ok": True, "items": [], "summary": {"returned_count": 0}}
+
+        registry = StubToolRegistry({"web_search": captured})
+        orchestrator = make_orchestrator(registry)
+        model_call_count = 0
+        messages_seen_by_final: list[dict[str, Any]] = []
+
+        def fake_call_model_with_tools(messages):
+            nonlocal model_call_count
+            model_call_count += 1
+            if model_call_count == 1:
+                return tool_call_message(
+                    tool_call("web_search", {"query": "fake"}, "call_1")
+                )
+            messages_seen_by_final.extend(messages)
+            return final_message()
+
+        orchestrator._call_model_with_tools = fake_call_model_with_tools
+
+        _, tool_trace = orchestrator.run(
+            [{"role": "user", "content": "q"}],
+            web_search_enabled=False,
+            force_web_search=False,
+        )
+
+        assert executed_queries == []
+        assert tool_trace.calls[0].ok is False
+        assert tool_trace.calls[0].error == "tool_disabled"
+        tool_messages = [
+            message
+            for message in messages_seen_by_final
+            if message["role"] == "tool"
+        ]
+        assert "tool_disabled" in tool_messages[0]["content"]
+
+    def test_web_search_enabled_auto_mode_still_executes(self):
+        """自动模式（enabled=true, force=false）保持模型自主调用。"""
+
+        executed_queries: list[str] = []
+
+        def captured(query: str) -> dict[str, Any]:
+            executed_queries.append(query)
+            return {
+                "ok": True,
+                "found": True,
+                "items": [
+                    {
+                        "title": "Web A",
+                        "url": "https://example.com/a",
+                        "snippet": "a",
+                        "domain": "untrusted.example",
+                    }
+                ],
+                "summary": {"returned_count": 1},
+            }
+
+        registry = StubToolRegistry({"web_search": captured})
+        orchestrator = make_orchestrator(registry)
+        model_call_count = 0
+
+        def fake_call_model_with_tools(messages):
+            nonlocal model_call_count
+            model_call_count += 1
+            if model_call_count == 1:
+                return tool_call_message(
+                    tool_call("web_search", {"query": "latest"}, "call_1")
+                )
+            return final_message()
+
+        orchestrator._call_model_with_tools = fake_call_model_with_tools
+
+        _, tool_trace = orchestrator.run([{"role": "user", "content": "q"}])
+
+        assert executed_queries == ["latest"]
+        assert tool_trace.calls[0].ok is True
+        assert tool_trace.ledger["web_1"].domain == "example.com"
 
 
 class TestForceRagMode:

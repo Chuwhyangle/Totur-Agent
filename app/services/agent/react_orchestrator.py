@@ -64,6 +64,7 @@ class _RunState:
     ledger: dict[str, Source] = field(default_factory=dict)
     evidence_id_by_url: dict[str, str] = field(default_factory=dict)
     rag_enabled: bool = True
+    web_search_enabled: bool = True
     next_note_number: int = 1
     note_id_by_fingerprint: dict[str, str] = field(default_factory=dict)
 
@@ -95,6 +96,7 @@ class ReactOrchestrator:
         self,
         messages: list[ChatCompletionMessageParam],
         force_web_search: bool = False,
+        web_search_enabled: bool = True,
         rag_enabled: bool = True,
         force_rag: bool = False,
     ) -> tuple[str, ToolTrace]:
@@ -102,10 +104,14 @@ class ReactOrchestrator:
 
         working_messages: list[ChatCompletionMessageParam] = [*messages]
         tool_call_traces: list[ToolCallTrace] = []
-        run_state = _RunState(rag_enabled=rag_enabled)
+        run_state = _RunState(
+            rag_enabled=rag_enabled,
+            web_search_enabled=web_search_enabled,
+        )
         failure_count = 0
         first_model_round = 1
         self._active_rag_enabled = rag_enabled
+        self._active_web_search_enabled = web_search_enabled
 
         if force_rag:
             working_messages, forced_trace = self._execute_forced_learning_notes(
@@ -168,6 +174,7 @@ class ReactOrchestrator:
         self,
         messages: list[ChatCompletionMessageParam],
         force_web_search: bool = False,
+        web_search_enabled: bool = True,
         rag_enabled: bool = True,
         force_rag: bool = False,
     ) -> Generator[StreamEvent, None, tuple[str, ToolTrace]]:
@@ -182,10 +189,14 @@ class ReactOrchestrator:
 
         working_messages: list[ChatCompletionMessageParam] = [*messages]
         tool_call_traces: list[ToolCallTrace] = []
-        run_state = _RunState(rag_enabled=rag_enabled)
+        run_state = _RunState(
+            rag_enabled=rag_enabled,
+            web_search_enabled=web_search_enabled,
+        )
         failure_count = 0
         first_model_round = 1
         self._active_rag_enabled = rag_enabled
+        self._active_web_search_enabled = web_search_enabled
 
         if force_rag:
             yield StreamEvent(type="tool_call", data={"tool": RAG_TOOL_NAME, "args": {"query": "..."}, "status": "running"})
@@ -449,6 +460,13 @@ class ReactOrchestrator:
                 for tool in tools
                 if _tool_schema_name(tool) != RAG_TOOL_NAME
             ]
+        if not getattr(self, "_active_web_search_enabled", True):
+            # 强制关闭联网搜索：从本轮工具 Schema 中真正移除 web_search。
+            tools = [
+                tool
+                for tool in tools
+                if _tool_schema_name(tool) != WEB_SEARCH_TOOL_NAME
+            ]
 
         completion = self.client.chat.completions.create(
             model=self.config.model,
@@ -485,6 +503,13 @@ class ReactOrchestrator:
                     "ok": False,
                     "error": "tool_disabled",
                     "message": "RAG 检索已关闭，本轮不可用。",
+                }
+            elif tool_name == WEB_SEARCH_TOOL_NAME and not run_state.web_search_enabled:
+                # 关闭模式：即使模型伪造了联网搜索调用也不执行。
+                tool_result = {
+                    "ok": False,
+                    "error": "tool_disabled",
+                    "message": "联网搜索已关闭，本轮不可用。",
                 }
             elif tool_name == WEB_SEARCH_TOOL_NAME:
                 run_state.web_search_calls += 1

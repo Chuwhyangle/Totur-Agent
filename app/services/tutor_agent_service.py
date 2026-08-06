@@ -168,6 +168,7 @@ class TutorAgentService:
         raw_reply, tool_trace = self.react_orchestrator.run(
             messages,
             force_web_search=request.force_web_search,
+            web_search_enabled=request.web_search_enabled,
             rag_enabled=request.rag_enabled,
             force_rag=request.force_rag,
         )
@@ -275,6 +276,7 @@ class TutorAgentService:
             stream_gen = self.react_orchestrator.run_stream(
                 messages,
                 force_web_search=request.force_web_search,
+                web_search_enabled=request.web_search_enabled,
                 rag_enabled=request.rag_enabled,
                 force_rag=request.force_rag,
             )
