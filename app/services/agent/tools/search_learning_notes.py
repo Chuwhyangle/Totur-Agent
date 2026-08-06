@@ -69,11 +69,11 @@ def search_learning_notes(
     stripped_query = query.strip()
     try:
         query_embedding = _get_embedding_client().embed_texts([stripped_query])[0]
-    except (EmbeddingError, IndexError) as exc:
+    except (EmbeddingError, IndexError):
         return {
             "ok": False,
             "error": "embedding_failed",
-            "message": f"embedding failed: {exc}",
+            "message": "知识库检索失败，请稍后重试。",
         }
 
     candidate_k = RERANK_CANDIDATE_K if ENABLE_RERANKING else safe_limit

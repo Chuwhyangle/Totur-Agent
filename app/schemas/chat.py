@@ -13,7 +13,18 @@ class ChatRequest(BaseModel):
     message: str = Field(..., min_length=1)
     persona_id: str | None = None
     force_web_search: bool = False
+    rag_enabled: bool = True
+    force_rag: bool = False
     attachment_ids: list[str] = Field(default_factory=list, max_length=5)
+
+    @field_validator("force_rag")
+    @classmethod
+    def require_rag_enabled_for_force(cls, value, info):
+        """强制 RAG 必须同时开启 RAG，非法组合返回 422。"""
+
+        if value and info.data.get("rag_enabled") is False:
+            raise ValueError("force_rag requires rag_enabled=true")
+        return value
 
     @field_validator("attachment_ids", mode="before")
     @classmethod

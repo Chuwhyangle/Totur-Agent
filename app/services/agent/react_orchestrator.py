@@ -25,6 +25,26 @@ from app.services.web_search_settings import WEB_SEARCH_MAX_CALLS_PER_CHAT
 
 
 WEB_SEARCH_TOOL_NAME = "web_search"
+RAG_TOOL_NAME = "search_learning_notes"
+
+
+def _tool_schema_name(tool: Any) -> str:
+    """Extract the function name from one OpenAI tool schema object."""
+
+    if isinstance(tool, dict):
+        function = tool.get("function")
+        if isinstance(function, dict):
+            return str(function.get("name") or "")
+    return ""
+
+
+def _note_source_title(source: str, title_path: Any) -> str:
+    """Build a public note title without exposing storage internals."""
+
+    title = str(title_path or "").strip()
+    if title:
+        return f"{source} · {title}"
+    return source
 
 
 @dataclass
@@ -37,12 +57,15 @@ class StreamEvent:
 
 @dataclass
 class _RunState:
-    """Request-scoped Web Search budget and evidence state."""
+    """Request-scoped tool budgets and evidence state."""
 
     web_search_calls: int = 0
     next_evidence_number: int = 1
     ledger: dict[str, Source] = field(default_factory=dict)
     evidence_id_by_url: dict[str, str] = field(default_factory=dict)
+    rag_enabled: bool = True
+    next_note_number: int = 1
+    note_id_by_fingerprint: dict[str, str] = field(default_factory=dict)
 
 
 class ReactOrchestrator:
@@ -72,23 +95,36 @@ class ReactOrchestrator:
         self,
         messages: list[ChatCompletionMessageParam],
         force_web_search: bool = False,
+        rag_enabled: bool = True,
+        force_rag: bool = False,
     ) -> tuple[str, ToolTrace]:
         """执行最多 max_steps 步的 ReAct 工具循环。"""
 
         working_messages: list[ChatCompletionMessageParam] = [*messages]
         tool_call_traces: list[ToolCallTrace] = []
-        run_state = _RunState()
+        run_state = _RunState(rag_enabled=rag_enabled)
         failure_count = 0
         first_model_round = 1
+        self._active_rag_enabled = rag_enabled
 
-        if force_web_search:
-            working_messages, forced_trace = self._execute_forced_web_search(
+        if force_rag:
+            working_messages, forced_trace = self._execute_forced_learning_notes(
                 working_messages,
                 run_state,
             )
             tool_call_traces.append(forced_trace)
             failure_count += int(not forced_trace.ok)
-            first_model_round = 2
+            first_model_round += 1
+
+        if force_web_search:
+            working_messages, forced_trace = self._execute_forced_web_search(
+                working_messages,
+                run_state,
+                round_number=first_model_round,
+            )
+            tool_call_traces.append(forced_trace)
+            failure_count += int(not forced_trace.ok)
+            first_model_round += 1
 
         for round_number in range(first_model_round, self.max_steps + 1):
             model_message = self._call_model_with_tools(working_messages)
@@ -132,6 +168,8 @@ class ReactOrchestrator:
         self,
         messages: list[ChatCompletionMessageParam],
         force_web_search: bool = False,
+        rag_enabled: bool = True,
+        force_rag: bool = False,
     ) -> Generator[StreamEvent, None, tuple[str, ToolTrace]]:
         """Execute the ReAct loop, yielding StreamEvents for progress.
 
@@ -144,19 +182,32 @@ class ReactOrchestrator:
 
         working_messages: list[ChatCompletionMessageParam] = [*messages]
         tool_call_traces: list[ToolCallTrace] = []
-        run_state = _RunState()
+        run_state = _RunState(rag_enabled=rag_enabled)
         failure_count = 0
         first_model_round = 1
+        self._active_rag_enabled = rag_enabled
+
+        if force_rag:
+            yield StreamEvent(type="tool_call", data={"tool": RAG_TOOL_NAME, "args": {"query": "..."}, "status": "running"})
+            working_messages, forced_trace = self._execute_forced_learning_notes(
+                working_messages,
+                run_state,
+            )
+            tool_call_traces.append(forced_trace)
+            failure_count += int(not forced_trace.ok)
+            first_model_round += 1
+            yield StreamEvent(type="tool_result", data={"tool": RAG_TOOL_NAME, "result": {"ok": forced_trace.ok}})
 
         if force_web_search:
             yield StreamEvent(type="tool_call", data={"tool": WEB_SEARCH_TOOL_NAME, "args": {"query": "..."}, "status": "running"})
             working_messages, forced_trace = self._execute_forced_web_search(
                 working_messages,
                 run_state,
+                round_number=first_model_round,
             )
             tool_call_traces.append(forced_trace)
             failure_count += int(not forced_trace.ok)
-            first_model_round = 2
+            first_model_round += 1
             yield StreamEvent(type="tool_result", data={"tool": WEB_SEARCH_TOOL_NAME, "result": {"ok": forced_trace.ok}})
 
         for round_number in range(first_model_round, self.max_steps + 1):
@@ -278,6 +329,8 @@ class ReactOrchestrator:
         self,
         messages: list[ChatCompletionMessageParam],
         run_state: _RunState,
+        *,
+        round_number: int = 1,
     ) -> tuple[list[ChatCompletionMessageParam], ToolCallTrace]:
         """Execute one user-requested Web Search before normal model routing."""
 
@@ -312,8 +365,52 @@ class ReactOrchestrator:
             },
         ]
         trace = self._tool_call_trace(
-            round_number=1,
+            round_number=round_number,
             name=WEB_SEARCH_TOOL_NAME,
+            arguments=serialized_arguments,
+            result=tool_result,
+        )
+        return working_messages, trace
+
+    def _execute_forced_learning_notes(
+        self,
+        messages: list[ChatCompletionMessageParam],
+        run_state: _RunState,
+    ) -> tuple[list[ChatCompletionMessageParam], ToolCallTrace]:
+        """Execute one user-requested learning-note retrieval before model routing."""
+
+        arguments = {"query": self._latest_user_message(messages)}
+        serialized_arguments = json.dumps(arguments, ensure_ascii=False)
+        tool_result = self.tool_executor.execute(
+            RAG_TOOL_NAME,
+            serialized_arguments,
+        )
+        tool_result = self._prepare_learning_notes_result(tool_result, run_state)
+        tool_call_id = "forced_learning_notes_1"
+        working_messages: list[ChatCompletionMessageParam] = [
+            *messages,
+            {
+                "role": "assistant",
+                "tool_calls": [
+                    {
+                        "id": tool_call_id,
+                        "type": "function",
+                        "function": {
+                            "name": RAG_TOOL_NAME,
+                            "arguments": serialized_arguments,
+                        },
+                    }
+                ],
+            },
+            {
+                "role": "tool",
+                "tool_call_id": tool_call_id,
+                "content": self._tool_observation_content(tool_result),
+            },
+        ]
+        trace = self._tool_call_trace(
+            round_number=1,
+            name=RAG_TOOL_NAME,
             arguments=serialized_arguments,
             result=tool_result,
         )
@@ -343,10 +440,20 @@ class ReactOrchestrator:
                 "tool_calls": [],
             }
 
+        tools = self.tool_registry.get_tools_schema()
+        if not getattr(self, "_active_rag_enabled", True):
+            # 强制关闭 RAG：从本轮工具 Schema 中真正移除检索工具，
+            # 不能只依赖 Prompt 约束模型。
+            tools = [
+                tool
+                for tool in tools
+                if _tool_schema_name(tool) != RAG_TOOL_NAME
+            ]
+
         completion = self.client.chat.completions.create(
             model=self.config.model,
             messages=messages,
-            tools=self.tool_registry.get_tools_schema(),
+            tools=tools,
             tool_choice="auto",
         )
 
@@ -371,7 +478,15 @@ class ReactOrchestrator:
         for index, tool_call in enumerate(tool_calls):
             tool_name = self._tool_call_name(tool_call)
             tool_arguments = self._tool_call_arguments(tool_call)
-            if tool_name == WEB_SEARCH_TOOL_NAME:
+            if tool_name == RAG_TOOL_NAME and not run_state.rag_enabled:
+                # 关闭模式：即使模型伪造了 RAG 工具调用也不执行，
+                # 防止绕过 Schema 移除的限制。
+                tool_result = {
+                    "ok": False,
+                    "error": "tool_disabled",
+                    "message": "RAG 检索已关闭，本轮不可用。",
+                }
+            elif tool_name == WEB_SEARCH_TOOL_NAME:
                 run_state.web_search_calls += 1
                 if run_state.web_search_calls > WEB_SEARCH_MAX_CALLS_PER_CHAT:
                     tool_result = {
@@ -393,6 +508,11 @@ class ReactOrchestrator:
                     tool_name,
                     tool_arguments,
                 )
+                if tool_name == RAG_TOOL_NAME:
+                    tool_result = self._prepare_learning_notes_result(
+                        tool_result,
+                        run_state,
+                    )
             tool_messages.append(
                 {
                     "role": "tool",
@@ -410,6 +530,110 @@ class ReactOrchestrator:
             )
 
         return tool_messages, traces
+
+    def _prepare_learning_notes_result(
+        self,
+        tool_result: dict[str, Any],
+        run_state: _RunState,
+    ) -> dict[str, Any]:
+        """Assign server-owned note IDs and keep failed RAG results stable."""
+
+        if not isinstance(tool_result, dict) or not tool_result.get("ok"):
+            return self._stabilize_failed_rag_result(tool_result)
+
+        prepared_result = dict(tool_result)
+        safe_items: list[dict[str, Any]] = []
+        items = tool_result.get("items")
+
+        if isinstance(items, list):
+            for item in items:
+                prepared_item = self._note_item_from_hit(item, run_state)
+                if prepared_item is not None:
+                    safe_items.append(prepared_item)
+
+        prepared_result["items"] = safe_items
+        prepared_result["found"] = bool(safe_items)
+        summary = prepared_result.get("summary")
+        if isinstance(summary, dict):
+            prepared_summary = dict(summary)
+            prepared_summary["returned_count"] = len(safe_items)
+            prepared_result["summary"] = prepared_summary
+
+        return prepared_result
+
+    def _note_item_from_hit(
+        self,
+        item: Any,
+        run_state: _RunState,
+    ) -> dict[str, Any] | None:
+        """Return one item with a stable, reused note ID and ledger entry."""
+
+        if not isinstance(item, dict):
+            return None
+
+        source = item.get("source")
+        title_path = item.get("title_path") or item.get("title")
+        content = item.get("content")
+        if (
+            not isinstance(source, str)
+            or not source.strip()
+            or not isinstance(content, str)
+            or not content.strip()
+        ):
+            return None
+
+        fingerprint = hashlib.sha256(
+            json.dumps(
+                {
+                    "source": source,
+                    "title_path": str(title_path or ""),
+                    "content": content,
+                },
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).hexdigest()
+
+        evidence_id = run_state.note_id_by_fingerprint.get(fingerprint)
+        if evidence_id is None:
+            evidence_id = f"note_{run_state.next_note_number}"
+            run_state.next_note_number += 1
+            run_state.note_id_by_fingerprint[fingerprint] = evidence_id
+            run_state.ledger[evidence_id] = Source(
+                id=evidence_id,
+                title=_note_source_title(source, title_path),
+                url="",
+                domain="knowledge_note",
+            )
+
+        safe_item = dict(item)
+        safe_item["evidence_id"] = evidence_id
+        return safe_item
+
+    @staticmethod
+    def _stabilize_failed_rag_result(
+        tool_result: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        """Replace RAG failure details with stable text that leaks nothing."""
+
+        if not isinstance(tool_result, dict):
+            return {
+                "ok": False,
+                "error": "rag_retrieval_failed",
+                "message": "本轮知识库检索失败，无法提供本地资料。",
+            }
+
+        error = str(tool_result.get("error") or "rag_retrieval_failed")
+        stable_message = {
+            "index_not_built": "本地知识库索引尚未构建，当前无法执行 RAG 检索。",
+            "embedding_failed": "本轮知识库检索失败，无法提供本地资料。",
+        }.get(error, "本轮知识库检索失败，无法提供本地资料。")
+        return {
+            "ok": False,
+            "error": error,
+            "message": stable_message,
+        }
 
     def _prepare_web_search_result(
         self,

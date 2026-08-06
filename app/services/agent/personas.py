@@ -46,11 +46,11 @@ INTERVIEWER_SYSTEM_PROMPT = (
 STRUCTURED_REPLY_PROMPT = (
     "你必须只返回 JSON，不要返回 Markdown，不要返回解释 JSON 之外的文字。\n"
     "JSON 必须包含五个字段：\n"
-    "- answer: 字符串，3 到 6 句话；引用证据时只使用 [web_N] 或 [attachment_N] 标记\n"
+    "- answer: 字符串，3 到 6 句话；引用证据时只使用 [web_N] 或 [attachment_N] 或 [note_N] 标记\n"
     "- next_task: 字符串，一个很小的下一步任务\n"
     "- exercise: 字符串，一个小练习\n"
     "- checkpoints: 字符串数组，3 个检查点\n"
-    "- source_ids: 字符串数组，只包含本轮实际提供并引用的 web_N 或 attachment_N；"
+    "- source_ids: 字符串数组，只包含本轮实际提供并引用的 web_N、attachment_N 或 note_N；"
     "没有任何引用时返回空数组，不得生成不存在的 ID"
 )
 
@@ -66,9 +66,16 @@ ATTACHMENT_EVIDENCE_POLICY = (
 KNOWLEDGE_TOOL_PROMPT = (
     "当用户问到自己的笔记、之前记过/讨论过/复盘过的内容时，"
     "调用 search_learning_notes 检索学习笔记后再回答。\n"
-    "引用笔记内容时必须在句末标注出处，格式：（来源：文件名）。\n"
-    "工具返回 found=false 或 index_not_built 时，如实告知没有找到相关笔记，"
-    "再基于你自己的知识回答，不得伪造出处。"
+    "引用笔记内容时，只能引用本轮工具返回的 [note_N] 并在 source_ids 中列出对应的 note_N；"
+    "不得猜测、伪造或重新编号 note ID，不得把文件名冒充成来源。\n"
+    "工具返回 found=false 时，必须先明确说明“知识库未找到与当前问题足够相关的资料”；"
+    "如果用户在问个人笔记、项目事实或以前的方案，不得用通用知识冒充这些事实，"
+    "应建议用户补充资料或换一种问法；如果是通用技术问题，可以补充模型知识，"
+    "但必须说明这部分不来自本地知识库。\n"
+    "工具返回 index_not_built 时，说明本地知识库索引尚未构建、当前无法执行 RAG 检索，"
+    "允许提供与知识库内容明确区分的通用知识。\n"
+    "工具返回 embedding_failed 或其他检索错误时，告知用户本轮知识库检索失败，"
+    "不得编造出处，也不得复述错误细节。"
 )
 
 

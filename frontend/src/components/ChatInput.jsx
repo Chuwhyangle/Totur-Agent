@@ -9,6 +9,8 @@ function ChatInput({
   isSending = false,
   webSearchEnabled = false,
   onWebSearchEnabledChange,
+  ragMode = 'auto',
+  onRagModeChange,
   streamingEnabled = true,
   onStreamingEnabledChange,
   attachmentPanel = null,
@@ -16,6 +18,13 @@ function ChatInput({
   placeholder = '写下你的问题，或让导师帮你拆解下一步…',
 }) {
   const textareaRef = useRef(null)
+
+  const RAG_MODE_ORDER = ['auto', 'force', 'off']
+  const RAG_MODE_LABELS = {
+    auto: '自动判断',
+    force: '本轮强制使用',
+    off: '强制关闭',
+  }
 
   useEffect(() => {
     const el = textareaRef.current
@@ -30,6 +39,15 @@ function ChatInput({
       if (!disabled) event.currentTarget.form?.requestSubmit()
     }
   }
+
+  function handleRagModeClick() {
+    const nextIndex = (RAG_MODE_ORDER.indexOf(ragMode) + 1) % RAG_MODE_ORDER.length
+    onRagModeChange?.(RAG_MODE_ORDER[nextIndex])
+  }
+
+  const ragButtonClass = `web-search-toggle rag-toggle${
+    ragMode === 'force' ? ' is-active' : ''
+  }${ragMode === 'off' ? ' is-rag-off' : ''}`
 
   return (
     <div className="composer-wrap">
@@ -56,7 +74,7 @@ function ChatInput({
       </form>
       <div className="composer-options">
         <button
-          className={`web-search-toggle${webSearchEnabled ? ' is-active' : ''}`}
+          className="web-search-toggle"
           type="button"
           aria-pressed={webSearchEnabled}
           disabled={isSending}
@@ -65,6 +83,19 @@ function ChatInput({
           <Icon name="globe" size={14} strokeWidth={1.7} />
           <span>联网搜索</span>
           <small>{webSearchEnabled ? '本轮强制使用' : '自动判断'}</small>
+        </button>
+        <button
+          className={ragButtonClass}
+          type="button"
+          aria-pressed={ragMode === 'force'}
+          aria-label={`RAG 检索：${RAG_MODE_LABELS[ragMode]}`}
+          title={`RAG 检索：${RAG_MODE_LABELS[ragMode]}`}
+          disabled={isSending}
+          onClick={handleRagModeClick}
+        >
+          <Icon name="file" size={14} strokeWidth={1.7} />
+          <span>RAG 检索</span>
+          <small>{RAG_MODE_LABELS[ragMode]}</small>
         </button>
         {onStreamingEnabledChange ? (
           <button
