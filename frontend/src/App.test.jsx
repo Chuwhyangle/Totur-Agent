@@ -272,11 +272,13 @@ describe('App RAG three-state control', () => {
   })
 
   const ragButton = () => screen.getByRole('button', { name: /RAG 检索/ })
+  const webSearchButton = () => screen.getByRole('button', { name: /联网搜索/ })
   const input = () => screen.getByPlaceholderText('写下你的问题，或让导师帮你拆解下一步…')
 
   it('defaults to auto mode', async () => {
     render(<App />)
     expect(ragButton().getAttribute('aria-label')).toBe('RAG 检索：自动判断')
+    expect(webSearchButton().getAttribute('aria-label')).toBe('联网搜索：自动判断')
   })
 
   it('cycles auto -> force -> off -> auto', async () => {
@@ -292,6 +294,19 @@ describe('App RAG three-state control', () => {
     expect(button.getAttribute('aria-label')).toBe('RAG 检索：自动判断')
   })
 
+  it('cycles the web search button through the same three states', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+    const button = webSearchButton()
+
+    await user.click(button)
+    expect(button.getAttribute('aria-label')).toBe('联网搜索：本轮强制使用')
+    await user.click(button)
+    expect(button.getAttribute('aria-label')).toBe('联网搜索：强制关闭')
+    await user.click(button)
+    expect(button.getAttribute('aria-label')).toBe('联网搜索：自动判断')
+  })
+
   it('sends force mode fields in a non-streaming request', async () => {
     const user = userEvent.setup()
     render(<App />)
@@ -304,6 +319,40 @@ describe('App RAG three-state control', () => {
     expect(api.postChat.mock.calls[0][0]).toMatchObject({
       rag_enabled: true,
       force_rag: true,
+      web_search_enabled: true,
+      force_web_search: false,
+    })
+  })
+
+  it('sends web search force mode fields in a non-streaming request', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+    await openSession(user)
+    await user.click(webSearchButton())
+    await user.type(input(), 'FastAPI 最新版本')
+    await user.click(screen.getByRole('button', { name: '发送消息' }))
+
+    await waitFor(() => expect(api.postChat).toHaveBeenCalledTimes(1))
+    expect(api.postChat.mock.calls[0][0]).toMatchObject({
+      web_search_enabled: true,
+      force_web_search: true,
+    })
+  })
+
+  it('sends web search off mode fields in a non-streaming request', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+    await openSession(user)
+    const button = webSearchButton()
+    await user.click(button)
+    await user.click(button)
+    await user.type(input(), 'plain question')
+    await user.click(screen.getByRole('button', { name: '发送消息' }))
+
+    await waitFor(() => expect(api.postChat).toHaveBeenCalledTimes(1))
+    expect(api.postChat.mock.calls[0][0]).toMatchObject({
+      web_search_enabled: false,
+      force_web_search: false,
     })
   })
 
@@ -362,11 +411,13 @@ describe('App RAG three-state control', () => {
     render(<App />)
     await openSession(user)
     await user.click(ragButton())
+    await user.click(webSearchButton())
     await user.type(input(), 'one shot')
     await user.click(screen.getByRole('button', { name: '发送消息' }))
 
     await waitFor(() => expect(api.postChat).toHaveBeenCalledTimes(1))
     expect(ragButton().getAttribute('aria-label')).toBe('RAG 检索：自动判断')
+    expect(webSearchButton().getAttribute('aria-label')).toBe('联网搜索：自动判断')
   })
 
   it('keeps force mode when the request is not dispatched', async () => {

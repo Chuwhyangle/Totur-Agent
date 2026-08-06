@@ -53,6 +53,12 @@ const RAG_MODE_REQUEST_FIELDS = {
   force: { rag_enabled: true, force_rag: true },
 }
 
+const WEB_SEARCH_MODE_REQUEST_FIELDS = {
+  off: { web_search_enabled: false, force_web_search: false },
+  auto: { web_search_enabled: true, force_web_search: false },
+  force: { web_search_enabled: true, force_web_search: true },
+}
+
 function createErrorReply(error) {
   const errorCode = attachmentErrorCode(error)
   if (errorCode) {
@@ -96,7 +102,7 @@ function App() {
   const [apiStatus, setApiStatus] = useState('checking')
   const [userId, setUserId] = useState('demo-user')
   const [draftMessage, setDraftMessage] = useState('')
-  const [forceWebSearch, setForceWebSearch] = useState(false)
+  const [webSearchMode, setWebSearchMode] = useState('auto')
   const [ragMode, setRagMode] = useState('auto')
   const [messages, setMessages] = useState([])
   const [isSending, setIsSending] = useState(false)
@@ -572,12 +578,13 @@ function App() {
 
     const attachmentIds = getSendableAttachmentIds(attachments, selectedAttachmentIds)
     const ragModeForRequest = ragMode
+    const webSearchModeForRequest = webSearchMode
     const baseRequestBody = {
       user_id: trimmedUserId,
       session_id: activeSessionId,
       persona_id: selectedPersonaId,
       message: trimmedMessage,
-      force_web_search: forceWebSearch,
+      ...WEB_SEARCH_MODE_REQUEST_FIELDS[webSearchModeForRequest],
       ...RAG_MODE_REQUEST_FIELDS[ragModeForRequest],
       attachment_ids: attachmentIds,
     }
@@ -609,6 +616,7 @@ function App() {
       )
       // “本轮强制使用”只对本次成功发出的请求生效，发出后自动回到自动判断。
       if (ragModeForRequest === 'force') setRagMode('auto')
+      if (webSearchModeForRequest === 'force') setWebSearchMode('auto')
 
       if (streamingEnabled) {
         // Streaming mode
@@ -869,8 +877,8 @@ function App() {
             onSubmit={handleSendMessage}
             disabled={!canSend}
             isSending={isSending}
-            webSearchEnabled={forceWebSearch}
-            onWebSearchEnabledChange={setForceWebSearch}
+            webSearchMode={webSearchMode}
+            onWebSearchModeChange={setWebSearchMode}
             ragMode={ragMode}
             onRagModeChange={setRagMode}
             streamingEnabled={streamingEnabled}
