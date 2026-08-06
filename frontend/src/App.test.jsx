@@ -263,6 +263,142 @@ describe('App attachment scope and sending', () => {
 
 
 
+describe('App RAG three-state control', () => {
+  beforeEach(() => {
+    Object.values(api).forEach((mock) => typeof mock === 'function' && mock.mockReset())
+    localStorage.clear()
+    localStorage.setItem('tutor-streaming', 'false')
+    mockAppBootstrap()
+  })
+
+  const ragButton = () => screen.getByRole('button', { name: /RAG 检索/ })
+  const input = () => screen.getByPlaceholderText('写下你的问题，或让导师帮你拆解下一步…')
+
+  it('defaults to auto mode', async () => {
+    render(<App />)
+    expect(ragButton().getAttribute('aria-label')).toBe('RAG 检索：自动判断')
+  })
+
+  it('cycles auto -> force -> off -> auto', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+    const button = ragButton()
+
+    await user.click(button)
+    expect(button.getAttribute('aria-label')).toBe('RAG 检索：本轮强制使用')
+    await user.click(button)
+    expect(button.getAttribute('aria-label')).toBe('RAG 检索：强制关闭')
+    await user.click(button)
+    expect(button.getAttribute('aria-label')).toBe('RAG 检索：自动判断')
+  })
+
+  it('sends force mode fields in a non-streaming request', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+    await openSession(user)
+    await user.click(ragButton())
+    await user.type(input(), 'FastAPI 依赖注入')
+    await user.click(screen.getByRole('button', { name: '发送消息' }))
+
+    await waitFor(() => expect(api.postChat).toHaveBeenCalledTimes(1))
+    expect(api.postChat.mock.calls[0][0]).toMatchObject({
+      rag_enabled: true,
+      force_rag: true,
+    })
+  })
+
+  it('sends off mode fields in a non-streaming request', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+    await openSession(user)
+    const button = ragButton()
+    await user.click(button)
+    await user.click(button)
+    await user.type(input(), 'plain question')
+    await user.click(screen.getByRole('button', { name: '发送消息' }))
+
+    await waitFor(() => expect(api.postChat).toHaveBeenCalledTimes(1))
+    expect(api.postChat.mock.calls[0][0]).toMatchObject({
+      rag_enabled: false,
+      force_rag: false,
+    })
+  })
+
+  it('sends auto mode fields in a non-streaming request by default', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+    await openSession(user)
+    await user.type(input(), 'auto question')
+    await user.click(screen.getByRole('button', { name: '发送消息' }))
+
+    await waitFor(() => expect(api.postChat).toHaveBeenCalledTimes(1))
+    expect(api.postChat.mock.calls[0][0]).toMatchObject({
+      rag_enabled: true,
+      force_rag: false,
+    })
+  })
+
+  it('sends the same rag fields in a streaming request', async () => {
+    const user = userEvent.setup()
+    localStorage.setItem('tutor-streaming', 'true')
+    api.postChatStream.mockImplementation(async (_request, callbacks) => {
+      callbacks.onDone({ session_id: 'session-1' })
+    })
+    render(<App />)
+    await openSession(user)
+    await user.click(ragButton())
+    await user.type(input(), 'stream force question')
+    await user.click(screen.getByRole('button', { name: '发送消息' }))
+
+    await waitFor(() => expect(api.postChatStream).toHaveBeenCalledTimes(1))
+    expect(api.postChatStream.mock.calls[0][0]).toMatchObject({
+      rag_enabled: true,
+      force_rag: true,
+    })
+  })
+
+  it('resets force mode back to auto after the request is dispatched', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+    await openSession(user)
+    await user.click(ragButton())
+    await user.type(input(), 'one shot')
+    await user.click(screen.getByRole('button', { name: '发送消息' }))
+
+    await waitFor(() => expect(api.postChat).toHaveBeenCalledTimes(1))
+    expect(ragButton().getAttribute('aria-label')).toBe('RAG 检索：自动判断')
+  })
+
+  it('keeps force mode when the request is not dispatched', async () => {
+    const user = userEvent.setup()
+    api.getSessions.mockResolvedValue({ data: { items: [] } })
+    api.createSession.mockRejectedValue(new Error('create session failed'))
+    render(<App />)
+    await user.click(ragButton())
+    await user.type(input(), 'will not send')
+    await user.click(screen.getByRole('button', { name: '发送消息' }))
+
+    await waitFor(() => expect(api.createSession).toHaveBeenCalled())
+    expect(api.postChat).not.toHaveBeenCalled()
+    expect(ragButton().getAttribute('aria-label')).toBe('RAG 检索：本轮强制使用')
+  })
+
+  it('disables the rag button while sending', async () => {
+    const user = userEvent.setup()
+    const pending = deferred()
+    api.postChat.mockReturnValue(pending.promise)
+    render(<App />)
+    await openSession(user)
+    await user.type(input(), 'slow question')
+    await user.click(screen.getByRole('button', { name: '发送消息' }))
+
+    await waitFor(() => expect(api.postChat).toHaveBeenCalled())
+    expect(ragButton().disabled).toBe(true)
+    pending.resolve({ data: { session_id: 'session-1', reply: { answer: 'ok' } } })
+  })
+})
+
+
 describe('App SSE sending', () => {
   beforeEach(() => {
     Object.values(api).forEach((mock) => typeof mock === 'function' && mock.mockReset())

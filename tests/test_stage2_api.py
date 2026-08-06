@@ -725,7 +725,7 @@ def test_chat_passes_user_selected_web_search_to_orchestrator(monkeypatch, tmp_p
         }
     )
 
-    def fake_run(messages, force_web_search=False):
+    def fake_run(messages, force_web_search=False, **kwargs):
         force_flags.append(force_web_search)
         return raw_model_reply, ToolTrace(used=False)
 
@@ -777,7 +777,7 @@ def test_chat_finalizes_web_sources_before_response_and_persistence(monkeypatch,
     monkeypatch.setattr(
         chat_route.tutor_agent_service.react_orchestrator,
         "run",
-        lambda messages: (raw_model_reply, tool_trace),
+        lambda messages, **kwargs: (raw_model_reply, tool_trace),
     )
 
     response = client.post(

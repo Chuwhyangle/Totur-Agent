@@ -142,6 +142,33 @@ describe('tutorApi SSE API', () => {
     }
   }
 
+  it('forwards rag fields verbatim in chat and stream bodies', async () => {
+    fetch.mockResolvedValue(jsonResponse({ reply: { answer: 'ok' } }))
+    const chatBody = {
+      user_id: 'user-1',
+      message: 'q',
+      rag_enabled: true,
+      force_rag: true,
+    }
+    await postChat(chatBody)
+    expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual(chatBody)
+
+    const streamBody = {
+      user_id: 'user-1',
+      message: 'q',
+      rag_enabled: false,
+      force_rag: false,
+    }
+    fetch.mockResolvedValue(streamResponse([
+      'event: done\ndata: {"session_id":"session-1"}\n\n',
+    ]))
+    await postChatStream(streamBody, { onDone: vi.fn() })
+    expect(fetch).toHaveBeenLastCalledWith(
+      `${API_BASE_URL}/chat/stream`,
+      expect.objectContaining({ body: JSON.stringify(streamBody) }),
+    )
+  })
+
   it('posts JSON to the stream URL and dispatches token, tool, and done events', async () => {
     fetch.mockResolvedValue(streamResponse([
       'event: token\ndata: {"text":"Hello "}\n\n'

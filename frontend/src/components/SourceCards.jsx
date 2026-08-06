@@ -8,6 +8,7 @@ function sourceTitle(source) {
 
 function sourceDomain(source, safeUrl) {
   if (source?.domain === 'attachment') return '会话附件'
+  if (source?.domain === 'knowledge_note') return '本地知识库'
   if (typeof source?.domain === 'string' && source.domain.trim()) return source.domain.trim()
   return safeUrl ? new URL(safeUrl).hostname : '未知来源'
 }
@@ -43,7 +44,9 @@ function SourceCards({ sources }) {
       <span className="reply-label">参考来源</span>
       <ul className="source-card-list">
         {sourceItems.map((source) => {
-          const safeUrl = source.domain === 'attachment' ? null : safeHttpUrl(source.url)
+          const safeUrl = ['attachment', 'knowledge_note'].includes(source.domain)
+            ? null
+            : safeHttpUrl(source.url)
           const content = <SourceCardContent source={source} safeUrl={safeUrl} />
 
           return (

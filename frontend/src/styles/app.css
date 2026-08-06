@@ -745,6 +745,58 @@ button:disabled { cursor: not-allowed; opacity: 0.48; }
   line-height: 1.8;
   letter-spacing: -0.01em;
 }
+/* Markdown 内容排版 */
+.answer-text > :first-child { margin-top: 0; }
+.answer-text > :last-child { margin-bottom: 0; }
+.answer-text p { margin: 0 0 0.6em; }
+.answer-text h1, .answer-text h2, .answer-text h3,
+.answer-text h4, .answer-text h5, .answer-text h6 {
+  margin: 1em 0 0.4em;
+  line-height: 1.35;
+  font-weight: 650;
+}
+.answer-text h1 { font-size: 1.25em; }
+.answer-text h2 { font-size: 1.15em; }
+.answer-text h3 { font-size: 1.05em; }
+.answer-text ul, .answer-text ol {
+  margin: 0 0 0.7em;
+  padding-left: 1.4em;
+}
+.answer-text li { margin: 0.2em 0; }
+.answer-text li > ul, .answer-text li > ol { margin-bottom: 0; }
+.answer-text code {
+  padding: 0.15em 0.4em;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--solid) 60%, transparent);
+  font-size: 0.9em;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+.answer-text pre {
+  margin: 0 0 0.8em;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--solid) 55%, transparent);
+  overflow-x: auto;
+}
+.answer-text pre code {
+  padding: 0;
+  background: transparent;
+}
+.answer-text blockquote {
+  margin: 0 0 0.8em;
+  padding: 4px 12px;
+  border-left: 3px solid var(--accent);
+  color: var(--dim);
+}
+.answer-text a { color: var(--accent); }
+.answer-text table {
+  margin: 0 0 0.8em;
+  border-collapse: collapse;
+}
+.answer-text th, .answer-text td {
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+}
 .reply-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -942,6 +994,18 @@ button:disabled { cursor: not-allowed; opacity: 0.48; }
 .web-search-toggle:disabled {
   cursor: not-allowed;
   opacity: 0.55;
+}
+.rag-toggle.is-rag-off {
+  color: var(--dim);
+  border-color: var(--line);
+  opacity: 0.72;
+}
+.rag-toggle.is-rag-off:hover:not(:disabled) {
+  color: var(--primary);
+  opacity: 1;
+}
+.rag-toggle.is-active small {
+  opacity: 1;
 }
 .composer-hint {
   margin: 8px 0 0;

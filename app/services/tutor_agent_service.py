@@ -37,7 +37,7 @@ from app.services.rag_settings import ENABLE_RAG_SEED_CONTEXT
 from app.services.summary_service import SummaryService
 
 
-_CITATION_PATTERN = re.compile(r"\[(web|attachment)_(\d+)\]")
+_CITATION_PATTERN = re.compile(r"\[(web|attachment|note)_(\d+)\]")
 _RAW_HTTP_URL_PATTERN = re.compile(r"https?://[^\s<>\"']+", re.IGNORECASE)
 _UNVERIFIED_LINK_REPLACEMENT = "[已移除未验证链接]"
 
@@ -165,18 +165,21 @@ class TutorAgentService:
             update_session_title(session.id, make_title_from_message(message))
 
         messages = self.prompt_builder.build_messages(context, persona=persona)
-        if request.force_web_search:
-            raw_reply, tool_trace = self.react_orchestrator.run(
-                messages,
-                force_web_search=True,
-            )
-        else:
-            raw_reply, tool_trace = self.react_orchestrator.run(messages)
+        raw_reply, tool_trace = self.react_orchestrator.run(
+            messages,
+            force_web_search=request.force_web_search,
+            rag_enabled=request.rag_enabled,
+            force_rag=request.force_rag,
+        )
         # The model can only select source IDs; public Source objects always come
         # from the server-side Web/attachment ledgers.
         tool_trace.ledger.update(attachment_ledger)
         reply = self.response_parser.parse_model_reply(raw_reply)
-        reply = self._finalize_reply_sources(reply, tool_trace)
+        reply = self._finalize_reply_sources(
+            reply,
+            tool_trace,
+            note_references_allowed=request.rag_enabled,
+        )
 
         # 模型回复已经结构化后，再统一保存本轮对话并尝试推进摘要。
         self.memory_manager.save_turn_and_update_summary(
@@ -272,6 +275,8 @@ class TutorAgentService:
             stream_gen = self.react_orchestrator.run_stream(
                 messages,
                 force_web_search=request.force_web_search,
+                rag_enabled=request.rag_enabled,
+                force_rag=request.force_rag,
             )
             while True:
                 try:
@@ -299,7 +304,11 @@ class TutorAgentService:
 
         tool_trace.ledger.update(attachment_ledger)
         reply = self.response_parser.parse_model_reply(raw_reply)
-        reply = self._finalize_reply_sources(reply, tool_trace)
+        reply = self._finalize_reply_sources(
+            reply,
+            tool_trace,
+            note_references_allowed=request.rag_enabled,
+        )
 
         self.memory_manager.save_turn_and_update_summary(
             user_id=user_id,
@@ -322,10 +331,17 @@ class TutorAgentService:
         self,
         reply: TutorReply,
         tool_trace: ToolTrace,
+        note_references_allowed: bool = True,
     ) -> TutorReply:
         """Build public sources from this run ledger and sanitize citations."""
 
         ledger = tool_trace.ledger
+
+        def is_acceptable(evidence_id: str) -> bool:
+            if evidence_id.startswith("note_") and not note_references_allowed:
+                return False
+            return evidence_id in ledger
+
         accepted_source_ids: list[str] = []
         sources: list[Source] = []
         seen_ids: set[str] = set()
@@ -334,10 +350,10 @@ class TutorAgentService:
             if evidence_id in seen_ids:
                 continue
 
-            ledger_source = ledger.get(evidence_id)
-            if ledger_source is None:
+            if not is_acceptable(evidence_id):
                 continue
 
+            ledger_source = ledger[evidence_id]
             seen_ids.add(evidence_id)
             accepted_source_ids.append(evidence_id)
             sources.append(
@@ -349,7 +365,11 @@ class TutorAgentService:
                 )
             )
 
-        valid_ids = set(ledger)
+        valid_ids = {
+            evidence_id
+            for evidence_id in ledger
+            if not evidence_id.startswith("note_") or note_references_allowed
+        }
         reply.answer = _CITATION_PATTERN.sub(
             lambda match: (
                 match.group(0)

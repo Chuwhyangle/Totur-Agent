@@ -47,6 +47,12 @@ const ATTACHMENT_ERRORS_REQUIRING_REFRESH = new Set([
   'attachment_processing_failed',
 ])
 
+const RAG_MODE_REQUEST_FIELDS = {
+  off: { rag_enabled: false, force_rag: false },
+  auto: { rag_enabled: true, force_rag: false },
+  force: { rag_enabled: true, force_rag: true },
+}
+
 function createErrorReply(error) {
   const errorCode = attachmentErrorCode(error)
   if (errorCode) {
@@ -91,6 +97,7 @@ function App() {
   const [userId, setUserId] = useState('demo-user')
   const [draftMessage, setDraftMessage] = useState('')
   const [forceWebSearch, setForceWebSearch] = useState(false)
+  const [ragMode, setRagMode] = useState('auto')
   const [messages, setMessages] = useState([])
   const [isSending, setIsSending] = useState(false)
   const [streamingEnabled, setStreamingEnabled] = useState(() => localStorage.getItem('tutor-streaming') !== 'false')
@@ -564,12 +571,14 @@ function App() {
     }
 
     const attachmentIds = getSendableAttachmentIds(attachments, selectedAttachmentIds)
+    const ragModeForRequest = ragMode
     const baseRequestBody = {
       user_id: trimmedUserId,
       session_id: activeSessionId,
       persona_id: selectedPersonaId,
       message: trimmedMessage,
       force_web_search: forceWebSearch,
+      ...RAG_MODE_REQUEST_FIELDS[ragModeForRequest],
       attachment_ids: attachmentIds,
     }
     const userMessage = {
@@ -598,6 +607,8 @@ function App() {
         selectedPersonaId,
         activeSession.id,
       )
+      // “本轮强制使用”只对本次成功发出的请求生效，发出后自动回到自动判断。
+      if (ragModeForRequest === 'force') setRagMode('auto')
 
       if (streamingEnabled) {
         // Streaming mode
@@ -860,6 +871,8 @@ function App() {
             isSending={isSending}
             webSearchEnabled={forceWebSearch}
             onWebSearchEnabledChange={setForceWebSearch}
+            ragMode={ragMode}
+            onRagModeChange={setRagMode}
             streamingEnabled={streamingEnabled}
             onStreamingEnabledChange={handleStreamingToggle}
             onStopStreaming={streamingEnabled ? handleStopStreaming : undefined}
