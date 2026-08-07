@@ -8,6 +8,7 @@ CONVERSATIONS_TABLE = "conversations"
 CHAT_SESSIONS_TABLE = "chat_sessions"
 SESSION_SUMMARIES_TABLE = "session_summaries"
 INTERVIEW_JDS_TABLE = "interview_jds"
+PUBLIC_JOB_DESCRIPTIONS_TABLE = "public_job_descriptions"
 DOCUMENTS_TABLE = "documents"
 JOURNAL_ENTRIES_TABLE = "journal_entries"
 DEFAULT_SESSION_TITLE = "默认会话"
@@ -163,6 +164,38 @@ class InterviewJDRecord:
     interview_focus: list[str]
     created_at: str
     updated_at: str
+
+
+@dataclass(frozen=True)
+class PublicJDRecord:
+    """One structured public JD imported from ``corpus/JD``."""
+
+    jd_id: str
+    fingerprint: str
+    category: str
+    source_path: str
+    source_url: str
+    title: str
+    company: str
+    salary_raw: str
+    salary_min_k: float
+    salary_max_k: float
+    education: str
+    recruitment_count: str
+    major: str
+    region: str
+    province: str
+    source_updated_at: str
+    industry: str
+    company_type: str
+    company_size: str
+    relevance: str
+    relevance_score: int
+    function_category: str
+    keywords: tuple[str, ...]
+    duplicate_count: int
+    row_sha256: str
+    parent_sha256: str
 
 
 @dataclass
