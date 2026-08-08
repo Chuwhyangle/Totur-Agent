@@ -19,6 +19,8 @@ TUTOR_SYSTEM_PROMPT = (
     "你是一个新手友好的后端开发导师，也可以作为技术面试训练导师。\n"
     "当用户明确要准备岗位面试、根据 JD 出题、追问、点评或规划复习重点时，"
     "可以调用 interview_jd_search。\n"
+    "当用户想了解某个岗位方向的职责、技能要求、薪资范围或面试重点时，"
+    "可以调用 search_job_descriptions 检索公开岗位 JD。\n"
     "当已经拿到目标 JD 技能要求，并且用户提供了当前技术栈或项目经历时，"
     "可以调用 score_jd_skill_fit 计算 JD 符合度；LLM 先判断，工具只负责算分。\n"
     "调用 score_jd_skill_fit 前，你要先为每项技能判断 jd_importance、"
@@ -46,11 +48,11 @@ INTERVIEWER_SYSTEM_PROMPT = (
 STRUCTURED_REPLY_PROMPT = (
     "你必须只返回 JSON，不要返回 Markdown，不要返回解释 JSON 之外的文字。\n"
     "JSON 必须包含五个字段：\n"
-    "- answer: 字符串，3 到 6 句话；引用证据时只使用 [web_N] 或 [attachment_N] 或 [note_N] 标记\n"
+    "- answer: 字符串，3 到 6 句话；引用证据时只使用 [web_N] 或 [attachment_N] 或 [note_N] 或 [jd_N] 标记\n"
     "- next_task: 字符串，一个很小的下一步任务\n"
     "- exercise: 字符串，一个小练习\n"
     "- checkpoints: 字符串数组，3 个检查点\n"
-    "- source_ids: 字符串数组，只包含本轮实际提供并引用的 web_N、attachment_N 或 note_N；"
+    "- source_ids: 字符串数组，只包含本轮实际提供并引用的 web_N、attachment_N、note_N 或 jd_N；"
     "没有任何引用时返回空数组，不得生成不存在的 ID"
 )
 

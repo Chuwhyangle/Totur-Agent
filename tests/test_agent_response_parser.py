@@ -199,3 +199,40 @@ def test_tutor_agent_service_accepts_attachment_and_web_sources_from_ledger():
     assert "[attachment_1]" in finalized.answer
     assert "[attachment_999]" not in finalized.answer
     assert "[web_1]" in finalized.answer
+
+
+def test_tutor_agent_service_accepts_jd_sources_from_ledger():
+    service = object.__new__(TutorAgentService)
+    reply = TutorReply(
+        answer="该岗位要求 [jd_1]，同时参考笔记 [note_1]，伪造 [jd_999]。",
+        next_task="Next",
+        exercise="Exercise",
+        checkpoints=["Check"],
+        source_ids=["jd_1", "note_1", "jd_999", "note_999"],
+    )
+    tool_trace = ToolTrace(
+        used=True,
+        ledger={
+            "jd_1": Source(
+                id="jd_1",
+                title="示例科技 · RAG 后端工程师",
+                url="https://example.com/jobs/1",
+                domain="job_description",
+            ),
+            "note_1": Source(
+                id="note_1",
+                title="docs/rag.md",
+                url="",
+                domain="knowledge_note",
+            ),
+        },
+    )
+
+    finalized = service._finalize_reply_sources(reply, tool_trace)
+
+    assert finalized.source_ids == ["jd_1", "note_1"]
+    assert [source.id for source in finalized.sources] == ["jd_1", "note_1"]
+    assert "[jd_1]" in finalized.answer
+    assert "[note_1]" in finalized.answer
+    assert "[jd_999]" not in finalized.answer
+    assert "[note_999]" not in finalized.answer

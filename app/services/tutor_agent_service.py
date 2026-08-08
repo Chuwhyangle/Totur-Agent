@@ -37,7 +37,7 @@ from app.services.rag_settings import ENABLE_RAG_SEED_CONTEXT
 from app.services.summary_service import SummaryService
 
 
-_CITATION_PATTERN = re.compile(r"\[(web|attachment|note)_(\d+)\]")
+_CITATION_PATTERN = re.compile(r"\[(web|attachment|note|jd)_(\d+)\]")
 _RAW_HTTP_URL_PATTERN = re.compile(r"https?://[^\s<>\"']+", re.IGNORECASE)
 _UNVERIFIED_LINK_REPLACEMENT = "[已移除未验证链接]"
 

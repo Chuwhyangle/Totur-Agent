@@ -40,6 +40,7 @@ def test_tool_registry_exposes_score_jd_skill_fit_schema():
     assert names == [
         "interview_jd_search",
         "search_learning_notes",
+        "search_job_descriptions",
         "score_jd_skill_fit",
         "save_journal_entry",
         "web_search",
