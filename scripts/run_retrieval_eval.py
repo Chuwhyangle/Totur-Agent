@@ -78,6 +78,11 @@ def main() -> int:
         default="baseline",
         help="Evaluate the legacy single index, subject routing, or broadcast fan-out.",
     )
+    parser.add_argument(
+        "--unified",
+        action="store_true",
+        help="Evaluate the unified knowledge collection (方案 A): all cases via one ANN search.",
+    )
     parser.add_argument("--top-k", type=int, default=RAG_TOP_K)
     parser.add_argument(
         "--rerank",
@@ -244,6 +249,41 @@ def main() -> int:
             return search
 
         search = make_search(args.threshold, collect=True)
+
+        # 方案 A：--unified 时所有用例（note + jd）走统一检索。
+        if args.unified:
+            unified_search = unified_search_for_eval
+            summary = evaluate_cases(
+                cases=cases,
+                search=unified_search,
+                top_k=args.top_k,
+                threshold=args.threshold,
+            )
+            summary["mode"] = args.mode
+            summary["routing"] = "unified"
+            summary["latency_ms"] = _latency_summary(latencies_ms)
+            summary["retrieval_latency_ms"] = summary["latency_ms"]
+            summary["reranking"] = {
+                "enabled": False,
+                "candidate_k": None,
+                "provider": None,
+                "model": None,
+                "latency_ms": _rerank_latency_summary([]),
+                "applied_count": 0,
+                "fallback_count": 0,
+            }
+            attach_manifest_summary(summary, manifest)
+            summary["manual_cosine_check"] = _run_manual_cosine_check(
+                cases=cases,
+                repository=repository,
+                embedding_client=embedding_client,
+                manifest=manifest,
+            )
+            if args.json:
+                print(json.dumps(summary, ensure_ascii=False, indent=2))
+            else:
+                _print_summary(summary)
+            return 0
 
         # 按 group 分流：JD 用例走 JD 检索，其余走学习笔记检索。
         jd_cases = [case for case in cases if case.group == "jd"]
@@ -451,6 +491,31 @@ def build_frozen_evaluation_index(
         embedding_client=embedding_client,
         embedding_model=embedding_client.config.model,
     )
+
+
+def unified_search_for_eval(
+    query: str,
+    top_k: int,
+    subject: str | None = None,
+) -> list[KnowledgeHit]:
+    """Search the unified knowledge collection for eval (方案 A)."""
+
+    from app.services.unified_retriever import unified_search
+
+    items = unified_search(query=query, top_k=max(1, min(top_k, 10)))
+    hits: list[KnowledgeHit] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        hits.append(
+            KnowledgeHit(
+                content=str(item.get("content") or ""),
+                source=str(item.get("source") or ""),
+                title_path=str(item.get("title_path") or ""),
+                similarity=float(item.get("similarity") or 0.0),
+            )
+        )
+    return hits
 
 
 def jd_search_for_eval(
