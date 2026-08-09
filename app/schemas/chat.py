@@ -12,10 +12,20 @@ class ChatRequest(BaseModel):
     session_id: int | None = None
     message: str = Field(..., min_length=1)
     persona_id: str | None = None
+    web_search_enabled: bool = True
     force_web_search: bool = False
     rag_enabled: bool = True
     force_rag: bool = False
     attachment_ids: list[str] = Field(default_factory=list, max_length=5)
+
+    @field_validator("force_web_search")
+    @classmethod
+    def require_web_search_enabled_for_force(cls, value, info):
+        """强制联网搜索必须同时开启联网搜索，非法组合返回 422。"""
+
+        if value and info.data.get("web_search_enabled") is False:
+            raise ValueError("force_web_search requires web_search_enabled=true")
+        return value
 
     @field_validator("force_rag")
     @classmethod

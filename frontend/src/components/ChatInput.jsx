@@ -7,8 +7,8 @@ function ChatInput({
   onSubmit,
   disabled = false,
   isSending = false,
-  webSearchEnabled = false,
-  onWebSearchEnabledChange,
+  webSearchMode = 'auto',
+  onWebSearchModeChange,
   ragMode = 'auto',
   onRagModeChange,
   streamingEnabled = true,
@@ -40,14 +40,26 @@ function ChatInput({
     }
   }
 
+  function cycleMode(currentMode) {
+    const nextIndex = (RAG_MODE_ORDER.indexOf(currentMode) + 1) % RAG_MODE_ORDER.length
+    return RAG_MODE_ORDER[nextIndex]
+  }
+
   function handleRagModeClick() {
-    const nextIndex = (RAG_MODE_ORDER.indexOf(ragMode) + 1) % RAG_MODE_ORDER.length
-    onRagModeChange?.(RAG_MODE_ORDER[nextIndex])
+    onRagModeChange?.(cycleMode(ragMode))
+  }
+
+  function handleWebSearchModeClick() {
+    onWebSearchModeChange?.(cycleMode(webSearchMode))
   }
 
   const ragButtonClass = `web-search-toggle rag-toggle${
     ragMode === 'force' ? ' is-active' : ''
   }${ragMode === 'off' ? ' is-rag-off' : ''}`
+
+  const webSearchButtonClass = `web-search-toggle rag-toggle${
+    webSearchMode === 'force' ? ' is-active' : ''
+  }${webSearchMode === 'off' ? ' is-rag-off' : ''}`
 
   return (
     <div className="composer-wrap">
@@ -74,15 +86,17 @@ function ChatInput({
       </form>
       <div className="composer-options">
         <button
-          className="web-search-toggle"
+          className={webSearchButtonClass}
           type="button"
-          aria-pressed={webSearchEnabled}
+          aria-pressed={webSearchMode === 'force'}
+          aria-label={`联网搜索：${RAG_MODE_LABELS[webSearchMode]}`}
+          title={`联网搜索：${RAG_MODE_LABELS[webSearchMode]}`}
           disabled={isSending}
-          onClick={() => onWebSearchEnabledChange?.(!webSearchEnabled)}
+          onClick={handleWebSearchModeClick}
         >
           <Icon name="globe" size={14} strokeWidth={1.7} />
           <span>联网搜索</span>
-          <small>{webSearchEnabled ? '本轮强制使用' : '自动判断'}</small>
+          <small>{RAG_MODE_LABELS[webSearchMode]}</small>
         </button>
         <button
           className={ragButtonClass}

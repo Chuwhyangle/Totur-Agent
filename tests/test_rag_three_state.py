@@ -133,6 +133,8 @@ class TestChatRequestThreeState:
         request = ChatRequest(user_id="alice", message="question")
         assert request.rag_enabled is True
         assert request.force_rag is False
+        assert request.web_search_enabled is True
+        assert request.force_web_search is False
 
     def test_force_mode_fields(self):
         request = ChatRequest(
@@ -160,6 +162,24 @@ class TestChatRequestThreeState:
                 message="question",
                 rag_enabled=False,
                 force_rag=True,
+            )
+
+    def test_web_search_off_mode_fields(self):
+        request = ChatRequest(
+            user_id="alice",
+            message="question",
+            web_search_enabled=False,
+            force_web_search=False,
+        )
+        assert request.web_search_enabled is False
+
+    def test_rejects_force_web_search_without_web_search_enabled(self):
+        with pytest.raises(ValidationError):
+            ChatRequest(
+                user_id="alice",
+                message="question",
+                web_search_enabled=False,
+                force_web_search=True,
             )
 
 
@@ -260,6 +280,123 @@ class TestRagDisabledMode:
             if message["role"] == "tool"
         ]
         assert "tool_disabled" in tool_messages[0]["content"]
+
+
+class TestWebSearchThreeState:
+    def test_web_search_disabled_removes_tool_from_model_schema(self):
+        registry = StubToolRegistry(
+            tools={"web_search": lambda query: {"ok": True, "items": []}},
+            schemas=[RAG_SCHEMA, WEB_SCHEMA, JD_SCHEMA],
+        )
+        captured_tools: dict[str, Any] = {}
+
+        def fake_create(**kwargs):
+            captured_tools["tools"] = kwargs.get("tools")
+            return SimpleNamespace(
+                choices=[SimpleNamespace(message={"content": "ok", "tool_calls": []})]
+            )
+
+        orchestrator = make_orchestrator(registry)
+        orchestrator.client = SimpleNamespace(
+            chat=SimpleNamespace(completions=SimpleNamespace(create=fake_create))
+        )
+        orchestrator._active_rag_enabled = True
+        orchestrator._active_web_search_enabled = False
+
+        orchestrator._call_model_with_tools([{"role": "user", "content": "hi"}])
+
+        names = [
+            tool["function"]["name"]
+            for tool in captured_tools["tools"]
+            if isinstance(tool, dict)
+        ]
+        assert "web_search" not in names
+        assert "search_learning_notes" in names
+        assert "score_jd_skill_fit" in names
+
+    def test_web_search_disabled_blocks_forged_model_call(self):
+        """关闭模式下，即使模型伪造联网搜索调用也不执行。"""
+
+        executed_queries: list[str] = []
+
+        def captured(query: str) -> dict[str, Any]:
+            executed_queries.append(query)
+            return {"ok": True, "items": [], "summary": {"returned_count": 0}}
+
+        registry = StubToolRegistry({"web_search": captured})
+        orchestrator = make_orchestrator(registry)
+        model_call_count = 0
+        messages_seen_by_final: list[dict[str, Any]] = []
+
+        def fake_call_model_with_tools(messages):
+            nonlocal model_call_count
+            model_call_count += 1
+            if model_call_count == 1:
+                return tool_call_message(
+                    tool_call("web_search", {"query": "fake"}, "call_1")
+                )
+            messages_seen_by_final.extend(messages)
+            return final_message()
+
+        orchestrator._call_model_with_tools = fake_call_model_with_tools
+
+        _, tool_trace = orchestrator.run(
+            [{"role": "user", "content": "q"}],
+            web_search_enabled=False,
+            force_web_search=False,
+        )
+
+        assert executed_queries == []
+        assert tool_trace.calls[0].ok is False
+        assert tool_trace.calls[0].error == "tool_disabled"
+        tool_messages = [
+            message
+            for message in messages_seen_by_final
+            if message["role"] == "tool"
+        ]
+        assert "tool_disabled" in tool_messages[0]["content"]
+
+    def test_web_search_enabled_auto_mode_still_executes(self):
+        """自动模式（enabled=true, force=false）保持模型自主调用。"""
+
+        executed_queries: list[str] = []
+
+        def captured(query: str) -> dict[str, Any]:
+            executed_queries.append(query)
+            return {
+                "ok": True,
+                "found": True,
+                "items": [
+                    {
+                        "title": "Web A",
+                        "url": "https://example.com/a",
+                        "snippet": "a",
+                        "domain": "untrusted.example",
+                    }
+                ],
+                "summary": {"returned_count": 1},
+            }
+
+        registry = StubToolRegistry({"web_search": captured})
+        orchestrator = make_orchestrator(registry)
+        model_call_count = 0
+
+        def fake_call_model_with_tools(messages):
+            nonlocal model_call_count
+            model_call_count += 1
+            if model_call_count == 1:
+                return tool_call_message(
+                    tool_call("web_search", {"query": "latest"}, "call_1")
+                )
+            return final_message()
+
+        orchestrator._call_model_with_tools = fake_call_model_with_tools
+
+        _, tool_trace = orchestrator.run([{"role": "user", "content": "q"}])
+
+        assert executed_queries == ["latest"]
+        assert tool_trace.calls[0].ok is True
+        assert tool_trace.ledger["web_1"].domain == "example.com"
 
 
 class TestForceRagMode:
@@ -648,3 +785,127 @@ class TestStreamingMode:
         assert "".join(text for kind, text in events if kind == "token") == "streamed reply"
         assert raw_reply == "streamed reply"
         assert set(tool_trace.ledger) == {"note_1"}
+
+
+def jd_tool(query: str) -> dict[str, Any]:
+    """Simulate search_job_descriptions returning a JD item."""
+    return {
+        "ok": True,
+        "found": True,
+        "query": query,
+        "count": 1,
+        "items": [
+            {
+                "jd_id": "agent_dev:abc123",
+                "title": "RAG 后端工程师",
+                "company": "示例科技",
+                "source": "corpus/JD/agent_dev/jobs/01.md",
+                "source_url": "https://example.com/jobs/1",
+                "content": "负责 RAG 系统后端开发，熟悉向量检索。",
+                "similarity": 0.88,
+                "match_score": 88,
+            }
+        ],
+        "summary": {"returned_count": 1},
+    }
+
+
+class TestJdToolLedger:
+    def test_auto_mode_assigns_jd_ids_when_model_calls_jd_tool(self):
+        """模型在 ReAct 循环调用 search_job_descriptions，结果进 ledger。"""
+
+        registry = StubToolRegistry({"search_job_descriptions": jd_tool})
+        orchestrator = make_orchestrator(registry)
+        model_call_count = 0
+        messages_seen_by_final: list[dict[str, Any]] = []
+
+        def fake_call_model_with_tools(messages):
+            nonlocal model_call_count
+            model_call_count += 1
+            if model_call_count == 1:
+                return tool_call_message(
+                    tool_call("search_job_descriptions", {"query": "RAG 后端"}, "call_1")
+                )
+            messages_seen_by_final.extend(messages)
+            return final_message()
+
+        orchestrator._call_model_with_tools = fake_call_model_with_tools
+
+        _, tool_trace = orchestrator.run([{"role": "user", "content": "q"}])
+
+        tool_messages = [
+            message
+            for message in messages_seen_by_final
+            if message["role"] == "tool"
+        ]
+        observation = json.loads(tool_messages[0]["content"])
+        assert observation["items"][0]["evidence_id"] == "jd_1"
+        assert tool_trace.ledger["jd_1"].domain == "job_description"
+        assert "示例科技" in tool_trace.ledger["jd_1"].title
+
+    def test_same_jd_fingerprint_reuses_jd_id_across_calls(self):
+        """同一 JD 多次调用复用同一个 jd ID。"""
+
+        registry = StubToolRegistry({"search_job_descriptions": jd_tool})
+        orchestrator = make_orchestrator(registry)
+        model_call_count = 0
+        messages_seen_by_final: list[dict[str, Any]] = []
+
+        def fake_call_model_with_tools(messages):
+            nonlocal model_call_count
+            model_call_count += 1
+            if model_call_count == 1:
+                return tool_call_message(
+                    tool_call("search_job_descriptions", {"query": "first"}, "call_1")
+                )
+            if model_call_count == 2:
+                return tool_call_message(
+                    tool_call("search_job_descriptions", {"query": "second"}, "call_2")
+                )
+            messages_seen_by_final.extend(messages)
+            return final_message()
+
+        orchestrator._call_model_with_tools = fake_call_model_with_tools
+
+        _, tool_trace = orchestrator.run([{"role": "user", "content": "q"}])
+
+        assert set(tool_trace.ledger) == {"jd_1"}
+        observations = [
+            json.loads(message["content"])["items"][0]["evidence_id"]
+            for message in messages_seen_by_final
+            if message["role"] == "tool"
+        ]
+        assert observations == ["jd_1", "jd_1"]
+
+    def test_jd_and_note_coexist_in_ledger(self):
+        """JD 和笔记可以同时进 ledger，ID 不冲突。"""
+
+        registry = StubToolRegistry(
+            {
+                "search_job_descriptions": jd_tool,
+                "search_learning_notes": learning_notes_tool,
+            }
+        )
+        orchestrator = make_orchestrator(registry)
+        model_call_count = 0
+
+        def fake_call_model_with_tools(messages):
+            nonlocal model_call_count
+            model_call_count += 1
+            if model_call_count == 1:
+                return tool_call_message(
+                    tool_call("search_learning_notes", {"query": "notes"}, "call_1")
+                )
+            if model_call_count == 2:
+                return tool_call_message(
+                    tool_call("search_job_descriptions", {"query": "jd"}, "call_2")
+                )
+            return final_message()
+
+        orchestrator._call_model_with_tools = fake_call_model_with_tools
+
+        _, tool_trace = orchestrator.run([{"role": "user", "content": "q"}])
+
+        assert set(tool_trace.ledger) == {"note_1", "jd_1"}
+        assert tool_trace.ledger["note_1"].domain == "knowledge_note"
+        assert tool_trace.ledger["jd_1"].domain == "job_description"

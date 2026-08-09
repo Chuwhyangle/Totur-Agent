@@ -26,6 +26,7 @@ from app.services.web_search_settings import WEB_SEARCH_MAX_CALLS_PER_CHAT
 
 WEB_SEARCH_TOOL_NAME = "web_search"
 RAG_TOOL_NAME = "search_learning_notes"
+JD_TOOL_NAME = "search_job_descriptions"
 
 
 def _tool_schema_name(tool: Any) -> str:
@@ -64,8 +65,11 @@ class _RunState:
     ledger: dict[str, Source] = field(default_factory=dict)
     evidence_id_by_url: dict[str, str] = field(default_factory=dict)
     rag_enabled: bool = True
+    web_search_enabled: bool = True
     next_note_number: int = 1
     note_id_by_fingerprint: dict[str, str] = field(default_factory=dict)
+    next_jd_number: int = 1
+    jd_id_by_fingerprint: dict[str, str] = field(default_factory=dict)
 
 
 class ReactOrchestrator:
@@ -95,6 +99,7 @@ class ReactOrchestrator:
         self,
         messages: list[ChatCompletionMessageParam],
         force_web_search: bool = False,
+        web_search_enabled: bool = True,
         rag_enabled: bool = True,
         force_rag: bool = False,
     ) -> tuple[str, ToolTrace]:
@@ -102,10 +107,14 @@ class ReactOrchestrator:
 
         working_messages: list[ChatCompletionMessageParam] = [*messages]
         tool_call_traces: list[ToolCallTrace] = []
-        run_state = _RunState(rag_enabled=rag_enabled)
+        run_state = _RunState(
+            rag_enabled=rag_enabled,
+            web_search_enabled=web_search_enabled,
+        )
         failure_count = 0
         first_model_round = 1
         self._active_rag_enabled = rag_enabled
+        self._active_web_search_enabled = web_search_enabled
 
         if force_rag:
             working_messages, forced_trace = self._execute_forced_learning_notes(
@@ -168,6 +177,7 @@ class ReactOrchestrator:
         self,
         messages: list[ChatCompletionMessageParam],
         force_web_search: bool = False,
+        web_search_enabled: bool = True,
         rag_enabled: bool = True,
         force_rag: bool = False,
     ) -> Generator[StreamEvent, None, tuple[str, ToolTrace]]:
@@ -182,10 +192,14 @@ class ReactOrchestrator:
 
         working_messages: list[ChatCompletionMessageParam] = [*messages]
         tool_call_traces: list[ToolCallTrace] = []
-        run_state = _RunState(rag_enabled=rag_enabled)
+        run_state = _RunState(
+            rag_enabled=rag_enabled,
+            web_search_enabled=web_search_enabled,
+        )
         failure_count = 0
         first_model_round = 1
         self._active_rag_enabled = rag_enabled
+        self._active_web_search_enabled = web_search_enabled
 
         if force_rag:
             yield StreamEvent(type="tool_call", data={"tool": RAG_TOOL_NAME, "args": {"query": "..."}, "status": "running"})
@@ -449,6 +463,13 @@ class ReactOrchestrator:
                 for tool in tools
                 if _tool_schema_name(tool) != RAG_TOOL_NAME
             ]
+        if not getattr(self, "_active_web_search_enabled", True):
+            # 强制关闭联网搜索：从本轮工具 Schema 中真正移除 web_search。
+            tools = [
+                tool
+                for tool in tools
+                if _tool_schema_name(tool) != WEB_SEARCH_TOOL_NAME
+            ]
 
         completion = self.client.chat.completions.create(
             model=self.config.model,
@@ -486,6 +507,13 @@ class ReactOrchestrator:
                     "error": "tool_disabled",
                     "message": "RAG 检索已关闭，本轮不可用。",
                 }
+            elif tool_name == WEB_SEARCH_TOOL_NAME and not run_state.web_search_enabled:
+                # 关闭模式：即使模型伪造了联网搜索调用也不执行。
+                tool_result = {
+                    "ok": False,
+                    "error": "tool_disabled",
+                    "message": "联网搜索已关闭，本轮不可用。",
+                }
             elif tool_name == WEB_SEARCH_TOOL_NAME:
                 run_state.web_search_calls += 1
                 if run_state.web_search_calls > WEB_SEARCH_MAX_CALLS_PER_CHAT:
@@ -510,6 +538,11 @@ class ReactOrchestrator:
                 )
                 if tool_name == RAG_TOOL_NAME:
                     tool_result = self._prepare_learning_notes_result(
+                        tool_result,
+                        run_state,
+                    )
+                elif tool_name == JD_TOOL_NAME:
+                    tool_result = self._prepare_jd_result(
                         tool_result,
                         run_state,
                     )
@@ -605,6 +638,93 @@ class ReactOrchestrator:
                 title=_note_source_title(source, title_path),
                 url="",
                 domain="knowledge_note",
+            )
+
+        safe_item = dict(item)
+        safe_item["evidence_id"] = evidence_id
+        return safe_item
+
+    def _prepare_jd_result(
+        self,
+        tool_result: dict[str, Any],
+        run_state: _RunState,
+    ) -> dict[str, Any]:
+        """Assign server-owned jd IDs and keep failed JD results stable."""
+
+        if not isinstance(tool_result, dict) or not tool_result.get("ok"):
+            return tool_result
+
+        prepared_result = dict(tool_result)
+        safe_items: list[dict[str, Any]] = []
+        items = tool_result.get("items")
+
+        if isinstance(items, list):
+            for item in items:
+                prepared_item = self._jd_item_from_record(item, run_state)
+                if prepared_item is not None:
+                    safe_items.append(prepared_item)
+
+        prepared_result["items"] = safe_items
+        prepared_result["found"] = bool(safe_items)
+        summary = prepared_result.get("summary")
+        if isinstance(summary, dict):
+            prepared_summary = dict(summary)
+            prepared_summary["returned_count"] = len(safe_items)
+            prepared_result["summary"] = prepared_summary
+
+        return prepared_result
+
+    def _jd_item_from_record(
+        self,
+        item: Any,
+        run_state: _RunState,
+    ) -> dict[str, Any] | None:
+        """Return one JD item with a stable, reused jd ID and ledger entry."""
+
+        if not isinstance(item, dict):
+            return None
+
+        jd_id = item.get("jd_id")
+        title = item.get("title")
+        company = item.get("company")
+        source = item.get("source")
+        content = item.get("content")
+        if (
+            not isinstance(jd_id, str)
+            or not jd_id.strip()
+            or not isinstance(title, str)
+            or not title.strip()
+            or not isinstance(company, str)
+            or not company.strip()
+            or not isinstance(source, str)
+            or not source.strip()
+            or not isinstance(content, str)
+            or not content.strip()
+        ):
+            return None
+
+        fingerprint = hashlib.sha256(
+            json.dumps(
+                {
+                    "jd_id": jd_id,
+                    "source": source,
+                },
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).hexdigest()
+
+        evidence_id = run_state.jd_id_by_fingerprint.get(fingerprint)
+        if evidence_id is None:
+            evidence_id = f"jd_{run_state.next_jd_number}"
+            run_state.next_jd_number += 1
+            run_state.jd_id_by_fingerprint[fingerprint] = evidence_id
+            run_state.ledger[evidence_id] = Source(
+                id=evidence_id,
+                title=f"{company} · {title}",
+                url=item.get("source_url") or "",
+                domain="job_description",
             )
 
         safe_item = dict(item)

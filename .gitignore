@@ -44,6 +44,7 @@ runtime_data/
 
 # Raw corpus sources: only processed/ artifacts are tracked
 corpus/Agent_doc/Agent 求职面试全攻略（10讲171页）/
+corpus/JD/
 
 # Generated analysis and export outputs
 exports/

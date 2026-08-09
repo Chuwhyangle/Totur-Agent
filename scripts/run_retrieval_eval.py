@@ -21,7 +21,7 @@ from chromadb.errors import ChromaError
 
 from app.clients.embedding_client import EmbeddingClient, EmbeddingError
 from app.config import load_embedding_config
-from app.repositories.knowledge_repository import KnowledgeRepository
+from app.repositories.knowledge_repository import KnowledgeHit, KnowledgeRepository
 from app.services.shard_router import ShardHandle, ShardRouter
 from app.services.hybrid_retriever import hybrid_search
 from app.services.reranking import RerankingService
@@ -77,6 +77,11 @@ def main() -> int:
         choices=["baseline", "routed", "broadcast"],
         default="baseline",
         help="Evaluate the legacy single index, subject routing, or broadcast fan-out.",
+    )
+    parser.add_argument(
+        "--unified",
+        action="store_true",
+        help="Evaluate the unified knowledge collection (方案 A): all cases via one ANN search.",
     )
     parser.add_argument("--top-k", type=int, default=RAG_TOP_K)
     parser.add_argument(
@@ -244,12 +249,89 @@ def main() -> int:
             return search
 
         search = make_search(args.threshold, collect=True)
-        summary = evaluate_cases(
-            cases=cases,
-            search=search,
-            top_k=args.top_k,
-            threshold=args.threshold,
-        )
+
+        # 方案 A：--unified 时所有用例（note + jd）走统一检索。
+        if args.unified:
+            unified_search = unified_search_for_eval
+            summary = evaluate_cases(
+                cases=cases,
+                search=unified_search,
+                top_k=args.top_k,
+                threshold=args.threshold,
+            )
+            summary["mode"] = args.mode
+            summary["routing"] = "unified"
+            summary["latency_ms"] = _latency_summary(latencies_ms)
+            summary["retrieval_latency_ms"] = summary["latency_ms"]
+            summary["reranking"] = {
+                "enabled": False,
+                "candidate_k": None,
+                "provider": None,
+                "model": None,
+                "latency_ms": _rerank_latency_summary([]),
+                "applied_count": 0,
+                "fallback_count": 0,
+            }
+            attach_manifest_summary(summary, manifest)
+            summary["manual_cosine_check"] = _run_manual_cosine_check(
+                cases=cases,
+                repository=repository,
+                embedding_client=embedding_client,
+                manifest=manifest,
+            )
+            if args.json:
+                print(json.dumps(summary, ensure_ascii=False, indent=2))
+            else:
+                _print_summary(summary)
+            return 0
+
+        # 按 group 分流：JD 用例走 JD 检索，其余走学习笔记检索。
+        jd_cases = [case for case in cases if case.group == "jd"]
+        note_cases = [case for case in cases if case.group != "jd"]
+
+        if jd_cases:
+            jd_search = jd_search_for_eval
+            jd_summary = evaluate_cases(
+                cases=jd_cases,
+                search=jd_search,
+                top_k=args.top_k,
+                threshold=args.threshold,
+            )
+        else:
+            jd_summary = {
+                "metrics": {"total_cases": 0, "positive_cases": 0, "negative_cases": 0},
+                "group_metrics": {},
+                "results": [],
+            }
+
+        if note_cases:
+            note_summary = evaluate_cases(
+                cases=note_cases,
+                search=search,
+                top_k=args.top_k,
+                threshold=args.threshold,
+            )
+        else:
+            note_summary = {
+                "metrics": {"total_cases": 0, "positive_cases": 0, "negative_cases": 0},
+                "group_metrics": {},
+                "results": [],
+            }
+
+        if jd_cases and note_cases:
+            summary = _merge_eval_summaries(jd_summary, note_summary)
+        elif jd_cases:
+            summary = jd_summary
+        elif note_cases:
+            summary = note_summary
+        else:
+            # cases 全空：让 mock/默认路径走 evaluate_cases 一次，保持兼容。
+            summary = evaluate_cases(
+                cases=cases,
+                search=search,
+                top_k=args.top_k,
+                threshold=args.threshold,
+            )
         summary["mode"] = args.mode
         summary["routing"] = args.routing
         summary["latency_ms"] = _latency_summary(latencies_ms)
@@ -409,6 +491,58 @@ def build_frozen_evaluation_index(
         embedding_client=embedding_client,
         embedding_model=embedding_client.config.model,
     )
+
+
+def unified_search_for_eval(
+    query: str,
+    top_k: int,
+    subject: str | None = None,
+) -> list[KnowledgeHit]:
+    """Search the unified knowledge collection for eval (方案 A)."""
+
+    from app.services.unified_retriever import unified_search
+
+    items = unified_search(query=query, top_k=max(1, min(top_k, 10)))
+    hits: list[KnowledgeHit] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        hits.append(
+            KnowledgeHit(
+                content=str(item.get("content") or ""),
+                source=str(item.get("source") or ""),
+                title_path=str(item.get("title_path") or ""),
+                similarity=float(item.get("similarity") or 0.0),
+            )
+        )
+    return hits
+
+
+def jd_search_for_eval(
+    query: str,
+    top_k: int,
+    subject: str | None = None,
+) -> list[KnowledgeHit]:
+    """Search the public JD corpus and return KnowledgeHit-compatible results."""
+
+    from app.services.agent.tools.search_job_descriptions import (
+        search_job_descriptions,
+    )
+
+    result = search_job_descriptions(query=query, limit=max(1, min(top_k, 5)))
+    hits: list[KnowledgeHit] = []
+    for item in result.get("items", []):
+        if not isinstance(item, dict):
+            continue
+        hits.append(
+            KnowledgeHit(
+                content=str(item.get("content") or ""),
+                source=str(item.get("source") or ""),
+                title_path=str(item.get("title") or ""),
+                similarity=float(item.get("similarity") or 0.0),
+            )
+        )
+    return hits
 
 
 def attach_manifest_summary(summary: dict, manifest: IndexManifest) -> None:
@@ -573,6 +707,84 @@ def _run_threshold_sweep(
         )
 
     return rows
+
+
+def _merge_eval_summaries(
+    jd_summary: dict,
+    note_summary: dict,
+) -> dict:
+    """Merge JD and note evaluation summaries into one combined report."""
+
+    merged = {
+        "metrics": {},
+        "group_metrics": {},
+        "results": [],
+    }
+    for key in ("total_cases", "positive_cases", "negative_cases"):
+        merged["metrics"][key] = (
+            jd_summary["metrics"][key] + note_summary["metrics"][key]
+        )
+    merged["metrics"]["top_k"] = jd_summary["metrics"]["top_k"]
+    merged["metrics"]["threshold"] = jd_summary["metrics"]["threshold"]
+
+    # Recall@k = 命中的正例总数 / 正例总数（合并两个子集）
+    jd_positive = jd_summary["metrics"]["positive_cases"]
+    note_positive = note_summary["metrics"]["positive_cases"]
+    jd_hits = round(
+        jd_summary["metrics"]["recall_at_k"] * jd_positive
+    )
+    note_hits = round(
+        note_summary["metrics"]["recall_at_k"] * note_positive
+    )
+    total_positive = jd_positive + note_positive
+    merged["metrics"]["recall_at_k"] = _safe_div(
+        jd_hits + note_hits, total_positive
+    )
+
+    # MRR：按各自正例数加权平均
+    jd_mrr = jd_summary["metrics"]["mrr"] * jd_positive
+    note_mrr = note_summary["metrics"]["mrr"] * note_positive
+    merged["metrics"]["mrr"] = _safe_div(
+        jd_mrr + note_mrr, total_positive
+    )
+
+    # 负例准确率
+    jd_neg = jd_summary["metrics"]["negative_cases"]
+    note_neg = note_summary["metrics"]["negative_cases"]
+    jd_neg_correct = round(
+        jd_summary["metrics"]["negative_accuracy"] * jd_neg
+    )
+    note_neg_correct = round(
+        note_summary["metrics"]["negative_accuracy"] * note_neg
+    )
+    total_neg = jd_neg + note_neg
+    merged["metrics"]["negative_accuracy"] = _safe_div(
+        jd_neg_correct + note_neg_correct, total_neg
+    )
+
+    # overall_accuracy
+    jd_total = jd_summary["metrics"]["total_cases"]
+    note_total = note_summary["metrics"]["total_cases"]
+    jd_passed = round(jd_summary["metrics"]["overall_accuracy"] * jd_total)
+    note_passed = round(note_summary["metrics"]["overall_accuracy"] * note_total)
+    merged["metrics"]["overall_accuracy"] = _safe_div(
+        jd_passed + note_passed, jd_total + note_total
+    )
+
+    merged["group_metrics"].update(jd_summary["group_metrics"])
+    merged["group_metrics"].update(note_summary["group_metrics"])
+    merged["results"] = (
+        jd_summary["results"] + note_summary["results"]
+    )
+    return merged
+
+
+def _safe_div(numerator: float, denominator: int) -> float:
+    """Avoid division by zero when combining eval subsets."""
+
+    if denominator == 0:
+        return 0.0
+    return round(numerator / denominator, 4)
 
 
 def _run_manual_cosine_check(

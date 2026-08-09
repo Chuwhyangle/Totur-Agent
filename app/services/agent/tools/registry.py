@@ -8,6 +8,7 @@ from typing import Any
 
 from app.services.agent.tools.interview_jd_search import search_interview_jds
 from app.services.agent.tools.save_journal_entry import save_journal_entry
+from app.services.agent.tools.search_job_descriptions import search_job_descriptions
 from app.services.agent.tools.search_learning_notes import search_learning_notes
 from app.services.agent.tools.score_jd_skill_fit import score_jd_skill_fit
 from app.services.agent.tools.web_search import web_search
@@ -158,6 +159,61 @@ SEARCH_LEARNING_NOTES_SCHEMA: dict[str, Any] = {
 }
 
 
+SEARCH_JOB_DESCRIPTIONS_SCHEMA: dict[str, Any] = {
+    "type": "function",
+    "function": {
+        "name": "search_job_descriptions",
+        "description": (
+            "Search the indexed public job-description corpus by meaning and "
+            "optional structured filters, then return complete source JDs."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Role, responsibility, skill, or job requirement to search.",
+                },
+                "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 5,
+                    "default": 3,
+                },
+                "direction": {
+                    "type": ["string", "null"],
+                    "enum": ["agent_dev", "marketing", None],
+                },
+                "relevance": {
+                    "type": ["string", "null"],
+                    "enum": ["直接相关", "较相关", "相邻岗位", None],
+                },
+                "education": {
+                    "type": ["string", "null"],
+                    "description": "Exact normalized education requirement.",
+                },
+                "province": {
+                    "type": ["string", "null"],
+                    "description": "Normalized province, municipality, or 全国.",
+                },
+                "salary_floor_k": {
+                    "type": ["number", "null"],
+                    "minimum": 0,
+                    "description": "Require the advertised lower bound to be at least this k/month.",
+                },
+                "salary_ceiling_k": {
+                    "type": ["number", "null"],
+                    "minimum": 0,
+                    "description": "Require the advertised upper bound to be at most this k/month.",
+                },
+            },
+            "required": ["query"],
+            "additionalProperties": False,
+        },
+    },
+}
+
+
 WEB_SEARCH_SCHEMA: dict[str, Any] = {
     "type": "function",
     "function": {
@@ -244,6 +300,7 @@ class ToolRegistry:
         self._tools: dict[str, Callable[..., dict[str, Any]]] = {
             "interview_jd_search": search_interview_jds,
             "save_journal_entry": save_journal_entry,
+            "search_job_descriptions": search_job_descriptions,
             "search_learning_notes": search_learning_notes,
             "score_jd_skill_fit": score_jd_skill_fit,
             "web_search": web_search,
@@ -273,6 +330,7 @@ class ToolRegistry:
         schemas = [
             deepcopy(INTERVIEW_JD_SEARCH_SCHEMA),
             learning_notes_schema,
+            deepcopy(SEARCH_JOB_DESCRIPTIONS_SCHEMA),
             deepcopy(SCORE_JD_SKILL_FIT_SCHEMA),
             deepcopy(SAVE_JOURNAL_ENTRY_SCHEMA),
             deepcopy(WEB_SEARCH_SCHEMA),

@@ -37,7 +37,7 @@ from app.services.rag_settings import ENABLE_RAG_SEED_CONTEXT
 from app.services.summary_service import SummaryService
 
 
-_CITATION_PATTERN = re.compile(r"\[(web|attachment|note)_(\d+)\]")
+_CITATION_PATTERN = re.compile(r"\[(web|attachment|note|jd)_(\d+)\]")
 _RAW_HTTP_URL_PATTERN = re.compile(r"https?://[^\s<>\"']+", re.IGNORECASE)
 _UNVERIFIED_LINK_REPLACEMENT = "[已移除未验证链接]"
 
@@ -168,6 +168,7 @@ class TutorAgentService:
         raw_reply, tool_trace = self.react_orchestrator.run(
             messages,
             force_web_search=request.force_web_search,
+            web_search_enabled=request.web_search_enabled,
             rag_enabled=request.rag_enabled,
             force_rag=request.force_rag,
         )
@@ -275,6 +276,7 @@ class TutorAgentService:
             stream_gen = self.react_orchestrator.run_stream(
                 messages,
                 force_web_search=request.force_web_search,
+                web_search_enabled=request.web_search_enabled,
                 rag_enabled=request.rag_enabled,
                 force_rag=request.force_rag,
             )

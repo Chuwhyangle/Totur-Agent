@@ -1,0 +1,25 @@
+{"id":"jd_pos_001","query":"RAG 增强 开发","expected_sources":["corpus/JD/agent_dev/jobs/01-agent工程师（校招）-神州数码融信软件有限公司武汉分公司.md"],"expected_title_keywords":["RAG"],"notes":"岗位职责类：RAG 增强开发","group":"jd"}
+{"id":"jd_pos_002","query":"Agent 智能体开发需要什么技能","expected_sources":["corpus/JD/agent_dev/jobs/01-agent工程师（校招）-神州数码融信软件有限公司武汉分公司.md"],"expected_title_keywords":["Agent"],"notes":"技能要求类：Agent 开发","group":"jd"}
+{"id":"jd_pos_003","query":"大模型算法工程师岗位","expected_sources":["corpus/JD/agent_dev/jobs/53-大模型算法工程师-曲靖胡涛电子商务有限公司.md"],"expected_title_keywords":["大模型"],"notes":"岗位职责类：大模型算法","group":"jd"}
+{"id":"jd_pos_004","query":"AI 产品经理做什么","expected_sources":["corpus/JD/agent_dev/jobs/39-ai产品经理-西安数驱智信息科技有限公司.md"],"expected_title_keywords":["产品经理"],"notes":"岗位职责类：AI 产品经理","group":"jd"}
+{"id":"jd_pos_005","query":"机器学习 算法","expected_sources":["corpus/JD/agent_dev/jobs/48-机器听觉（人工智能，机器学习）研发工程师-重庆市华翌智能装备有限公司.md"],"expected_title_keywords":["机器学习"],"notes":"岗位职责类：机器学习","group":"jd"}
+{"id":"jd_pos_006","query":"新媒体 运营","expected_sources":["corpus/JD/marketing/jobs/252-新媒体运营-广西贵港市博智教育管理有限公司.md"],"expected_title_keywords":["新媒体"],"notes":"岗位职责类：新媒体运营","group":"jd"}
+{"id":"jd_pos_007","query":"数据分析岗位","expected_sources":["corpus/JD/marketing/jobs/403-数据分析-兆扑信息技术武汉有限公司.md"],"expected_title_keywords":["数据分析"],"notes":"岗位职责类：数据分析","group":"jd"}
+{"id":"jd_pos_008","query":"Agent 开发实习生","expected_sources":["corpus/JD/agent_dev/jobs/09-Agent开发实习生-中原人工智能产业技术研究院.md"],"expected_title_keywords":["Agent"],"notes":"岗位类型类：Agent 实习生","group":"jd"}
+{"id":"jd_pos_009","query":"大模型算法工程师校招","expected_sources":["corpus/JD/agent_dev/jobs/02-大模型算法工程师（校招）-神州数码融信软件有限公司武汉分公司.md"],"expected_title_keywords":["大模型"],"notes":"岗位类型类：校招","group":"jd"}
+{"id":"jd_pos_010","query":"智能体应用开发工程师","expected_sources":["corpus/JD/agent_dev/jobs/07-智能体应用开发工程师-浙江安诺芳胺化学品有限公司.md"],"expected_title_keywords":["智能体"],"notes":"岗位职责类：智能体应用","group":"jd"}
+{"id":"jd_pos_011","query":"AI 应用 开发","expected_sources":["corpus/JD/agent_dev/jobs/06-AI应用开发-安徽雅云晖智能科技有限公司.md"],"expected_title_keywords":["AI"],"notes":"岗位职责类：AI 应用开发","group":"jd"}
+{"id":"jd_pos_012","query":"AI 工程师","expected_sources":["corpus/JD/agent_dev/jobs/11-AI工程师-北京中关村水木医疗科技有限公司.md"],"expected_title_keywords":["AI"],"notes":"岗位职责类：AI 工程师","group":"jd"}
+{"id":"jd_pos_013","query":"外贸 AI 产品经理","expected_sources":["corpus/JD/agent_dev/jobs/18-外贸AI产品经理-晨珲信息科技（广州）有限公司.md"],"expected_title_keywords":["产品经理"],"notes":"岗位类型类：外贸 AI 产品","group":"jd"}
+{"id":"jd_pos_014","query":"AI 产品经理钢铁行业","expected_sources":["corpus/JD/agent_dev/jobs/32-AI产品经理（钢铁）-江苏金恒信息科技股份有限公司.md"],"expected_title_keywords":["产品经理"],"notes":"岗位类型类：行业产品经理","group":"jd"}
+{"id":"jd_pos_015","query":"人工智能应用工程师","expected_sources":["corpus/JD/agent_dev/jobs/05-人工智能应用工程师-深圳远汇智联科技有限公司.md"],"expected_title_keywords":["人工智能"],"notes":"岗位职责类：人工智能应用","group":"jd"}
+{"id":"jd_pos_016","query":"运营主管 双休","expected_sources":["corpus/JD/marketing/jobs/88-小红书运营主管（双休）-山西智胜传媒科技股份有限公司.md"],"expected_title_keywords":["运营"],"notes":"岗位类型类：新媒体运营","group":"jd"}
+{"id":"jd_pos_017","query":"小红书运营主管","expected_sources":["corpus/JD/marketing/jobs/88-小红书运营主管（双休）-山西智胜传媒科技股份有限公司.md"],"expected_title_keywords":["小红书"],"notes":"岗位职责类：小红书运营","group":"jd"}
+{"id":"jd_pos_018","query":"运营专员岗位","expected_sources":["corpus/JD/marketing/jobs/177-运营专员-成都腾鑫启航企业管理有限公司.md"],"expected_title_keywords":["运营"],"notes":"岗位职责类：运营专员","group":"jd"}
+{"id":"jd_pos_019","query":"AI 大模型基础岗","expected_sources":["corpus/JD/agent_dev/jobs/26-AI大模型基础岗-广州锦途前程咨询有限公司.md"],"expected_title_keywords":["大模型"],"notes":"岗位类型类：大模型基础","group":"jd"}
+{"id":"jd_pos_020","query":"AI 训练工程师","expected_sources":["corpus/JD/agent_dev/jobs/16-AI训练工程师-广典赋能科技（上海）有限公司山东分公司.md"],"expected_title_keywords":["训练"],"notes":"岗位职责类：AI 训练","group":"jd"}
+{"id":"jd_neg_001","query":"今天天气怎么样","expected_sources":[],"expected_title_keywords":[],"notes":"负例：与 JD 无关","group":"jd"}
+{"id":"jd_neg_002","query":"如何做番茄炒蛋","expected_sources":[],"expected_title_keywords":[],"notes":"负例：与 JD 无关","group":"jd"}
+{"id":"jd_neg_003","query":"推荐一部好看的电影","expected_sources":[],"expected_title_keywords":[],"notes":"负例：与 JD 无关","group":"jd"}
+{"id":"jd_neg_004","query":"量子力学的基本原理是什么","expected_sources":[],"expected_title_keywords":[],"notes":"负例：与 JD 无关","group":"jd"}
+{"id":"jd_neg_005","query":"今晚吃什么好","expected_sources":[],"expected_title_keywords":[],"notes":"负例：与 JD 无关","group":"jd"}
