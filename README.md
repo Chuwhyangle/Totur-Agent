@@ -122,3 +122,18 @@ tests/                 自动化测试
 ## 本地文件
 
 `tutor_agent.db` 是运行时生成的本地 SQLite 数据库，`chroma_db/` 是运行时生成的本地向量库目录，二者都已在 `.gitignore` 中忽略。
+## Docker 部署
+
+生产环境使用 Docker Compose 启动前端 Nginx 和后端 FastAPI，SQLite、Chroma 与附件统一持久化到 `tutor_data` 卷。
+
+首次部署：
+
+```bash
+cp .env.example .env
+# 编辑 .env，至少填写 OPENAI_*、EMBEDDING_* 配置
+docker compose up -d --build
+docker compose run --rm api python scripts/build_knowledge_index.py
+```
+
+访问 `http://服务器地址/`，接口健康检查为 `http://服务器地址/health`。后续更新执行 `git pull && docker compose up -d --build`；备份数据执行 `docker run --rm -v tutor_data:/data -v "$PWD/backups:/backup" alpine tar czf /backup/tutor-data-$(date +%F).tar.gz -C /data .`。
+
