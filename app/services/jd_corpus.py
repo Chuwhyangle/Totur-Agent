@@ -86,17 +86,34 @@ class JDParentDocument:
     children: tuple[JDChildDocument, JDChildDocument]
 
 
+@dataclass(frozen=True)
+class SkippedJDRow:
+    """One JD corpus row skipped during tolerant loading (FR-7)."""
+
+    source_path: str
+    reason: str
+
+
 def load_jd_dataset(
     root: Path,
     *,
     dataset_csvs: Mapping[str, Path] | None = None,
-) -> tuple[JDParentDocument, ...]:
-    """Read every configured CSV row and its matching Markdown parent."""
+    strict: bool = False,
+) -> tuple[tuple[JDParentDocument, ...], tuple[SkippedJDRow, ...]]:
+    """Read every configured CSV row and its matching Markdown parent.
+
+    FR-7：改为收集式。单行失败（缺文件、非 UTF-8、缺字段、薪资格式不支持、
+    缺「职位原文」、jd_id 重复）不再中断整个构建，而是记录到 skipped。
+    strict=True 时保留原严格行为（首错即抛）。
+    返回 (parents, skipped)。
+    """
 
     corpus_root = Path(root)
     configured = dataset_csvs or DEFAULT_JD_DATASET_CSVS
     parents: list[JDParentDocument] = []
+    skipped: list[SkippedJDRow] = []
     seen_ids: set[str] = set()
+
     for category, configured_path in configured.items():
         csv_path = Path(configured_path)
         if not csv_path.is_absolute():
@@ -108,27 +125,84 @@ def load_jd_dataset(
         if not rows:
             raise ValueError(f"JD CSV is empty: {csv_path}")
         for row in rows:
-            filename = _required(row, "文件")
+            filename = str(row.get("文件") or "").strip()
+            if not filename:
+                _record_skip(skipped, strict, "", "missing_filename", "JD field is required: 文件")
+                continue
             markdown_path = csv_path.parent / "jobs" / filename
             if not markdown_path.is_file():
-                raise ValueError(f"JD Markdown not found: {markdown_path}")
+                _record_skip(
+                    skipped,
+                    strict,
+                    filename,
+                    "markdown_not_found",
+                    f"JD Markdown not found: {markdown_path}",
+                )
+                continue
             raw = markdown_path.read_bytes()
             try:
                 markdown = raw.decode("utf-8")
             except UnicodeDecodeError as exc:
-                raise ValueError(f"JD Markdown must be UTF-8: {markdown_path}") from exc
+                _record_skip(
+                    skipped,
+                    strict,
+                    filename,
+                    "not_utf8",
+                    f"JD Markdown must be UTF-8: {markdown_path}",
+                )
+                continue
             source_path = markdown_path.relative_to(corpus_root).as_posix()
-            parent = build_jd_parent(
-                category=category,
-                row=row,
-                source_path=source_path,
-                markdown=markdown,
-            )
+            try:
+                parent = build_jd_parent(
+                    category=category,
+                    row=row,
+                    source_path=source_path,
+                    markdown=markdown,
+                )
+            except ValueError as exc:
+                reason = str(exc)
+                code = _reason_code(reason)
+                _record_skip(skipped, strict, source_path, code, reason)
+                continue
             if parent.jd_id in seen_ids:
-                raise ValueError(f"duplicate JD id: {parent.jd_id}")
+                _record_skip(
+                    skipped,
+                    strict,
+                    source_path,
+                    "duplicate_jd_id",
+                    f"duplicate JD id: {parent.jd_id}",
+                )
+                continue
             seen_ids.add(parent.jd_id)
             parents.append(parent)
-    return tuple(sorted(parents, key=lambda item: item.jd_id))
+
+    return tuple(sorted(parents, key=lambda item: item.jd_id)), tuple(skipped)
+
+
+def _reason_code(reason: str) -> str:
+    """Map one skip reason string to a stable short code for manifest tracing."""
+
+    if "unsupported JD salary" in reason:
+        return "unsupported_salary"
+    if "Markdown section is required" in reason:
+        return "missing_section"
+    if "JD field is required" in reason:
+        return "missing_field"
+    return "build_failed"
+
+
+def _record_skip(
+    skipped: list[SkippedJDRow],
+    strict: bool,
+    source_path: str,
+    code: str,
+    reason: str,
+) -> None:
+    """Append a skip record; in strict mode raise instead."""
+
+    if strict:
+        raise ValueError(reason)
+    skipped.append(SkippedJDRow(source_path=source_path, reason=f"{code}: {reason}"))
 
 
 def build_jd_parent(

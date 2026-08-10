@@ -21,8 +21,8 @@ from app.services.rag_settings import (
     CHROMA_PERSIST_DIR,
     ENABLE_RERANKING,
     ENABLE_HYBRID_RETRIEVAL,
+    JD_SIMILARITY_THRESHOLD,
     RERANK_CANDIDATE_K,
-    SIMILARITY_THRESHOLD,
 )
 
 
@@ -145,7 +145,7 @@ def search_job_descriptions(
             child_candidate_k,
             where=where,
         )
-    hits = [hit for hit in hits if hit.similarity >= SIMILARITY_THRESHOLD]
+    hits = [hit for hit in hits if hit.similarity >= JD_SIMILARITY_THRESHOLD]
     candidates = _parent_candidates(hits, manifest, records)
     ranked, rerank_summary = _rank_candidates(candidates, stripped_query, safe_limit)
 
