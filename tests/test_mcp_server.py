@@ -20,7 +20,7 @@ def test_mcp_server_lists_business_tools_resources_and_prompts():
         async with create_connected_server_and_client_session(mcp) as session:
             tools = await session.list_tools()
             tool_names = {tool.name for tool in tools.tools}
-            assert {"search_learning_notes", "interview_jd_search", "score_jd_skill_fit", "generate_quiz"} <= tool_names
+            assert {"search_learning_notes", "score_jd_skill_fit", "generate_quiz"} <= tool_names
 
             resources = await session.list_resources()
             resource_uris = {str(resource.uri) for resource in resources.resources}

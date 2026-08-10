@@ -25,13 +25,11 @@ from app.services.agent.response_parser import ResponseParser
 from app.services.agent.tools.executor import ToolExecutor
 from app.services.agent.tools.registry import ToolRegistry
 from app.services.documents.attachment_retrieval_service import (
-    AttachmentEvidence,
     AttachmentRetrievalFailedError,
     AttachmentRetrievalService,
-    attachment_source_title,
-    build_attachment_context,
 )
-from app.services.documents.settings import DEFAULT_TEMP_DOCUMENT_CONTEXT_MAX_CHARS
+from app.repositories.interview_jd_repository import list_all_interview_jds
+from app.services.private_jd_context import format_private_jd_context
 from app.services.rag_seed_context import retrieve_seed_knowledge_context
 from app.services.rag_settings import ENABLE_RAG_SEED_CONTEXT
 from app.services.summary_service import SummaryService
@@ -122,9 +120,6 @@ class TutorAgentService:
             request_persona_id=request.persona_id,
         )
         persona = get_persona(session.persona_id)
-        set_defaults = getattr(self.tool_executor, "set_default_tool_kwargs", None)
-        if callable(set_defaults):
-            set_defaults({"search_learning_notes": {"subject": session.subject}})
 
         # 先准备模型上下文；具体怎么读历史和摘要交给 MemoryManager。
         context = self.memory_manager.load_context(
@@ -135,30 +130,22 @@ class TutorAgentService:
         if self.seed_context_enabled:
             context.seed_knowledge_context = self.seed_context_provider(message)
 
-        attachment_ledger: dict[str, Source] = {}
+        private_jd_records = list_all_interview_jds()
+        context.private_jd_context = format_private_jd_context(private_jd_records)
+
+        # FR-3: 附件不再预注入上下文，改为工具化 + tool_choice 强制。
+        # 通过 executor 默认参数注入权限上下文（不进 schema）。
         if request.attachment_ids:
-            retrieval_service = self._get_attachment_retrieval_service()
-            evidence = retrieval_service.retrieve(
+            self._set_attachment_tool_defaults(
                 user_id=user_id,
                 session_id=session.id,
                 attachment_ids=request.attachment_ids,
-                query=message,
+                subject=session.subject,
             )
-            max_context_chars = (
-                self.attachment_context_max_chars
-                if self.attachment_context_max_chars is not None
-                else getattr(
-                    retrieval_service,
-                    "context_max_chars",
-                    DEFAULT_TEMP_DOCUMENT_CONTEXT_MAX_CHARS,
-                )
-            )
-            attachment_context, included_evidence = build_attachment_context(
-                evidence,
-                max_chars=max_context_chars,
-            )
-            context.attachment_context = attachment_context or None
-            attachment_ledger = self._build_attachment_ledger(included_evidence)
+        else:
+            set_defaults = getattr(self.tool_executor, "set_default_tool_kwargs", None)
+            if callable(set_defaults):
+                set_defaults({"search_learning_notes": {"subject": session.subject}})
 
         if not context.recent_history and session.title == DEFAULT_SESSION_TITLE:
             # 新会话第一条消息发出后，用这条消息生成一个更自然的会话标题。
@@ -171,10 +158,11 @@ class TutorAgentService:
             web_search_enabled=request.web_search_enabled,
             rag_enabled=request.rag_enabled,
             force_rag=request.force_rag,
+            attachment_ids=request.attachment_ids,
         )
         # The model can only select source IDs; public Source objects always come
-        # from the server-side Web/attachment ledgers.
-        tool_trace.ledger.update(attachment_ledger)
+        # from the server-side Web/attachment ledgers (attachments now flow
+        # through the search_attachments tool, which populates the ledger).
         reply = self.response_parser.parse_model_reply(raw_reply)
         reply = self._finalize_reply_sources(
             reply,
@@ -223,9 +211,6 @@ class TutorAgentService:
             return
 
         persona = get_persona(session.persona_id)
-        set_defaults = getattr(self.tool_executor, "set_default_tool_kwargs", None)
-        if callable(set_defaults):
-            set_defaults({"search_learning_notes": {"subject": session.subject}})
 
         context = self.memory_manager.load_context(
             user_id=user_id,
@@ -235,34 +220,21 @@ class TutorAgentService:
         if self.seed_context_enabled:
             context.seed_knowledge_context = self.seed_context_provider(message)
 
-        attachment_ledger: dict[str, Source] = {}
+        private_jd_records = list_all_interview_jds()
+        context.private_jd_context = format_private_jd_context(private_jd_records)
+
+        # FR-3: 附件工具化，权限参数经 executor 注入。
         if request.attachment_ids:
-            try:
-                retrieval_service = self._get_attachment_retrieval_service()
-                evidence = retrieval_service.retrieve(
-                    user_id=user_id,
-                    session_id=session.id,
-                    attachment_ids=request.attachment_ids,
-                    query=message,
-                )
-                max_context_chars = (
-                    self.attachment_context_max_chars
-                    if self.attachment_context_max_chars is not None
-                    else getattr(
-                        retrieval_service,
-                        "context_max_chars",
-                        DEFAULT_TEMP_DOCUMENT_CONTEXT_MAX_CHARS,
-                    )
-                )
-                attachment_context, included_evidence = build_attachment_context(
-                    evidence,
-                    max_chars=max_context_chars,
-                )
-                context.attachment_context = attachment_context or None
-                attachment_ledger = self._build_attachment_ledger(included_evidence)
-            except Exception as exc:
-                yield {"event": "error", "data": {"message": f"Attachment retrieval failed: {exc}"}}
-                return
+            self._set_attachment_tool_defaults(
+                user_id=user_id,
+                session_id=session.id,
+                attachment_ids=request.attachment_ids,
+                subject=session.subject,
+            )
+        else:
+            set_defaults = getattr(self.tool_executor, "set_default_tool_kwargs", None)
+            if callable(set_defaults):
+                set_defaults({"search_learning_notes": {"subject": session.subject}})
 
         if not context.recent_history and session.title == DEFAULT_SESSION_TITLE:
             update_session_title(session.id, make_title_from_message(message))
@@ -279,6 +251,7 @@ class TutorAgentService:
                 web_search_enabled=request.web_search_enabled,
                 rag_enabled=request.rag_enabled,
                 force_rag=request.force_rag,
+                attachment_ids=request.attachment_ids,
             )
             while True:
                 try:
@@ -304,7 +277,6 @@ class TutorAgentService:
             yield {"event": "error", "data": {"message": "No response from agent"}}
             return
 
-        tool_trace.ledger.update(attachment_ledger)
         reply = self.response_parser.parse_model_reply(raw_reply)
         reply = self._finalize_reply_sources(
             reply,
@@ -398,21 +370,34 @@ class TutorAgentService:
                 raise AttachmentRetrievalFailedError from exc
         return self.attachment_retrieval_service
 
-    @staticmethod
-    def _build_attachment_ledger(
-        evidence: list[AttachmentEvidence],
-    ) -> dict[str, Source]:
-        """Create public attachment sources exclusively from trusted evidence."""
+    def _set_attachment_tool_defaults(
+        self,
+        *,
+        user_id: str,
+        session_id: int,
+        attachment_ids: list[str],
+        subject: str | None = None,
+    ) -> None:
+        """FR-3: 把附件权限上下文注入 search_attachments 工具的默认参数。
 
-        return {
-            item.evidence_id: Source(
-                id=item.evidence_id,
-                title=attachment_source_title(item),
-                url="",
-                domain="attachment",
-            )
-            for item in evidence
+        user_id/session_id/attachment_ids 不进工具 schema，
+        由执行器从请求上下文注入，权限参数绝不暴露给 LLM。
+        同时保留 search_learning_notes 的 subject 默认参数（覆盖式 API）。
+        """
+
+        set_defaults = getattr(self.tool_executor, "set_default_tool_kwargs", None)
+        if not callable(set_defaults):
+            return
+        defaults: dict[str, dict[str, Any]] = {}
+        if subject:
+            defaults["search_learning_notes"] = {"subject": subject}
+        defaults["search_attachments"] = {
+            "user_id": user_id,
+            "session_id": session_id,
+            "attachment_ids": attachment_ids,
+            "attachment_retrieval_service": self._get_attachment_retrieval_service(),
         }
+        set_defaults(defaults)
 
     def _resolve_session(
         self,
