@@ -42,6 +42,7 @@ def _context(
     recent_history: list[ConversationRecord] | None = None,
     seed_knowledge_context: str | None = None,
     attachment_context: str | None = None,
+    private_jd_context: str | None = None,
 ) -> AgentContext:
     return AgentContext(
         user_id="alice",
@@ -51,6 +52,7 @@ def _context(
         recent_history=recent_history or [],
         seed_knowledge_context=seed_knowledge_context,
         attachment_context=attachment_context,
+        private_jd_context=private_jd_context,
     )
 
 
@@ -61,7 +63,7 @@ def test_build_messages_without_summary_uses_system_and_current_message():
 
     assert [message["role"] for message in messages] == ["system", "user"]
     assert "新手友好的后端开发导师" in str(messages[0]["content"])
-    assert "interview_jd_search" in str(messages[0]["content"])
+    assert "search_job_descriptions" in str(messages[0]["content"])
     assert "search_learning_notes" in str(messages[0]["content"])
     assert "score_jd_skill_fit" in str(messages[0]["content"])
     assert "LLM 先判断，工具只负责算分" in str(messages[0]["content"])
@@ -268,3 +270,45 @@ def test_build_messages_preserves_context_order_with_shared_prompt_rules():
         ("assistant", "第 14 轮导师回答"),
         ("user", "第 15 轮当前问题"),
     ]
+
+
+def test_build_messages_injects_private_jd_context_between_seed_and_attachment():
+    """FR-2: private_jd_context 在 seed 之后、attachment 之前注入。"""
+
+    builder = PromptBuilder(ResponseParser())
+
+    messages = builder.build_messages(
+        _context(
+            current_message="final question",
+            seed_knowledge_context="[Knowledge Base Context]",
+            private_jd_context=(
+                "## 用户关注的目标岗位（共 1 条）\n\n"
+                "### 1. AI Agent 开发岗位\n- 核心技能：LangChain"
+            ),
+            attachment_context="[Selected Attachment Evidence]",
+        )
+    )
+
+    roles = [message["role"] for message in messages]
+    contents = [str(message["content"]) for message in messages]
+
+    assert "[Knowledge Base Context]" in contents
+    assert any("## 用户关注的目标岗位" in content for content in contents)
+    assert any("[Selected Attachment Evidence]" in content for content in contents)
+    assert (
+        next(i for i, c in enumerate(contents) if "[Knowledge Base Context]" in c)
+        < next(i for i, c in enumerate(contents) if "## 用户关注的目标岗位" in c)
+        < next(i for i, c in enumerate(contents) if "[Selected Attachment Evidence]" in c)
+    )
+    assert messages[-1]["content"] == "final question"
+
+
+def test_build_messages_skips_private_jd_context_when_empty():
+    """无私人 JD 时不注入空段落。"""
+
+    builder = PromptBuilder(ResponseParser())
+
+    messages = builder.build_messages(_context(current_message="q"))
+
+    contents = [str(message["content"]) for message in messages]
+    assert not any("用户关注的目标岗位" in content for content in contents)

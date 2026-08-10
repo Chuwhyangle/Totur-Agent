@@ -184,11 +184,6 @@ async def search_learning_notes(query: str, limit: int = 3, subject: str | None 
         subject=subject,
     )
 
-@mcp.tool(name="interview_jd_search")
-async def interview_jd_search(query: str, limit: int = 3) -> dict[str, Any]:
-    """Search saved interview job descriptions."""
-    return await asyncio.to_thread(tools.tool_interview_jd_search, query=query, limit=limit)
-
 @mcp.tool(name="score_jd_skill_fit")
 async def score_jd_skill_fit(skills: list[dict[str, Any]], target_role: str | None = None) -> dict[str, Any]:
     """Calculate a weighted fit score from per-skill judgments."""
