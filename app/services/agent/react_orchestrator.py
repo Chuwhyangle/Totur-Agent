@@ -14,6 +14,7 @@ from openai.types.chat import ChatCompletionMessageParam
 
 from app.config import LLMConfig
 from app.schemas.chat import Source, ToolCallTrace, ToolTrace
+from app.services import timings
 from app.services.memory_settings import (
     MAX_TOOL_FAILURES,
     MAX_TOOL_ROUNDS,
@@ -498,12 +499,13 @@ class ReactOrchestrator:
             ]
 
         active_tool_choice = tool_choice or "auto"
-        completion = self.client.chat.completions.create(
-            model=self.config.model,
-            messages=messages,
-            tools=tools,
-            tool_choice=active_tool_choice,
-        )
+        with timings.track("llm"):
+            completion = self.client.chat.completions.create(
+                model=self.config.model,
+                messages=messages,
+                tools=tools,
+                tool_choice=active_tool_choice,
+            )
 
         return completion.choices[0].message
 
@@ -1267,10 +1269,11 @@ class ReactOrchestrator:
     def _call_model(self, messages: list[ChatCompletionMessageParam]) -> str:
         """把 messages 发送给模型，并返回原始文本回复。"""
 
-        completion = self.client.chat.completions.create(
-            model=self.config.model,
-            messages=messages,
-        )
+        with timings.track("llm"):
+            completion = self.client.chat.completions.create(
+                model=self.config.model,
+                messages=messages,
+            )
         raw_reply = completion.choices[0].message.content
 
         if not raw_reply:

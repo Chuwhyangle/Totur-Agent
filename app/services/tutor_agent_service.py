@@ -2,8 +2,10 @@
 
 from collections.abc import Callable, Generator
 import re
+import time
 
 from openai import OpenAI
+from app.db.trace_db import save_trace
 from app.db.models import DEFAULT_SESSION_TITLE
 from app.repositories.session_repository import (
     get_or_create_default_session,
@@ -33,6 +35,7 @@ from app.services.private_jd_context import format_private_jd_context
 from app.services.rag_seed_context import retrieve_seed_knowledge_context
 from app.services.rag_settings import ENABLE_RAG_SEED_CONTEXT
 from app.services.summary_service import SummaryService
+from app.services import timings
 
 
 _CITATION_PATTERN = re.compile(r"\[(web|attachment|note|jd)_(\d+)\]")
@@ -112,6 +115,9 @@ class TutorAgentService:
     def chat(self, request: ChatRequest) -> ChatResponse:
         """处理一次聊天请求。"""
 
+        started_at = time.perf_counter()
+        timings.start_request()
+
         user_id = request.user_id
         message = request.message
         session = self._resolve_session(
@@ -176,6 +182,15 @@ class TutorAgentService:
             session_id=session.id,
             message=message,
             reply=reply,
+        )
+
+        total_ms = int((time.perf_counter() - started_at) * 1000)
+        save_trace(
+            user_id=user_id,
+            question=message,
+            total_ms=total_ms,
+            retrieval_ms=timings.get("retrieval"),
+            llm_ms=timings.get("llm"),
         )
 
         return ChatResponse(

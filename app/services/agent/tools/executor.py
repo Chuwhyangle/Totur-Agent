@@ -5,8 +5,11 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from app.services import timings
 from app.services.agent.tools.registry import ToolRegistry
 from app.services.tool_metrics import observe_tool_call
+
+RAG_TOOL_NAME = "search_learning_notes"
 
 
 class ToolExecutor:
@@ -51,13 +54,16 @@ class ToolExecutor:
         merged_arguments = dict(self.default_tool_kwargs.get(name, {}))
         merged_arguments.update(parsed_arguments)
 
+        bucket = "retrieval" if name == RAG_TOOL_NAME else "tool_other"
+
         try:
-            if self._is_external_tool(name):
-                return tool(**merged_arguments)
-            with observe_tool_call(name, "internal") as metric:
-                result = tool(**merged_arguments)
-                metric.set_ok(bool(result.get("ok")) if isinstance(result, dict) else True)
-                return result
+            with timings.track(bucket):
+                if self._is_external_tool(name):
+                    return tool(**merged_arguments)
+                with observe_tool_call(name, "internal") as metric:
+                    result = tool(**merged_arguments)
+                    metric.set_ok(bool(result.get("ok")) if isinstance(result, dict) else True)
+                    return result
         except TypeError as exc:
             return {
                 "ok": False,
