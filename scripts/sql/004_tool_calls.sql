@@ -1,6 +1,6 @@
 USE tutor_agent;
 
-CREATE TABLE tool_calls (
+CREATE TABLE IF NOT EXISTS tool_calls (
   id            BIGINT AUTO_INCREMENT PRIMARY KEY,
   trace_id      CHAR(32),
   round_number  INT,

@@ -117,103 +117,113 @@ class TutorAgentService:
 
         started_at = time.perf_counter()
         trace_id = timings.start_request()
+        status = "OK"
+        session_id = None
+        persona_id = None
 
-        user_id = request.user_id
-        message = request.message
-        session = self._resolve_session(
-            user_id=user_id,
-            session_id=request.session_id,
-            request_persona_id=request.persona_id,
-        )
-        persona = get_persona(session.persona_id)
+        try:
+            user_id = request.user_id
+            message = request.message
+            session = self._resolve_session(
+                user_id=user_id,
+                session_id=request.session_id,
+                request_persona_id=request.persona_id,
+            )
+            session_id = session.id
+            persona_id = session.persona_id
+            persona = get_persona(session.persona_id)
 
-        # 先准备模型上下文；具体怎么读历史和摘要交给 MemoryManager。
-        context = self.memory_manager.load_context(
-            user_id=user_id,
-            session_id=session.id,
-            current_message=message,
-        )
-        if self.seed_context_enabled:
-            context.seed_knowledge_context = self.seed_context_provider(message)
-
-        private_jd_records = list_all_interview_jds()
-        context.private_jd_context = format_private_jd_context(private_jd_records)
-
-        # FR-3: 附件不再预注入上下文，改为工具化 + tool_choice 强制。
-        # 通过 executor 默认参数注入权限上下文（不进 schema）。
-        if request.attachment_ids:
-            self._set_attachment_tool_defaults(
+            # 先准备模型上下文；具体怎么读历史和摘要交给 MemoryManager。
+            context = self.memory_manager.load_context(
                 user_id=user_id,
                 session_id=session.id,
-                attachment_ids=request.attachment_ids,
-                subject=session.subject,
+                current_message=message,
             )
-        else:
-            set_defaults = getattr(self.tool_executor, "set_default_tool_kwargs", None)
-            if callable(set_defaults):
-                set_defaults({"search_learning_notes": {"subject": session.subject}})
+            if self.seed_context_enabled:
+                context.seed_knowledge_context = self.seed_context_provider(message)
 
-        if not context.recent_history and session.title == DEFAULT_SESSION_TITLE:
-            # 新会话第一条消息发出后，用这条消息生成一个更自然的会话标题。
-            update_session_title(session.id, make_title_from_message(message))
+            private_jd_records = list_all_interview_jds()
+            context.private_jd_context = format_private_jd_context(private_jd_records)
 
-        messages = self.prompt_builder.build_messages(context, persona=persona)
-        raw_reply, tool_trace = self.react_orchestrator.run(
-            messages,
-            force_web_search=request.force_web_search,
-            web_search_enabled=request.web_search_enabled,
-            rag_enabled=request.rag_enabled,
-            force_rag=request.force_rag,
-            attachment_ids=request.attachment_ids,
-        )
-        # The model can only select source IDs; public Source objects always come
-        # from the server-side Web/attachment ledgers (attachments now flow
-        # through the search_attachments tool, which populates the ledger).
-        reply = self.response_parser.parse_model_reply(raw_reply)
-        reply = self._finalize_reply_sources(
-            reply,
-            tool_trace,
-            note_references_allowed=request.rag_enabled,
-        )
+            # FR-3: 附件不再预注入上下文，改为工具化 + tool_choice 强制。
+            # 通过 executor 默认参数注入权限上下文（不进 schema）。
+            if request.attachment_ids:
+                self._set_attachment_tool_defaults(
+                    user_id=user_id,
+                    session_id=session.id,
+                    attachment_ids=request.attachment_ids,
+                    subject=session.subject,
+                )
+            else:
+                set_defaults = getattr(self.tool_executor, "set_default_tool_kwargs", None)
+                if callable(set_defaults):
+                    set_defaults({"search_learning_notes": {"subject": session.subject}})
 
-        # 模型回复已经结构化后，再统一保存本轮对话并尝试推进摘要。
-        self.memory_manager.save_turn_and_update_summary(
-            user_id=user_id,
-            session_id=session.id,
-            message=message,
-            reply=reply,
-        )
+            if not context.recent_history and session.title == DEFAULT_SESSION_TITLE:
+                # 新会话第一条消息发出后，用这条消息生成一个更自然的会话标题。
+                update_session_title(session.id, make_title_from_message(message))
 
-        total_ms = int((time.perf_counter() - started_at) * 1000)
-        save_trace(
-            user_id=user_id,
-            question=message,
-            total_ms=total_ms,
-            retrieval_ms=timings.get("retrieval"),
-            llm_ms=timings.get("llm"),
-            trace_id=trace_id,
-            session_id=session.id,
-            persona_id=session.persona_id,
-            model=timings.get_meta("model"),
-            react_rounds=timings.count("react_rounds"),
-            llm_calls=timings.count("llm_calls"),
-            tool_calls=timings.count("tool_calls"),
-            tool_failures=timings.count("tool_failures"),
-            embed_ms=timings.get("embed"),
-            search_ms=timings.get("search"),
-            rerank_ms=timings.get("rerank"),
-            tool_other_ms=timings.get("tool_other"),
-            prompt_tokens=timings.count("prompt_tokens"),
-            completion_tokens=timings.count("completion_tokens"),
-        )
+            messages = self.prompt_builder.build_messages(context, persona=persona)
+            raw_reply, tool_trace = self.react_orchestrator.run(
+                messages,
+                force_web_search=request.force_web_search,
+                web_search_enabled=request.web_search_enabled,
+                rag_enabled=request.rag_enabled,
+                force_rag=request.force_rag,
+                attachment_ids=request.attachment_ids,
+            )
+            # The model can only select source IDs; public Source objects always come
+            # from the server-side Web/attachment ledgers (attachments now flow
+            # through the search_attachments tool, which populates the ledger).
+            reply = self.response_parser.parse_model_reply(raw_reply)
+            reply = self._finalize_reply_sources(
+                reply,
+                tool_trace,
+                note_references_allowed=request.rag_enabled,
+            )
 
-        return ChatResponse(
-            user_id=user_id,
-            session_id=session.id,
-            message=message,
-            reply=reply,
-            tool_trace=tool_trace,
-        )
+            # 模型回复已经结构化后，再统一保存本轮对话并尝试推进摘要。
+            self.memory_manager.save_turn_and_update_summary(
+                user_id=user_id,
+                session_id=session.id,
+                message=message,
+                reply=reply,
+            )
+
+            return ChatResponse(
+                user_id=user_id,
+                session_id=session.id,
+                message=message,
+                reply=reply,
+                tool_trace=tool_trace,
+            )
+        except Exception:
+            status = "FAILED"
+            raise
+        finally:
+            total_ms = int((time.perf_counter() - started_at) * 1000)
+            save_trace(
+                user_id=request.user_id,
+                question=request.message,
+                total_ms=total_ms,
+                retrieval_ms=timings.get("retrieval"),
+                llm_ms=timings.get("llm"),
+                status=status,
+                trace_id=trace_id,
+                session_id=session_id,
+                persona_id=persona_id,
+                model=timings.get_meta("model"),
+                react_rounds=timings.count("react_rounds"),
+                llm_calls=timings.count("llm_calls"),
+                tool_calls=timings.count("tool_calls"),
+                tool_failures=timings.count("tool_failures"),
+                embed_ms=timings.get("embed"),
+                search_ms=timings.get("search"),
+                rerank_ms=timings.get("rerank"),
+                tool_other_ms=timings.get("tool_other"),
+                prompt_tokens=timings.count("prompt_tokens"),
+                completion_tokens=timings.count("completion_tokens"),
+            )
 
     def chat_stream(self, request: ChatRequest) -> Generator[dict, None, None]:
         """Process a chat request with SSE streaming.

@@ -1,6 +1,6 @@
 USE tutor_agent;
 
-CREATE TABLE retrieval_events (
+CREATE TABLE IF NOT EXISTS retrieval_events (
   id          BIGINT AUTO_INCREMENT PRIMARY KEY,
   trace_id    CHAR(32),
   query       TEXT,
