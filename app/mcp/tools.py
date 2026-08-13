@@ -1,8 +1,7 @@
-﻿"""Business tool wrappers exposed by the Tutor MCP server."""
+"""Business tool wrappers exposed by the Tutor MCP server."""
 from __future__ import annotations
 import json
 from typing import Any
-from app.services.agent.tools.interview_jd_search import search_interview_jds
 from app.services.agent.tools.score_jd_skill_fit import score_jd_skill_fit
 from app.services.agent.tools.search_learning_notes import search_learning_notes
 from app.services.tool_metrics import observe_tool_call
@@ -14,13 +13,6 @@ def tool_search_learning_notes(query: str, limit: int = 3, subject: str | None =
         if subject is not None:
             kwargs["subject"] = subject
         result = search_learning_notes(**kwargs)
-        metric.set_ok(bool(result.get("ok")))
-        return result
-
-def tool_interview_jd_search(query: str, limit: int = 3) -> dict[str, Any]:
-    """Search saved interview job descriptions."""
-    with observe_tool_call("interview_jd_search", "mcp_server") as metric:
-        result = search_interview_jds(query=query, limit=limit)
         metric.set_ok(bool(result.get("ok")))
         return result
 

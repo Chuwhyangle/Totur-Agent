@@ -20,6 +20,10 @@ from app.services.jd_index_builder import build_jd_index
 from app.services.rag_settings import CHROMA_PERSIST_DIR
 
 
+# FR-7：容错门禁——跳过的行超过总行的 10% 时构建失败并报警。
+MAX_SKIP_RATIO = 0.10
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Synchronize corpus/JD into SQLite and Chroma."
@@ -34,10 +38,29 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Ignore the previous manifest and rebuild the complete snapshot.",
     )
+    parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="FR-7: keep the legacy fail-closed behavior (first error raises).",
+    )
     args = parser.parse_args(argv)
 
     try:
-        parents = load_jd_dataset(PROJECT_ROOT)
+        parents, skipped = load_jd_dataset(PROJECT_ROOT, strict=args.strict)
+        total_rows = len(parents) + len(skipped)
+        if skipped and not args.strict:
+            print(
+                f"跳过 {len(skipped)}/{total_rows} 行（{len(skipped) / total_rows:.1%}）："
+            )
+            for item in skipped[:10]:
+                print(f"  - {item.source_path}: {item.reason}")
+            if len(skipped) > 10:
+                print(f"  ... 其余 {len(skipped) - 10} 条略")
+            if total_rows > 0 and len(skipped) / total_rows > MAX_SKIP_RATIO:
+                raise RuntimeError(
+                    f"JD 跳过比例 {len(skipped) / total_rows:.1%} 超过门禁 10%，"
+                    "请检查数据质量后重试。"
+                )
         config = load_embedding_config()
         result = build_jd_index(
             parents=parents,
@@ -65,6 +88,8 @@ def main(argv: list[str] | None = None) -> int:
     )
     if result.manifest is not None:
         print(f"fingerprint={result.manifest.fingerprint}")
+    if not args.strict:
+        print(f"indexed={len(parents)} skipped={len(skipped)}")
     return 0
 
 

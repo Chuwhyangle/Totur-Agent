@@ -16,3 +16,4 @@ class AgentContext:
     recent_history: list[ConversationRecord]
     seed_knowledge_context: str | None = None
     attachment_context: str | None = None
+    private_jd_context: str | None = None

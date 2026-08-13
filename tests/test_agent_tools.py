@@ -3,7 +3,6 @@
 from types import SimpleNamespace
 
 from app.db import database
-from app.repositories.interview_jd_repository import create_interview_jd
 from app.services.agent.tools.executor import ToolExecutor
 from app.services.agent.tools.registry import ToolRegistry
 from app.services.agent.tools.score_jd_skill_fit import score_jd_skill_fit
@@ -12,20 +11,6 @@ import app.services.agent.tools.web_search as web_search_module
 
 def use_temp_database(monkeypatch, tmp_path):
     monkeypatch.setattr(database, "DATABASE_PATH", tmp_path / "test_tutor_agent.db")
-
-
-def test_tool_registry_exposes_interview_jd_search_schema():
-    registry = ToolRegistry()
-
-    tools = registry.get_tools_schema()
-    tool = next(tool for tool in tools if tool["function"]["name"] == "interview_jd_search")
-    parameters = tool["function"]["parameters"]
-
-    assert tool["type"] == "function"
-    assert tool["function"]["name"] == "interview_jd_search"
-    assert set(parameters["properties"]) == {"query", "limit"}
-    assert parameters["required"] == ["query"]
-    assert "id" not in parameters["properties"]
 
 
 def test_tool_registry_exposes_score_jd_skill_fit_schema():
@@ -38,9 +23,9 @@ def test_tool_registry_exposes_score_jd_skill_fit_schema():
     skill_properties = parameters["properties"]["skills"]["items"]["properties"]
 
     assert names == [
-        "interview_jd_search",
         "search_learning_notes",
         "search_job_descriptions",
+        "search_attachments",
         "score_jd_skill_fit",
         "save_journal_entry",
         "web_search",
@@ -196,44 +181,16 @@ def test_score_jd_skill_fit_rejects_skill_without_name():
     }
 
 
-def test_tool_executor_runs_interview_jd_search(monkeypatch, tmp_path):
-    use_temp_database(monkeypatch, tmp_path)
-    create_interview_jd(
-        user_id="demo-user",
-        title="Python AI Agent 开发工程师",
-        raw_text="负责 Agent 工具调用和 RAG 应用开发。",
-        core_skills=["Function Calling", "RAG"],
-        keywords=["Agent", "RAG"],
-        interview_focus=["Agent 工具调用"],
-    )
+def test_tool_executor_accepts_json_string_arguments():
     executor = ToolExecutor()
 
     result = executor.execute(
-        "interview_jd_search",
-        {"query": "Agent RAG", "limit": 1},
+        "score_jd_skill_fit",
+        '{"target_role": "AI Agent", "skills": [{"name": "Python", "jd_importance": 5, "user_level": 4}]}',
     )
 
     assert result["ok"] is True
-    assert result["items"][0]["title"] == "Python AI Agent 开发工程师"
-
-
-def test_tool_executor_accepts_json_string_arguments(monkeypatch, tmp_path):
-    use_temp_database(monkeypatch, tmp_path)
-    create_interview_jd(
-        user_id="demo-user",
-        title="AI 全栈开发工程师",
-        raw_text="负责 Vue 和 Python AI 应用开发。",
-        keywords=["Vue", "Python", "AI 全栈"],
-    )
-    executor = ToolExecutor()
-
-    result = executor.execute(
-        "interview_jd_search",
-        '{"query": "Vue 全栈", "limit": 1}',
-    )
-
-    assert result["ok"] is True
-    assert result["items"][0]["title"] == "AI 全栈开发工程师"
+    assert result["target_role"] == "AI Agent"
 
 
 def test_tool_executor_runs_score_jd_skill_fit():
@@ -332,7 +289,7 @@ def test_tool_executor_returns_structured_error_for_unknown_tool():
 def test_tool_executor_returns_structured_error_for_invalid_arguments():
     executor = ToolExecutor()
 
-    result = executor.execute("interview_jd_search", "{bad json")
+    result = executor.execute("search_learning_notes", "{bad json")
 
     assert result == {
         "ok": False,

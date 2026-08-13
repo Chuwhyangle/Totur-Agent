@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+import time
 from typing import Any
 
 from app.clients.embedding_client import EmbeddingClient, EmbeddingError
+from app.db import trace_db
 from app.repositories.knowledge_repository import KnowledgeHit, KnowledgeRepository
+from app.services import timings
 from app.services.shard_router import ShardRouter
 from app.services.hybrid_retriever import hybrid_search
 from app.services.index_manifest import ManifestError, load_manifest
@@ -60,6 +63,18 @@ def search_learning_notes(
     else:
         index_count = repository.count()
     if index_count == 0:
+        trace_db.save_retrieval_event(
+            trace_id=timings.get_trace_id(),
+            query=query.strip(),
+            collection="notes",
+            top_k=_clamp_limit(limit),
+            hit_count=0,
+            top_score=0.0,
+            min_score=0.0,
+            passed=0,
+            cost_ms=0,
+            rerank_fallback="index_not_built",
+        )
         return {
             "ok": False,
             "error": "index_not_built",
@@ -67,28 +82,46 @@ def search_learning_notes(
         }
 
     stripped_query = query.strip()
+    retrieval_started_at = time.perf_counter()
+    embed_started_at = time.perf_counter()
     try:
-        query_embedding = _get_embedding_client().embed_texts([stripped_query])[0]
+        with timings.track("embed"):
+            query_embedding = _get_embedding_client().embed_texts([stripped_query])[0]
     except (EmbeddingError, IndexError):
+        trace_db.save_retrieval_event(
+            trace_id=timings.get_trace_id(),
+            query=stripped_query,
+            collection="notes",
+            passed=0,
+            cost_ms=int((time.perf_counter() - retrieval_started_at) * 1000),
+            rerank_fallback="embedding_failed",
+        )
         return {
             "ok": False,
             "error": "embedding_failed",
             "message": "知识库检索失败，请稍后重试。",
         }
+    embed_ms = int((time.perf_counter() - embed_started_at) * 1000)
 
     candidate_k = RERANK_CANDIDATE_K if ENABLE_RERANKING else safe_limit
-    hits = _retrieve_hits(
-        repository=repository,
-        query=stripped_query,
-        query_embedding=query_embedding,
-        top_k=candidate_k,
-        subject=subject,
-        router=router,
-    )
+    search_started_at = time.perf_counter()
+    with timings.track("search"):
+        raw_hits = _retrieve_hits(
+            repository=repository,
+            query=stripped_query,
+            query_embedding=query_embedding,
+            top_k=candidate_k,
+            subject=subject,
+            router=router,
+        )
+    search_ms = int((time.perf_counter() - search_started_at) * 1000)
     # Hybrid scores are normalized to 0-1; keep threshold semantics aligned with eval.
-    hits = [hit for hit in hits if hit.similarity >= SIMILARITY_THRESHOLD]
+    hits = [hit for hit in raw_hits if hit.similarity >= SIMILARITY_THRESHOLD]
 
     summary: dict[str, Any]
+    rerank_ms: int | None = None
+    rerank_applied: int | None = None
+    rerank_fallback: str | None = None
     if ENABLE_RERANKING:
         original_indices = {id(hit): index for index, hit in enumerate(hits)}
         outcome = _get_reranking_service().rerank(
@@ -96,6 +129,10 @@ def search_learning_notes(
             hits,
             top_n=min(safe_limit, RAG_TOP_K),
         )
+        timings.bump_ms("rerank", outcome.latency_ms)
+        rerank_ms = outcome.latency_ms
+        rerank_applied = int(outcome.applied)
+        rerank_fallback = outcome.fallback_reason
         items = [
             _item_from_hit(
                 hit,
@@ -118,6 +155,27 @@ def search_learning_notes(
         # Preserve the pre-v0.6 response shape and ranking while the feature is off.
         items = [_item_from_hit(hit) for hit in hits]
         summary = {"returned_count": len(items)}
+
+    raw_scores = [hit.similarity for hit in raw_hits]
+    trace_db.save_retrieval_event(
+        trace_id=timings.get_trace_id(),
+        query=stripped_query,
+        collection="notes",
+        embed_ms=embed_ms,
+        search_ms=search_ms,
+        rerank_ms=rerank_ms,
+        cost_ms=int((time.perf_counter() - retrieval_started_at) * 1000),
+        top_k=candidate_k,
+        candidate_count=len(raw_hits),
+        hit_count=len(items),
+        top_score=max(raw_scores, default=0.0),
+        min_score=min(raw_scores, default=0.0),
+        passed=int(bool(items)),
+        threshold=SIMILARITY_THRESHOLD,
+        rerank_applied=rerank_applied,
+        rerank_fallback=rerank_fallback,
+        corpus_fingerprint=_get_manifest_fingerprint(),
+    )
 
     result: dict[str, Any] = {
         "ok": True,

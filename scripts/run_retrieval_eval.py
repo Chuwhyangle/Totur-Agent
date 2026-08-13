@@ -62,6 +62,18 @@ def main() -> int:
     parser.add_argument("--eval-file", type=Path, default=DEFAULT_EVAL_FILE)
     parser.add_argument("--corpus-root", type=Path, default=DEFAULT_CORPUS_ROOT)
     parser.add_argument(
+        "--corpus",
+        choices=["notes", "jd"],
+        default="notes",
+        help="Evaluate the notes corpus (learning_notes) or the JD corpus (job_descriptions).",
+    )
+    parser.add_argument(
+        "--child-type",
+        choices=["jd_text", "job_info"],
+        default=None,
+        help="FR-6: restrict JD retrieval to one child type for the job_info存废 sub-experiment.",
+    )
+    parser.add_argument(
         "--use-existing-index",
         action="store_true",
         help="Evaluate the persistent local index instead of rebuilding frozen corpus.",
@@ -261,6 +273,44 @@ def main() -> int:
             )
             summary["mode"] = args.mode
             summary["routing"] = "unified"
+            summary["latency_ms"] = _latency_summary(latencies_ms)
+            summary["retrieval_latency_ms"] = summary["latency_ms"]
+            summary["reranking"] = {
+                "enabled": False,
+                "candidate_k": None,
+                "provider": None,
+                "model": None,
+                "latency_ms": _rerank_latency_summary([]),
+                "applied_count": 0,
+                "fallback_count": 0,
+            }
+            attach_manifest_summary(summary, manifest)
+            summary["manual_cosine_check"] = _run_manual_cosine_check(
+                cases=cases,
+                repository=repository,
+                embedding_client=embedding_client,
+                manifest=manifest,
+            )
+            if args.json:
+                print(json.dumps(summary, ensure_ascii=False, indent=2))
+            else:
+                _print_summary(summary)
+            return 0
+
+        # FR-6: --corpus jd 时全部用例走 JD 检索，不按 group 分流。
+        if args.corpus == "jd":
+            if args.child_type:
+                jd_search = jd_child_type_search_for_eval(args.child_type)
+            else:
+                jd_search = jd_search_for_eval
+            summary = evaluate_cases(
+                cases=cases,
+                search=jd_search,
+                top_k=args.top_k,
+                threshold=args.threshold,
+            )
+            summary["mode"] = args.mode
+            summary["routing"] = "jd-corpus"
             summary["latency_ms"] = _latency_summary(latencies_ms)
             summary["retrieval_latency_ms"] = summary["latency_ms"]
             summary["reranking"] = {
@@ -543,6 +593,44 @@ def jd_search_for_eval(
             )
         )
     return hits
+
+
+def jd_child_type_search_for_eval(child_type: str):
+    """FR-6: 按 child_type 过滤的 JD 向量检索，用于 job_info 存废子实验。
+
+    直接查询 job_descriptions 集合的子向量，where child_type 过滤，
+    返回父 source 去重后的命中（与 search_job_descriptions 的父文档语义对齐）。
+    """
+
+    from app.clients.embedding_client import EmbeddingClient
+    from app.repositories.jd_vector_repository import JDVectorRepository
+
+    repository = JDVectorRepository()
+    embedding_client = EmbeddingClient()
+
+    def search(query: str, top_k: int, subject: str | None = None) -> list[KnowledgeHit]:
+        query_embedding = embedding_client.embed_texts([query.strip()])[0]
+        raw_hits = repository.search(
+            query_embedding,
+            max(top_k * 4, 20),
+            where={"child_type": child_type},
+        )
+        # 按父 source 去重，保留最高相似度命中。
+        best_by_source: dict[str, KnowledgeHit] = {}
+        for hit in raw_hits:
+            if not hit.source:
+                continue
+            current = best_by_source.get(hit.source)
+            if current is None or hit.similarity > current.similarity:
+                best_by_source[hit.source] = hit
+        ranked = sorted(
+            best_by_source.values(),
+            key=lambda hit: hit.similarity,
+            reverse=True,
+        )
+        return ranked[:top_k]
+
+    return search
 
 
 def attach_manifest_summary(summary: dict, manifest: IndexManifest) -> None:
