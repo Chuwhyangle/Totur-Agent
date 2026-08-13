@@ -1,12 +1,15 @@
 """Tests for the Tutor Agent tool registry and executor."""
 
 from types import SimpleNamespace
+import time
 
 from app.db import database
+from app.services import timings
 from app.services.agent.tools.executor import ToolExecutor
 from app.services.agent.tools.registry import ToolRegistry
 from app.services.agent.tools.score_jd_skill_fit import score_jd_skill_fit
 import app.services.agent.tools.web_search as web_search_module
+import app.services.agent.tools.executor as executor_module
 
 
 def use_temp_database(monkeypatch, tmp_path):
@@ -296,3 +299,81 @@ def test_tool_executor_returns_structured_error_for_invalid_arguments():
         "error": "invalid_arguments",
         "message": "tool arguments must be a JSON object.",
     }
+
+
+def test_tool_executor_records_all_return_paths(monkeypatch):
+    class FakeRegistry:
+        def __init__(self, tools):
+            self.tools = tools
+
+        def get_tool(self, name):
+            return self.tools.get(name)
+
+        def is_external_tool(self, name):
+            return False
+
+    def raises_type_error():
+        raise TypeError("bad argument")
+
+    def raises_runtime_error():
+        raise RuntimeError("tool failed")
+
+    registry = FakeRegistry(
+        {
+            "ok_tool": lambda: {"ok": True},
+            "type_error_tool": raises_type_error,
+            "runtime_error_tool": raises_runtime_error,
+        }
+    )
+    recorded = []
+    monkeypatch.setattr(
+        executor_module,
+        "save_tool_call",
+        lambda **kwargs: recorded.append(kwargs),
+    )
+    executor = ToolExecutor(registry=registry)
+
+    cases = [
+        ("missing_tool", {}, "tool_not_found"),
+        ("ok_tool", "{bad json", "invalid_arguments"),
+        ("ok_tool", {}, None),
+        ("type_error_tool", {}, "invalid_arguments"),
+        ("runtime_error_tool", {}, "tool_execution_failed"),
+    ]
+    for name, arguments, error_code in cases:
+        timings.start_request()
+        result = executor.execute(name, arguments)
+        assert recorded[-1]["tool_name"] == name
+        assert recorded[-1]["error_code"] == error_code
+        assert recorded[-1]["ok"] == int(error_code is None)
+        if error_code is not None:
+            assert result["error"] == error_code
+
+    assert len(recorded) == len(cases)
+
+
+def test_tool_call_write_time_is_not_added_to_retrieval_bucket(monkeypatch):
+    class FakeRegistry:
+        def get_tool(self, name):
+            return lambda: {"ok": True}
+
+        def is_external_tool(self, name):
+            return False
+
+    recorded = []
+
+    def slow_save_tool_call(**kwargs):
+        recorded.append(kwargs)
+        time.sleep(0.03)
+
+    monkeypatch.setattr(executor_module, "save_tool_call", slow_save_tool_call)
+    timings.start_request()
+
+    result = ToolExecutor(registry=FakeRegistry()).execute(
+        "search_learning_notes",
+        {},
+    )
+
+    assert result == {"ok": True}
+    assert len(recorded) == 1
+    assert timings.get("retrieval") <= recorded[0]["cost_ms"] + 2

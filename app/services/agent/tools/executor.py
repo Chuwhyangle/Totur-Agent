@@ -72,56 +72,44 @@ class ToolExecutor:
 
         bucket = "retrieval" if name == RAG_TOOL_NAME else "tool_other"
         started_at = time.perf_counter()
+        ok = False
+        error_code = None
+        result = None
 
         try:
             with timings.track(bucket):
                 if self._is_external_tool(name):
                     result = tool(**merged_arguments)
-                    self._record_tool_call(
-                        name,
-                        merged_arguments,
-                        ok=_result_ok(result),
-                        error_code=None,
-                        cost_ms=int((time.perf_counter() - started_at) * 1000),
-                    )
-                    return result
-                with observe_tool_call(name, "internal") as metric:
-                    result = tool(**merged_arguments)
-                    metric.set_ok(_result_ok(result))
-                    self._record_tool_call(
-                        name,
-                        merged_arguments,
-                        ok=_result_ok(result),
-                        error_code=None,
-                        cost_ms=int((time.perf_counter() - started_at) * 1000),
-                    )
-                    return result
+                    ok = _result_ok(result)
+                else:
+                    with observe_tool_call(name, "internal") as metric:
+                        result = tool(**merged_arguments)
+                        ok = _result_ok(result)
+                        metric.set_ok(ok)
         except TypeError as exc:
-            self._record_tool_call(
-                name,
-                merged_arguments,
-                ok=False,
-                error_code="invalid_arguments",
-                cost_ms=int((time.perf_counter() - started_at) * 1000),
-            )
-            return {
+            error_code = "invalid_arguments"
+            result = {
                 "ok": False,
                 "error": "invalid_arguments",
                 "message": f"invalid tool arguments: {exc}",
             }
         except Exception as exc:  # pragma: no cover - defensive boundary.
-            self._record_tool_call(
-                name,
-                merged_arguments,
-                ok=False,
-                error_code="tool_execution_failed",
-                cost_ms=int((time.perf_counter() - started_at) * 1000),
-            )
-            return {
+            error_code = "tool_execution_failed"
+            result = {
                 "ok": False,
                 "error": "tool_execution_failed",
                 "message": f"tool execution failed: {exc}",
             }
+        finally:
+            self._record_tool_call(
+                name,
+                merged_arguments,
+                ok=ok,
+                error_code=error_code,
+                cost_ms=int((time.perf_counter() - started_at) * 1000),
+            )
+
+        return result
 
     def _record_tool_call(
         self,
