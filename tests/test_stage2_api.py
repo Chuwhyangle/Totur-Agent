@@ -21,7 +21,6 @@ from app.repositories.conversation_repository import (
     list_recent_conversations,
     save_conversation,
 )
-from app.repositories.interview_jd_repository import create_interview_jd
 from app.repositories.session_repository import (
     create_session,
     list_sessions,
@@ -1449,19 +1448,11 @@ def test_chat_skips_bad_history_reply_json_without_crashing(monkeypatch, tmp_pat
     ]
 
 
-def test_chat_executes_interview_jd_tool_call_and_uses_second_model_reply(
+def test_chat_executes_score_jd_skill_fit_tool_call_and_uses_second_model_reply(
     monkeypatch,
     tmp_path,
 ):
     use_temp_database(monkeypatch, tmp_path)
-    create_interview_jd(
-        user_id="demo-user",
-        title="Python AI Agent 开发工程师",
-        raw_text="负责 Agent 工具调用和 RAG 应用开发。",
-        core_skills=["Function Calling", "RAG"],
-        keywords=["Agent", "RAG"],
-        interview_focus=["Agent 工具调用"],
-    )
     final_model_reply = json.dumps(
         {
             "answer": "根据 JD，这个岗位重点考 Agent 工具调用和 RAG。我先问你：Function Calling 在 Agent 系统里解决了什么问题？",
@@ -1480,7 +1471,7 @@ def test_chat_executes_interview_jd_tool_call_and_uses_second_model_reply(
     model_call_count = 0
 
     def fake_call_model_with_tools(messages):
-        """第一次请求 JD 搜索工具，第二次基于工具结果返回最终回复。"""
+        """第一次请求评分工具，第二次基于工具结果返回最终回复。"""
 
         nonlocal model_call_count
         model_call_count += 1
@@ -1490,11 +1481,30 @@ def test_chat_executes_interview_jd_tool_call_and_uses_second_model_reply(
                 "content": None,
                 "tool_calls": [
                     {
-                        "id": "call_interview_jd_1",
+                        "id": "call_score_fit_1",
                         "type": "function",
                         "function": {
-                            "name": "interview_jd_search",
-                            "arguments": '{"query": "Agent RAG 面试", "limit": 1}',
+                            "name": "score_jd_skill_fit",
+                            "arguments": json.dumps(
+                                {
+                                    "target_role": "Python AI Agent",
+                                    "skills": [
+                                        {
+                                            "name": "Function Calling",
+                                            "jd_importance": 5,
+                                            "user_level": 3,
+                                            "confidence": "high",
+                                        },
+                                        {
+                                            "name": "RAG",
+                                            "jd_importance": 5,
+                                            "user_level": 1,
+                                            "confidence": "high",
+                                        },
+                                    ],
+                                },
+                                ensure_ascii=False,
+                            ),
                         },
                     }
                 ],
@@ -1520,40 +1530,10 @@ def test_chat_executes_interview_jd_tool_call_and_uses_second_model_reply(
     assert response.status_code == 200
     body = response.json()
     assert body["reply"]["answer"].startswith("根据 JD")
-    assert body["tool_trace"] == {
-        "used": True,
-        "calls": [
-            {
-                "round": 1,
-                "name": "interview_jd_search",
-                "arguments": {
-                    "query": "Agent RAG 面试",
-                    "limit": 1,
-                },
-                "ok": True,
-                "returned_count": 1,
-                "top_titles": ["Python AI Agent 开发工程师"],
-                "result_preview": [
-                    {
-                        "title": "Python AI Agent 开发工程师",
-                        "match_score": 18,
-                        "matched_fields": [
-                            "title",
-                            "core_skills",
-                            "keywords",
-                            "interview_focus",
-                            "raw_text",
-                        ],
-                        "core_skills": ["Function Calling", "RAG"],
-                        "keywords": ["Agent", "RAG"],
-                        "interview_focus": ["Agent 工具调用"],
-                        "raw_text_excerpt": "负责 Agent 工具调用和 RAG 应用开发。",
-                    }
-                ],
-                "error": None,
-            }
-        ],
-    }
+    assert body["tool_trace"]["used"] is True
+    assert body["tool_trace"]["calls"][0]["name"] == "score_jd_skill_fit"
+    assert body["tool_trace"]["calls"][0]["ok"] is True
+    assert body["tool_trace"]["calls"][0]["returned_count"] is None
     assert len(first_call_messages) > 0
 
     assistant_tool_messages = [
@@ -1566,15 +1546,14 @@ def test_chat_executes_interview_jd_tool_call_and_uses_second_model_reply(
     ]
     assert len(assistant_tool_messages) == 1
     assert len(tool_result_messages) == 1
-    assert tool_result_messages[0]["tool_call_id"] == "call_interview_jd_1"
+    assert tool_result_messages[0]["tool_call_id"] == "call_score_fit_1"
 
     tool_result = json.loads(tool_result_messages[0]["content"])
     assert tool_result["ok"] is True
-    assert tool_result["items"][0]["title"] == "Python AI Agent 开发工程师"
-    assert "id" not in tool_result["items"][0]
 
     records = list_recent_conversations("demo-user", limit=1)
     assert records[0].message == "我想练 AI Agent 岗位面试，问我一道题。"
+
 
 
 def test_chat_traces_score_jd_skill_fit_preview(monkeypatch, tmp_path):
@@ -1693,6 +1672,7 @@ def test_chat_traces_score_jd_skill_fit_preview(monkeypatch, tmp_path):
                 "ok": True,
                 "returned_count": None,
                 "top_titles": [],
+                "routing_forced": False,
                 "result_preview": [
                     {
                         "target_role": "AI Agent",
@@ -1713,24 +1693,16 @@ def test_chat_traces_score_jd_skill_fit_preview(monkeypatch, tmp_path):
 
 
 def test_chat_accepts_two_tool_rounds_before_final_reply(monkeypatch, tmp_path):
-    """验收 ReAct：/chat 可先查 JD，再评分，第三轮生成最终回复。"""
+    """验收 ReAct：/chat 可先查笔记，再评分，第三轮生成最终回复。"""
 
     use_temp_database(monkeypatch, tmp_path)
-    create_interview_jd(
-        user_id="demo-user",
-        title="Python AI Agent 开发工程师",
-        raw_text="负责 Agent 工具调用、RAG 检索和 FastAPI 服务开发。",
-        core_skills=["Function Calling", "RAG", "FastAPI"],
-        keywords=["Agent", "RAG", "FastAPI"],
-        interview_focus=["Agent 工具调用", "RAG 检索"],
-    )
     final_model_reply = json.dumps(
         {
-            "answer": "我先查到了 AI Agent JD，再结合你的技能做了匹配评分。当前优势是 FastAPI，主要短板是 RAG。",
+            "answer": "我先查到了相关笔记，再结合你的技能做了匹配评分。当前优势是 FastAPI，主要短板是 RAG。",
             "next_task": "先补一个最小 RAG 检索闭环。",
             "exercise": "用三句话解释 query、retrieval、generation 的关系。",
             "checkpoints": [
-                "能说明 JD 依据",
+                "能说明笔记依据",
                 "能说明技能优势",
                 "能说明最高优先级短板",
             ],
@@ -1741,8 +1713,37 @@ def test_chat_accepts_two_tool_rounds_before_final_reply(monkeypatch, tmp_path):
     second_round_messages = []
     final_round_messages = []
 
+    def fake_learning_notes(query, limit=3):
+        return {
+            "ok": True,
+            "found": True,
+            "query": query,
+            "count": 1,
+            "items": [
+                {
+                    "title": "RAG 检索链路笔记",
+                    "content": "RAG 检索链路：query 向量化、ANN 检索、threshold 过滤。",
+                    "source": "docs/rag/retrieval.md",
+                    "title_path": "RAG 检索链路",
+                    "similarity": 0.9,
+                    "match_score": 90,
+                    "raw_text_excerpt": "RAG 检索链路：query 向量化、ANN 检索、threshold 过滤。",
+                }
+            ],
+            "summary": {"returned_count": 1},
+        }
+
+    monkeypatch.setattr(
+        chat_route.tutor_agent_service.tool_executor.registry,
+        "_tools",
+        {
+            **chat_route.tutor_agent_service.tool_executor.registry._tools,
+            "search_learning_notes": fake_learning_notes,
+        },
+    )
+
     def fake_call_model_with_tools(messages):
-        """第 1 轮查 JD，第 2 轮评分，第 3 轮输出最终回答。"""
+        """第 1 轮查笔记，第 2 轮评分，第 3 轮输出最终回答。"""
 
         nonlocal model_call_count
         model_call_count += 1
@@ -1751,11 +1752,11 @@ def test_chat_accepts_two_tool_rounds_before_final_reply(monkeypatch, tmp_path):
                 "content": None,
                 "tool_calls": [
                     {
-                        "id": "call_search_jd",
+                        "id": "call_search_notes",
                         "type": "function",
                         "function": {
-                            "name": "interview_jd_search",
-                            "arguments": '{"query": "Python AI Agent", "limit": 1}',
+                            "name": "search_learning_notes",
+                            "arguments": '{"query": "RAG 检索链路", "limit": 1}',
                         },
                     }
                 ],
@@ -1809,17 +1810,17 @@ def test_chat_accepts_two_tool_rounds_before_final_reply(monkeypatch, tmp_path):
         "/chat",
         json={
             "user_id": "demo-user",
-            "message": "我会 FastAPI，但 RAG 不熟。按 AI Agent JD 帮我评估差距。",
+            "message": "我会 FastAPI，但 RAG 不熟。帮我评估差距。",
         },
     )
 
     body = response.json()
     assert response.status_code == 200
-    assert body["reply"]["answer"].startswith("我先查到了 AI Agent JD")
+    assert body["reply"]["answer"].startswith("我先查到了相关笔记")
     assert model_call_count == 3
     assert [call["round"] for call in body["tool_trace"]["calls"]] == [1, 2]
     assert [call["name"] for call in body["tool_trace"]["calls"]] == [
-        "interview_jd_search",
+        "search_learning_notes",
         "score_jd_skill_fit",
     ]
     assert any(message["role"] == "tool" for message in second_round_messages)

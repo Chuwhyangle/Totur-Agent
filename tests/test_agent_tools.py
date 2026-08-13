@@ -1,31 +1,19 @@
 """Tests for the Tutor Agent tool registry and executor."""
 
 from types import SimpleNamespace
+import time
 
 from app.db import database
-from app.repositories.interview_jd_repository import create_interview_jd
+from app.services import timings
 from app.services.agent.tools.executor import ToolExecutor
 from app.services.agent.tools.registry import ToolRegistry
 from app.services.agent.tools.score_jd_skill_fit import score_jd_skill_fit
 import app.services.agent.tools.web_search as web_search_module
+import app.services.agent.tools.executor as executor_module
 
 
 def use_temp_database(monkeypatch, tmp_path):
     monkeypatch.setattr(database, "DATABASE_PATH", tmp_path / "test_tutor_agent.db")
-
-
-def test_tool_registry_exposes_interview_jd_search_schema():
-    registry = ToolRegistry()
-
-    tools = registry.get_tools_schema()
-    tool = next(tool for tool in tools if tool["function"]["name"] == "interview_jd_search")
-    parameters = tool["function"]["parameters"]
-
-    assert tool["type"] == "function"
-    assert tool["function"]["name"] == "interview_jd_search"
-    assert set(parameters["properties"]) == {"query", "limit"}
-    assert parameters["required"] == ["query"]
-    assert "id" not in parameters["properties"]
 
 
 def test_tool_registry_exposes_score_jd_skill_fit_schema():
@@ -38,9 +26,9 @@ def test_tool_registry_exposes_score_jd_skill_fit_schema():
     skill_properties = parameters["properties"]["skills"]["items"]["properties"]
 
     assert names == [
-        "interview_jd_search",
         "search_learning_notes",
         "search_job_descriptions",
+        "search_attachments",
         "score_jd_skill_fit",
         "save_journal_entry",
         "web_search",
@@ -196,44 +184,16 @@ def test_score_jd_skill_fit_rejects_skill_without_name():
     }
 
 
-def test_tool_executor_runs_interview_jd_search(monkeypatch, tmp_path):
-    use_temp_database(monkeypatch, tmp_path)
-    create_interview_jd(
-        user_id="demo-user",
-        title="Python AI Agent 开发工程师",
-        raw_text="负责 Agent 工具调用和 RAG 应用开发。",
-        core_skills=["Function Calling", "RAG"],
-        keywords=["Agent", "RAG"],
-        interview_focus=["Agent 工具调用"],
-    )
+def test_tool_executor_accepts_json_string_arguments():
     executor = ToolExecutor()
 
     result = executor.execute(
-        "interview_jd_search",
-        {"query": "Agent RAG", "limit": 1},
+        "score_jd_skill_fit",
+        '{"target_role": "AI Agent", "skills": [{"name": "Python", "jd_importance": 5, "user_level": 4}]}',
     )
 
     assert result["ok"] is True
-    assert result["items"][0]["title"] == "Python AI Agent 开发工程师"
-
-
-def test_tool_executor_accepts_json_string_arguments(monkeypatch, tmp_path):
-    use_temp_database(monkeypatch, tmp_path)
-    create_interview_jd(
-        user_id="demo-user",
-        title="AI 全栈开发工程师",
-        raw_text="负责 Vue 和 Python AI 应用开发。",
-        keywords=["Vue", "Python", "AI 全栈"],
-    )
-    executor = ToolExecutor()
-
-    result = executor.execute(
-        "interview_jd_search",
-        '{"query": "Vue 全栈", "limit": 1}',
-    )
-
-    assert result["ok"] is True
-    assert result["items"][0]["title"] == "AI 全栈开发工程师"
+    assert result["target_role"] == "AI Agent"
 
 
 def test_tool_executor_runs_score_jd_skill_fit():
@@ -332,10 +292,88 @@ def test_tool_executor_returns_structured_error_for_unknown_tool():
 def test_tool_executor_returns_structured_error_for_invalid_arguments():
     executor = ToolExecutor()
 
-    result = executor.execute("interview_jd_search", "{bad json")
+    result = executor.execute("search_learning_notes", "{bad json")
 
     assert result == {
         "ok": False,
         "error": "invalid_arguments",
         "message": "tool arguments must be a JSON object.",
     }
+
+
+def test_tool_executor_records_all_return_paths(monkeypatch):
+    class FakeRegistry:
+        def __init__(self, tools):
+            self.tools = tools
+
+        def get_tool(self, name):
+            return self.tools.get(name)
+
+        def is_external_tool(self, name):
+            return False
+
+    def raises_type_error():
+        raise TypeError("bad argument")
+
+    def raises_runtime_error():
+        raise RuntimeError("tool failed")
+
+    registry = FakeRegistry(
+        {
+            "ok_tool": lambda: {"ok": True},
+            "type_error_tool": raises_type_error,
+            "runtime_error_tool": raises_runtime_error,
+        }
+    )
+    recorded = []
+    monkeypatch.setattr(
+        executor_module,
+        "save_tool_call",
+        lambda **kwargs: recorded.append(kwargs),
+    )
+    executor = ToolExecutor(registry=registry)
+
+    cases = [
+        ("missing_tool", {}, "tool_not_found"),
+        ("ok_tool", "{bad json", "invalid_arguments"),
+        ("ok_tool", {}, None),
+        ("type_error_tool", {}, "invalid_arguments"),
+        ("runtime_error_tool", {}, "tool_execution_failed"),
+    ]
+    for name, arguments, error_code in cases:
+        timings.start_request()
+        result = executor.execute(name, arguments)
+        assert recorded[-1]["tool_name"] == name
+        assert recorded[-1]["error_code"] == error_code
+        assert recorded[-1]["ok"] == int(error_code is None)
+        if error_code is not None:
+            assert result["error"] == error_code
+
+    assert len(recorded) == len(cases)
+
+
+def test_tool_call_write_time_is_not_added_to_retrieval_bucket(monkeypatch):
+    class FakeRegistry:
+        def get_tool(self, name):
+            return lambda: {"ok": True}
+
+        def is_external_tool(self, name):
+            return False
+
+    recorded = []
+
+    def slow_save_tool_call(**kwargs):
+        recorded.append(kwargs)
+        time.sleep(0.03)
+
+    monkeypatch.setattr(executor_module, "save_tool_call", slow_save_tool_call)
+    timings.start_request()
+
+    result = ToolExecutor(registry=FakeRegistry()).execute(
+        "search_learning_notes",
+        {},
+    )
+
+    assert result == {"ok": True}
+    assert len(recorded) == 1
+    assert timings.get("retrieval") <= recorded[0]["cost_ms"] + 2

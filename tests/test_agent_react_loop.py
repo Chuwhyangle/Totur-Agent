@@ -127,7 +127,7 @@ def test_max_tool_rounds_lives_in_central_settings():
     """ReAct 最大工具轮次应放在统一配置文件里，避免散落硬编码。"""
 
     assert hasattr(memory_settings, "MAX_TOOL_ROUNDS")
-    assert memory_settings.MAX_TOOL_ROUNDS == 3
+    assert memory_settings.MAX_TOOL_ROUNDS == 4
 
 
 def test_tool_observation_max_chars_lives_in_central_settings():
@@ -512,6 +512,7 @@ def test_react_loop_trace_keeps_a_stable_public_shape():
         "top_titles",
         "result_preview",
         "error",
+        "routing_forced",
     }
     assert dumped["calls"][0]["round"] == 1
     assert dumped["calls"][0]["result_preview"] == [

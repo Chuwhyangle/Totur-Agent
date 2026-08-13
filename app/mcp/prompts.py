@@ -1,4 +1,4 @@
-﻿"""MCP prompts derived from Tutor Agent personas and teaching flows."""
+"""MCP prompts derived from Tutor Agent personas and teaching flows."""
 from __future__ import annotations
 from app.services.agent.personas import build_system_prompt, get_persona
 
@@ -18,4 +18,4 @@ def render_quiz_prompt(topic: str, count: int = 3) -> str:
 
 def render_interview_prompt(target_role: str) -> str:
     role = (target_role or "").strip() or "目标技术岗位"
-    return f"你是 {role} 的模拟面试官。先调用 interview_jd_search 获取依据，必要时调用 score_jd_skill_fit。一次只问一个问题，回答后指出亮点、缺口和追问方向。"
+    return f"你是 {role} 的模拟面试官。先调用 search_job_descriptions 获取岗位 JD 依据（没有公开岗位时再参考用户保存的目标岗位信息），必要时调用 score_jd_skill_fit。一次只问一个问题，回答后指出亮点、缺口和追问方向。"

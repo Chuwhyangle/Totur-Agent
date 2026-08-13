@@ -25,6 +25,10 @@ RERANK_MAX_RETRIES = 0
 # 相似度低于该阈值的结果会被丢弃；v0.4 评测集基线校准为 0.45。
 SIMILARITY_THRESHOLD = 0.45
 
+# FR-6: JD 语料独立阈值。JD 是名词/表格形态，cosine 分布与散文语料不同，
+# 阈值不可与学习笔记共用。当前值待 jd_retrieval_eval.jsonl 阈值扫描校准。
+JD_SIMILARITY_THRESHOLD = 0.45
+
 # Chroma 集合名，后续工具和脚本都通过这个名字访问学习笔记索引。
 KNOWLEDGE_COLLECTION_NAME = "learning_notes"
 

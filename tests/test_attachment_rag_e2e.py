@@ -467,9 +467,15 @@ def test_retry_hides_ownership_session_ttl_and_existence(rag_harness, access_cas
         assert get_document(record.id) is not None
 
 
-def test_ready_attachment_with_missing_vectors_returns_stable_409_without_llm(
+def test_ready_attachment_with_missing_vectors_returns_stable_response_without_pre_retrieval(
     rag_harness,
 ):
+    """FR-3：索引缺失不再在 service 层映射 409；附件检索移到工具内。
+
+    工具化的核心是：service 层不再预检索，错误由 search_attachments 工具
+    在 ReAct 内返回错误信封，LLM 决定如何处理。
+    """
+
     session = create_session("alice")
     record = _create_record(rag_harness, "alice", session.id, name="indexed.pdf")
     ready = rag_harness.processing.process_attachment(record.id)
@@ -486,12 +492,15 @@ def test_ready_attachment_with_missing_vectors_returns_stable_409_without_llm(
             "What is the Orion code?",
         )
 
-    assert response.status_code == 409
-    assert response.json() == {"detail": {"error": "attachment_index_missing"}}
-    assert rag_harness.fake_llm.calls == []
+    # 工具化后：检索发生在工具内，service 层不再预检索，
+    # 因此请求正常进入 ReAct（LLM 被调用），不再 409。
+    assert response.status_code == 200
+    assert rag_harness.fake_llm.calls
 
 
-def test_low_similarity_is_distinct_empty_recall_and_never_calls_llm(rag_harness):
+def test_low_similarity_reaches_react_loop_without_service_pre_retrieval(rag_harness):
+    """FR-3：低相似度不再在 service 层映射 422；交给工具在 ReAct 内处理。"""
+
     session = create_session("alice")
     record = _create_record(rag_harness, "alice", session.id, name="similarity.pdf")
     ready = rag_harness.processing.process_attachment(record.id)
@@ -507,11 +516,8 @@ def test_low_similarity_is_distinct_empty_recall_and_never_calls_llm(rag_harness
             "unrelated-weather-question",
         )
 
-    assert response.status_code == 422
-    assert response.json() == {
-        "detail": {"error": "attachment_no_relevant_evidence"}
-    }
-    assert rag_harness.fake_llm.calls == []
+    assert response.status_code == 200
+    assert rag_harness.fake_llm.calls
 
 
 def test_startup_recovery_immediately_requeues_fresh_inflight_records(

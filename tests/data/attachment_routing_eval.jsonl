@@ -1,0 +1,9 @@
+{"id":"att_pos_001","query":"根据我上传的简历，我的项目经历里有哪些亮点？","expected_sources":[],"expected_title_keywords":[],"notes":"附件类：简历内容分析","group":"attachment","expected_tool":"search_attachments"}
+{"id":"att_pos_002","query":"这个 PDF 附件里关于 RAG 架构的核心结论是什么？","expected_sources":[],"expected_title_keywords":[],"notes":"附件类：文档总结","group":"attachment","expected_tool":"search_attachments"}
+{"id":"att_pos_003","query":"我上传的学习资料里，FastAPI 依赖注入讲了什么？","expected_sources":[],"expected_title_keywords":[],"notes":"附件类：从附件查资料","group":"attachment","expected_tool":"search_attachments"}
+{"id":"att_pos_004","query":"这份简历上写的技术栈和我学的匹配吗？","expected_sources":[],"expected_title_keywords":[],"notes":"附件类：简历匹配评估","group":"attachment","expected_tool":"search_attachments"}
+{"id":"att_pos_005","query":"附件里的项目文档对这个功能的验收标准是什么？","expected_sources":[],"expected_title_keywords":[],"notes":"附件类：验收标准","group":"attachment","expected_tool":"search_attachments"}
+{"id":"att_pos_006","query":"我上传的作业里，第三题你帮我看看思路对不对？","expected_sources":[],"expected_title_keywords":[],"notes":"附件类：作业批改","group":"attachment","expected_tool":"search_attachments"}
+{"id":"att_neg_001","query":"帮我解释一下什么是 SQL 索引？","expected_sources":[],"expected_title_keywords":[],"notes":"附件门控负例：上传了文件但问的是通用概念","group":"attachment_gate","expected_tool":null}
+{"id":"att_neg_002","query":"今天天气怎么样？","expected_sources":[],"expected_title_keywords":[],"notes":"附件门控负例：问题与附件无关","group":"attachment_gate","expected_tool":null}
+{"id":"att_neg_003","query":"RAG 和微调的区别是什么？","expected_sources":[],"expected_title_keywords":[],"notes":"附件门控负例：通用技术问题","group":"attachment_gate","expected_tool":null}

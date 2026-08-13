@@ -23,12 +23,24 @@ class RetrievalEvalCase:
     notes: str = ""
     group: str = "default"
     subject: str | None = None
+    # FR-5 路由评测：期望调用的工具名（单工具用例）或多个工具（跨语料域）
+    expected_tool: str | None = None
+    expected_tools: tuple[str, ...] = ()
 
     @property
     def is_negative(self) -> bool:
         """没有期望来源的用例就是负例。"""
 
         return not self.expected_sources
+
+    @property
+    def expected_tool_set(self) -> set[str]:
+        """合并 expected_tool 与 expected_tools 为集合。"""
+
+        tools = set(self.expected_tools)
+        if self.expected_tool:
+            tools.add(self.expected_tool)
+        return tools
 
 
 SearchFunc = Callable[..., list[KnowledgeHit]]
@@ -67,6 +79,14 @@ def load_eval_cases(path: Path) -> list[RetrievalEvalCase]:
                 notes=str(payload.get("notes") or ""),
                 group=str(payload.get("group") or "default").strip() or "default",
                 subject=(str(payload["subject"]).strip() or None) if payload.get("subject") is not None else None,
+                expected_tool=(
+                    str(payload["expected_tool"]).strip() or None
+                ) if payload.get("expected_tool") is not None else None,
+                expected_tools=tuple(
+                    str(tool).strip()
+                    for tool in payload.get("expected_tools", [])
+                    if str(tool).strip()
+                ),
             )
         )
 

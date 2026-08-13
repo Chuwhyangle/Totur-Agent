@@ -99,6 +99,7 @@ class ToolCallTrace(BaseModel):
     top_titles: list[str] = Field(default_factory=list)
     result_preview: list[dict[str, Any]] = Field(default_factory=list)
     error: str | None = None
+    routing_forced: bool = False
 
 
 class ToolTrace(BaseModel):

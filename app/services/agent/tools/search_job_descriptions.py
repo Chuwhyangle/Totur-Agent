@@ -6,13 +6,16 @@ from dataclasses import dataclass
 import hashlib
 import json
 from pathlib import Path
+import time
 from typing import Any
 
 from app.clients.embedding_client import EmbeddingClient, EmbeddingError
+from app.db import trace_db
 from app.db.models import PUBLIC_JOB_DESCRIPTIONS_TABLE, PublicJDRecord
 from app.repositories.jd_vector_repository import JDVectorRepository
 from app.repositories.knowledge_repository import KnowledgeHit
 from app.repositories.public_jd_repository import list_public_jds
+from app.services import timings
 from app.services.hybrid_retriever import hybrid_search
 from app.services.jd_index_manifest import JDIndexManifest, JDParentManifest
 from app.services.jd_index_state import JDIndexNotReadyError, load_ready_jd_manifest
@@ -21,8 +24,8 @@ from app.services.rag_settings import (
     CHROMA_PERSIST_DIR,
     ENABLE_RERANKING,
     ENABLE_HYBRID_RETRIEVAL,
+    JD_SIMILARITY_THRESHOLD,
     RERANK_CANDIDATE_K,
-    SIMILARITY_THRESHOLD,
 )
 
 
@@ -111,6 +114,7 @@ def search_job_descriptions(
         )
 
     stripped_query = query.strip()
+    retrieval_started_at = time.perf_counter()
     try:
         query_embedding = embedding_client.embed_texts([stripped_query])[0]
     except (EmbeddingError, IndexError) as exc:
@@ -132,7 +136,7 @@ def search_job_descriptions(
     child_candidate_k = max(safe_limit * 4, RERANK_CANDIDATE_K)
     if ENABLE_HYBRID_RETRIEVAL:
         filtered_repository = _FilteredRepository(repository, where)
-        hits = hybrid_search(
+        raw_hits = hybrid_search(
             repository=filtered_repository,
             query=stripped_query,
             query_embedding=query_embedding,
@@ -140,12 +144,28 @@ def search_job_descriptions(
             fingerprint=manifest.fingerprint,
         )
     else:
-        hits = repository.search(
+        raw_hits = repository.search(
             query_embedding,
             child_candidate_k,
             where=where,
         )
-    hits = [hit for hit in hits if hit.similarity >= SIMILARITY_THRESHOLD]
+    hits = [hit for hit in raw_hits if hit.similarity >= JD_SIMILARITY_THRESHOLD]
+
+    raw_scores = [hit.similarity for hit in raw_hits]
+    trace_db.save_retrieval_event(
+        trace_id=timings.get_trace_id(),
+        query=stripped_query,
+        collection="jd",
+        cost_ms=int((time.perf_counter() - retrieval_started_at) * 1000),
+        top_k=child_candidate_k,
+        candidate_count=len(raw_hits),
+        hit_count=len(hits),
+        top_score=max(raw_scores, default=0.0),
+        min_score=min(raw_scores, default=0.0),
+        passed=int(bool(hits)),
+        threshold=JD_SIMILARITY_THRESHOLD,
+        corpus_fingerprint=manifest.fingerprint,
+    )
     candidates = _parent_candidates(hits, manifest, records)
     ranked, rerank_summary = _rank_candidates(candidates, stripped_query, safe_limit)
 

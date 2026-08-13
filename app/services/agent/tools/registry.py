@@ -6,8 +6,8 @@ from collections.abc import Callable
 from copy import deepcopy
 from typing import Any
 
-from app.services.agent.tools.interview_jd_search import search_interview_jds
 from app.services.agent.tools.save_journal_entry import save_journal_entry
+from app.services.agent.tools.search_attachments import search_attachments
 from app.services.agent.tools.search_job_descriptions import search_job_descriptions
 from app.services.agent.tools.search_learning_notes import search_learning_notes
 from app.services.agent.tools.score_jd_skill_fit import score_jd_skill_fit
@@ -15,13 +15,16 @@ from app.services.agent.tools.web_search import web_search
 from app.services import rag_settings
 
 
-INTERVIEW_JD_SEARCH_SCHEMA: dict[str, Any] = {
+SEARCH_ATTACHMENTS_SCHEMA: dict[str, Any] = {
     "type": "function",
     "function": {
-        "name": "interview_jd_search",
+        "name": "search_attachments",
         "description": (
-            "Search saved technical interview job descriptions for "
-            "responsibilities, skills, keywords, interview focus, and excerpts."
+            "Search documents the user uploaded in the current conversation "
+            "(resumes, PDFs, learning materials). Use it when the question "
+            "references an uploaded file. Do NOT use for notes (use "
+            "search_learning_notes), public JDs (use search_job_descriptions), "
+            "or current events (use web_search)."
         ),
         "parameters": {
             "type": "object",
@@ -29,13 +32,13 @@ INTERVIEW_JD_SEARCH_SCHEMA: dict[str, Any] = {
                 "query": {
                     "type": "string",
                     "description": (
-                        "The role direction, technical topic, or interview intent "
-                        "to search for."
+                        "The question or topic to search within the uploaded "
+                        "documents."
                     ),
                 },
                 "limit": {
                     "type": "integer",
-                    "description": "Maximum number of JD results to return.",
+                    "description": "Maximum number of evidence chunks to return.",
                     "minimum": 1,
                     "maximum": 5,
                     "default": 3,
@@ -125,7 +128,11 @@ SEARCH_LEARNING_NOTES_SCHEMA: dict[str, Any] = {
         "name": "search_learning_notes",
         "description": (
             "Search the user's own indexed learning notes for project docs, "
-            "study notes, previous plans, retrospectives, and architecture notes."
+            "study notes, previous plans, retrospectives, and architecture "
+            "notes. Use for what the user has studied or built, or internal "
+            "project facts. Do NOT use for job market questions (use "
+            "search_job_descriptions), uploaded files (use search_attachments), "
+            "or current/external events (use web_search)."
         ),
         "parameters": {
             "type": "object",
@@ -165,7 +172,12 @@ SEARCH_JOB_DESCRIPTIONS_SCHEMA: dict[str, Any] = {
         "name": "search_job_descriptions",
         "description": (
             "Search the indexed public job-description corpus by meaning and "
-            "optional structured filters, then return complete source JDs."
+            "optional structured filters, then return complete source JDs. "
+            "Use for job market questions: responsibilities, skill requirements, "
+            "salary ranges, education requirements, or interview focus from "
+            "public postings. Do NOT use for the user's own notes (use "
+            "search_learning_notes), uploaded files (use search_attachments), "
+            "or current events (use web_search)."
         ),
         "parameters": {
             "type": "object",
@@ -221,7 +233,10 @@ WEB_SEARCH_SCHEMA: dict[str, Any] = {
         "description": (
             "Search public web sources for current or external information. "
             "Use it for recent changes, current versions, news, policies, "
-            "prices, schedules, or facts unavailable in local notes."
+            "prices, schedules, or facts unavailable in local notes or JDs. "
+            "Do NOT use for the user's own notes (use search_learning_notes), "
+            "public job postings (use search_job_descriptions), or uploaded "
+            "files (use search_attachments)."
         ),
         "parameters": {
             "type": "object",
@@ -298,8 +313,8 @@ class ToolRegistry:
 
     def __init__(self, mcp_client_adapter: Any | None = None) -> None:
         self._tools: dict[str, Callable[..., dict[str, Any]]] = {
-            "interview_jd_search": search_interview_jds,
             "save_journal_entry": save_journal_entry,
+            "search_attachments": search_attachments,
             "search_job_descriptions": search_job_descriptions,
             "search_learning_notes": search_learning_notes,
             "score_jd_skill_fit": score_jd_skill_fit,
@@ -328,9 +343,9 @@ class ToolRegistry:
             )
 
         schemas = [
-            deepcopy(INTERVIEW_JD_SEARCH_SCHEMA),
             learning_notes_schema,
             deepcopy(SEARCH_JOB_DESCRIPTIONS_SCHEMA),
+            deepcopy(SEARCH_ATTACHMENTS_SCHEMA),
             deepcopy(SCORE_JD_SKILL_FIT_SCHEMA),
             deepcopy(SAVE_JOURNAL_ENTRY_SCHEMA),
             deepcopy(WEB_SEARCH_SCHEMA),
