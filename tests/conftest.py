@@ -1,16 +1,16 @@
-"""pytest 全局 fixture。"""
+"""pytest 全局 fixture。
+
+埋点函数的 patch 路径必须与 import 风格一致：
+`from X import f` 要 patch 使用处；`from X import module` 后调用
+`module.f()` 可以 patch 定义处。
+"""
 
 import pytest
 
 
 @pytest.fixture(autouse=True)
 def skip_trace_writes(monkeypatch):
-    """测试期间不写真实 MySQL：把埋点函数换成空操作。
-
-    tutor_agent_service 用的是 from-import（`from app.db.trace_db import
-    save_trace`），名字已经绑定在 service 模块里，所以要 patch 的是
-    service 模块上的 save_trace，而不是 trace_db 模块里的定义。
-    """
+    """测试期间不写真实 MySQL，并阻止漏网调用静默污染真实库。"""
 
     monkeypatch.setattr(
         "app.services.tutor_agent_service.save_trace",
@@ -31,4 +31,12 @@ def skip_trace_writes(monkeypatch):
     monkeypatch.setattr(
         "app.services.agent.react_orchestrator.save_tool_call",
         lambda *args, **kwargs: None,
+    )
+
+    def _forbid_real_db():
+        raise RuntimeError("测试期间禁止连接真实 MySQL")
+
+    monkeypatch.setattr(
+        "app.db.trace_db.load_db_config",
+        _forbid_real_db,
     )

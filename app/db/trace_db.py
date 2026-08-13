@@ -5,6 +5,8 @@ import os
 from dotenv import load_dotenv
 import pymysql
 
+_DB_CONFIG: dict | None = None
+
 INSERT_TRACE_SQL = """
 INSERT INTO agent_traces
     (trace_id, user_id, session_id, persona_id, model,
@@ -41,21 +43,26 @@ VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
 
 def load_db_config() -> dict:
     """从环境变量读取 MySQL 连接配置，缺少必填项时抛错。"""
-    load_dotenv()
-    required = {
-        "user": os.getenv("TRACE_DB_USER", "").strip(),
-        "password": os.getenv("TRACE_DB_PASSWORD", "").strip(),
-        "database": os.getenv("TRACE_DB_NAME", "").strip(),
-    }
-    missing = [key for key, value in required.items() if not value]
-    if missing:
-        raise RuntimeError(f"缺少 TRACE_DB_* 配置: {', '.join(missing)}")
-    return {
-        "host": os.getenv("TRACE_DB_HOST", "127.0.0.1").strip(),
-        "port": int(os.getenv("TRACE_DB_PORT", "3306")),
-        **required,
-        "charset": "utf8mb4",
-    }
+    global _DB_CONFIG
+
+    if _DB_CONFIG is None:
+        load_dotenv()
+        required = {
+            "user": os.getenv("TRACE_DB_USER", "").strip(),
+            "password": os.getenv("TRACE_DB_PASSWORD", "").strip(),
+            "database": os.getenv("TRACE_DB_NAME", "").strip(),
+        }
+        missing = [key for key, value in required.items() if not value]
+        if missing:
+            raise RuntimeError(f"缺少 TRACE_DB_* 配置: {', '.join(missing)}")
+        _DB_CONFIG = {
+            "host": os.getenv("TRACE_DB_HOST", "127.0.0.1").strip(),
+            "port": int(os.getenv("TRACE_DB_PORT", "3306")),
+            **required,
+            "charset": "utf8mb4",
+        }
+
+    return dict(_DB_CONFIG)
 
 
 def save_trace(
