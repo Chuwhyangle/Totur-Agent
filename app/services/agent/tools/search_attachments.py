@@ -7,8 +7,11 @@ user_id / session_id / attachment_ids 由执行器从请求上下文注入，
 
 from __future__ import annotations
 
+import time
 from typing import Any
 
+from app.db import trace_db
+from app.services import timings
 from app.services.documents.attachment_retrieval_service import (
     AttachmentEvidence,
     AttachmentNoRelevantEvidenceError,
@@ -62,6 +65,7 @@ def search_attachments(
         DEFAULT_TEMP_DOCUMENT_CONTEXT_MAX_CHARS,
     )
 
+    retrieval_started_at = time.perf_counter()
     try:
         evidence: list[AttachmentEvidence] = service.retrieve(
             user_id=user_id,
@@ -70,6 +74,17 @@ def search_attachments(
             query=query.strip(),
         )
     except AttachmentNoRelevantEvidenceError:
+        trace_db.save_retrieval_event(
+            trace_id=timings.get_trace_id(),
+            query=query.strip(),
+            collection="attachment",
+            top_k=safe_limit,
+            hit_count=0,
+            top_score=0.0,
+            min_score=0.0,
+            passed=0,
+            cost_ms=int((time.perf_counter() - retrieval_started_at) * 1000),
+        )
         return {
             "ok": True,
             "found": False,
@@ -85,6 +100,18 @@ def search_attachments(
             "error": "attachment_retrieval_failed",
             "message": f"附件检索失败：{exc}",
         }
+
+    trace_db.save_retrieval_event(
+        trace_id=timings.get_trace_id(),
+        query=query.strip(),
+        collection="attachment",
+        top_k=safe_limit,
+        hit_count=len(evidence),
+        top_score=max((item.similarity for item in evidence), default=0.0),
+        min_score=min((item.similarity for item in evidence), default=0.0),
+        passed=int(bool(evidence)),
+        cost_ms=int((time.perf_counter() - retrieval_started_at) * 1000),
+    )
 
     # 截断到 safe_limit 条，保持 observation 可控。
     evidence = evidence[:safe_limit]

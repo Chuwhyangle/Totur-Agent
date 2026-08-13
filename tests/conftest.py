@@ -16,3 +16,19 @@ def skip_trace_writes(monkeypatch):
         "app.services.tutor_agent_service.save_trace",
         lambda *args, **kwargs: None,
     )
+    monkeypatch.setattr(
+        "app.db.trace_db.save_retrieval_event",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        "app.services.agent.react_orchestrator.save_llm_call",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        "app.services.agent.tools.executor.save_tool_call",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        "app.services.agent.react_orchestrator.save_tool_call",
+        lambda *args, **kwargs: None,
+    )

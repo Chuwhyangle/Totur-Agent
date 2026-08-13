@@ -116,7 +116,7 @@ class TutorAgentService:
         """处理一次聊天请求。"""
 
         started_at = time.perf_counter()
-        timings.start_request()
+        trace_id = timings.start_request()
 
         user_id = request.user_id
         message = request.message
@@ -191,6 +191,20 @@ class TutorAgentService:
             total_ms=total_ms,
             retrieval_ms=timings.get("retrieval"),
             llm_ms=timings.get("llm"),
+            trace_id=trace_id,
+            session_id=session.id,
+            persona_id=session.persona_id,
+            model=timings.get_meta("model"),
+            react_rounds=timings.count("react_rounds"),
+            llm_calls=timings.count("llm_calls"),
+            tool_calls=timings.count("tool_calls"),
+            tool_failures=timings.count("tool_failures"),
+            embed_ms=timings.get("embed"),
+            search_ms=timings.get("search"),
+            rerank_ms=timings.get("rerank"),
+            tool_other_ms=timings.get("tool_other"),
+            prompt_tokens=timings.count("prompt_tokens"),
+            completion_tokens=timings.count("completion_tokens"),
         )
 
         return ChatResponse(

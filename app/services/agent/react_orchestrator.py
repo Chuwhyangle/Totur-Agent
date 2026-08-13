@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import time
 from collections.abc import Generator
 from dataclasses import dataclass, field
 from typing import Any
@@ -13,6 +14,7 @@ from openai import OpenAI
 from openai.types.chat import ChatCompletionMessageParam
 
 from app.config import LLMConfig
+from app.db.trace_db import save_llm_call, save_tool_call
 from app.schemas.chat import Source, ToolCallTrace, ToolTrace
 from app.services import timings
 from app.services.memory_settings import (
@@ -123,25 +125,33 @@ class ReactOrchestrator:
         self._active_attachment_ids = list(attachment_ids or [])
 
         if force_rag:
+            timings.set_meta("forced", True)
+            timings.set_meta("round_number", 0)
             working_messages, forced_trace = self._execute_forced_learning_notes(
                 working_messages,
                 run_state,
             )
+            timings.set_meta("forced", False)
             tool_call_traces.append(forced_trace)
             failure_count += int(not forced_trace.ok)
             first_model_round += 1
 
         if force_web_search:
+            timings.set_meta("forced", True)
+            timings.set_meta("round_number", 0)
             working_messages, forced_trace = self._execute_forced_web_search(
                 working_messages,
                 run_state,
                 round_number=first_model_round,
             )
+            timings.set_meta("forced", False)
             tool_call_traces.append(forced_trace)
             failure_count += int(not forced_trace.ok)
             first_model_round += 1
 
         for round_number in range(first_model_round, self.max_steps + 1):
+            timings.bump("react_rounds")
+            timings.set_meta("round_number", round_number)
             active_tool_choice = self._resolve_tool_choice(run_state, round_number)
             if active_tool_choice == "auto":
                 model_message = self._call_model_with_tools(working_messages)
@@ -176,6 +186,7 @@ class ReactOrchestrator:
             if failure_count >= self.max_failures:
                 break
 
+        timings.set_meta("round_number", None)
         raw_reply = self._call_model(working_messages)
         if not raw_reply:
             raise RuntimeError("模型没有返回内容")
@@ -219,10 +230,13 @@ class ReactOrchestrator:
 
         if force_rag:
             yield StreamEvent(type="tool_call", data={"tool": RAG_TOOL_NAME, "args": {"query": "..."}, "status": "running"})
+            timings.set_meta("forced", True)
+            timings.set_meta("round_number", 0)
             working_messages, forced_trace = self._execute_forced_learning_notes(
                 working_messages,
                 run_state,
             )
+            timings.set_meta("forced", False)
             tool_call_traces.append(forced_trace)
             failure_count += int(not forced_trace.ok)
             first_model_round += 1
@@ -230,17 +244,21 @@ class ReactOrchestrator:
 
         if force_web_search:
             yield StreamEvent(type="tool_call", data={"tool": WEB_SEARCH_TOOL_NAME, "args": {"query": "..."}, "status": "running"})
+            timings.set_meta("forced", True)
+            timings.set_meta("round_number", 0)
             working_messages, forced_trace = self._execute_forced_web_search(
                 working_messages,
                 run_state,
                 round_number=first_model_round,
             )
+            timings.set_meta("forced", False)
             tool_call_traces.append(forced_trace)
             failure_count += int(not forced_trace.ok)
             first_model_round += 1
             yield StreamEvent(type="tool_result", data={"tool": WEB_SEARCH_TOOL_NAME, "result": {"ok": forced_trace.ok}})
 
         for round_number in range(first_model_round, self.max_steps + 1):
+            timings.set_meta("round_number", round_number)
             active_tool_choice = self._resolve_tool_choice(run_state, round_number)
             if active_tool_choice == "auto":
                 model_message = self._call_model_with_tools(working_messages)
@@ -310,6 +328,7 @@ class ReactOrchestrator:
                 break
 
         # Final model call (no streaming, fallback after tool budget exhausted)
+        timings.set_meta("round_number", None)
         raw_reply = self._call_model(working_messages)
         if not raw_reply:
             raise RuntimeError("模型没有返回内容")
@@ -481,6 +500,10 @@ class ReactOrchestrator:
                 "tool_calls": [],
             }
 
+        timings.bump("llm_calls")
+        if timings.get_meta("model") is None:
+            timings.set_meta("model", self.config.model)
+
         tools = self.tool_registry.get_tools_schema()
         if not getattr(self, "_active_rag_enabled", True):
             # 强制关闭 RAG：从本轮工具 Schema 中真正移除检索工具，
@@ -499,6 +522,7 @@ class ReactOrchestrator:
             ]
 
         active_tool_choice = tool_choice or "auto"
+        call_started_at = time.perf_counter()
         with timings.track("llm"):
             completion = self.client.chat.completions.create(
                 model=self.config.model,
@@ -506,6 +530,11 @@ class ReactOrchestrator:
                 tools=tools,
                 tool_choice=active_tool_choice,
             )
+        self._record_llm_call(
+            completion=completion,
+            call_type="with_tools",
+            cost_ms=int((time.perf_counter() - call_started_at) * 1000),
+        )
 
         return completion.choices[0].message
 
@@ -546,6 +575,17 @@ class ReactOrchestrator:
             elif tool_name == WEB_SEARCH_TOOL_NAME:
                 run_state.web_search_calls += 1
                 if run_state.web_search_calls > WEB_SEARCH_MAX_CALLS_PER_CHAT:
+                    save_tool_call(
+                        trace_id=timings.get_trace_id(),
+                        round_number=timings.get_meta("round_number"),
+                        tool_name=WEB_SEARCH_TOOL_NAME,
+                        channel="internal",
+                        forced=int(bool(timings.get_meta("forced"))),
+                        ok=0,
+                        error_code="web_search_budget_exceeded",
+                        cost_ms=0,
+                        args_preview=tool_arguments[:500],
+                    )
                     tool_result = {
                         "ok": False,
                         "error": "web_search_budget_exceeded",
@@ -1269,14 +1309,60 @@ class ReactOrchestrator:
     def _call_model(self, messages: list[ChatCompletionMessageParam]) -> str:
         """把 messages 发送给模型，并返回原始文本回复。"""
 
+        timings.bump("llm_calls")
+        if timings.get_meta("model") is None:
+            timings.set_meta("model", self.config.model)
+
+        call_started_at = time.perf_counter()
         with timings.track("llm"):
             completion = self.client.chat.completions.create(
                 model=self.config.model,
                 messages=messages,
             )
+        self._record_llm_call(
+            completion=completion,
+            call_type="final",
+            cost_ms=int((time.perf_counter() - call_started_at) * 1000),
+        )
         raw_reply = completion.choices[0].message.content
 
         if not raw_reply:
             raise RuntimeError("模型没有返回内容")
 
         return raw_reply
+
+    def _record_llm_call(self, *, completion, call_type: str, cost_ms: int) -> None:
+        """提取 usage / finish_reason 写入 llm_calls，并累加请求级 token 汇总。
+
+        部分第三方 OpenAI 兼容端点不返回 usage，流式默认也不返回；
+        usage 可能为 None，取不到就写 None，不抛异常、不写 0。
+        """
+
+        usage = getattr(completion, "usage", None)
+        prompt_tokens = getattr(usage, "prompt_tokens", None) if usage else None
+        completion_tokens = (
+            getattr(usage, "completion_tokens", None) if usage else None
+        )
+        total_tokens = getattr(usage, "total_tokens", None) if usage else None
+        finish_reason = None
+        try:
+            finish_reason = completion.choices[0].finish_reason
+        except (AttributeError, IndexError):
+            pass
+
+        if prompt_tokens is not None:
+            timings.bump("prompt_tokens", prompt_tokens)
+        if completion_tokens is not None:
+            timings.bump("completion_tokens", completion_tokens)
+
+        save_llm_call(
+            trace_id=timings.get_trace_id(),
+            round_number=timings.get_meta("round_number"),
+            call_type=call_type,
+            model=self.config.model,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            total_tokens=total_tokens,
+            cost_ms=cost_ms,
+            finish_reason=finish_reason,
+        )
