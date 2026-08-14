@@ -14,7 +14,7 @@ from openai import OpenAI
 from openai.types.chat import ChatCompletionMessageParam
 
 from app.config import LLMConfig
-from app.db.trace_db import save_llm_call, save_tool_call
+from app.db import trace_db
 from app.schemas.chat import Source, ToolCallTrace, ToolTrace
 from app.services import timings
 from app.services.memory_settings import (
@@ -575,7 +575,7 @@ class ReactOrchestrator:
             elif tool_name == WEB_SEARCH_TOOL_NAME:
                 run_state.web_search_calls += 1
                 if run_state.web_search_calls > WEB_SEARCH_MAX_CALLS_PER_CHAT:
-                    save_tool_call(
+                    trace_db.save_tool_call(
                         trace_id=timings.get_trace_id(),
                         round_number=timings.get_meta("round_number"),
                         tool_name=WEB_SEARCH_TOOL_NAME,
@@ -1355,7 +1355,7 @@ class ReactOrchestrator:
         if completion_tokens is not None:
             timings.bump("completion_tokens", completion_tokens)
 
-        save_llm_call(
+        trace_db.save_llm_call(
             trace_id=timings.get_trace_id(),
             round_number=timings.get_meta("round_number"),
             call_type=call_type,

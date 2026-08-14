@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes.attachments import router as attachments_router
 from app.api.routes.chat import router as chat_router
+from app.db import trace_db
 from app.api.routes.conversations import router as conversations_router
 from app.api.routes.health import router as health_router
 from app.api.routes.interview_jds import router as interview_jds_router
@@ -105,6 +106,11 @@ async def lifespan(_: FastAPI):
 
     stop_event = threading.Event()
     shutdown_event = asyncio.Event()
+    try:
+        trace_db.start_writer()
+    except Exception as exc:
+        # Observability must never make the API unavailable.
+        logger.warning("trace_writer_start_failed error_type=%s", type(exc).__name__)
     recovery_task = asyncio.create_task(
         _run_attachment_recovery(stop_requested=stop_event.is_set),
         name="attachment-startup-recovery",
@@ -146,6 +152,13 @@ async def lifespan(_: FastAPI):
             sweep_task.cancel()
             with suppress(asyncio.CancelledError):
                 await sweep_task
+            try:
+                trace_db.shutdown_writer()
+            except Exception as exc:
+                logger.warning(
+                    "trace_writer_shutdown_failed error_type=%s",
+                    type(exc).__name__,
+                )
             close_reranker_client()
             close_web_search_client()
 

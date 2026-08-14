@@ -327,7 +327,7 @@ def test_tool_executor_records_all_return_paths(monkeypatch):
     )
     recorded = []
     monkeypatch.setattr(
-        executor_module,
+        executor_module.trace_db,
         "save_tool_call",
         lambda **kwargs: recorded.append(kwargs),
     )
@@ -366,7 +366,7 @@ def test_tool_call_write_time_is_not_added_to_retrieval_bucket(monkeypatch):
         recorded.append(kwargs)
         time.sleep(0.03)
 
-    monkeypatch.setattr(executor_module, "save_tool_call", slow_save_tool_call)
+    monkeypatch.setattr(executor_module.trace_db, "save_tool_call", slow_save_tool_call)
     timings.start_request()
 
     result = ToolExecutor(registry=FakeRegistry()).execute(

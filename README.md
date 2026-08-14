@@ -15,6 +15,8 @@ AI 学习辅导 Agent 练习项目。后端使用 FastAPI，前端使用 React +
 - `GET /conversations/{user_id}`：查询某个用户的最近对话历史。
 - `GET /interview-jds`、`POST /interview-jds`：保存和读取面试 JD，用于工具检索。
 - SQLite 持久化对话、会话、摘要和面试 JD。
+- Chroma 持久化学习笔记、JD 和附件向量；它不保存业务主表。
+- MySQL（可选）只保存 Agent 可观测性：`agent_traces`、检索、LLM 和工具事件；不会迁移 conversations、sessions、documents 等业务表。
 - OpenAI-compatible 模型客户端配置。
 
 ## 运行后端
@@ -63,6 +65,46 @@ python -m uvicorn app.main:app --reload --port 8001
 ```text
 http://127.0.0.1:8001/docs
 ```
+
+## Agent Trace 与 MySQL
+
+Trace 默认关闭。请求线程只把埋点放入有界内存队列，后台 Writer 才连接 MySQL；队列满或 MySQL 故障时记录会丢失，但聊天请求继续使用 SQLite 和 Chroma 正常工作。`TRACE_DB_CAPTURE_CONTENT=false` 时不保存 question 和检索 query，工具参数预览始终限长并脱敏常见凭据字段。
+
+本地启动一个独立的 Trace MySQL（数据库名、用户和密码都来自 `.env`）：
+
+```powershell
+Copy-Item .env.example .env
+# 编辑 .env：填写 OPENAI/Embedding 配置，并把 Trace 与 MYSQL_ROOT_PASSWORD 改成强密码
+docker compose up -d mysql
+docker compose run --rm --build trace-db-init
+```
+
+也可以在宿主机执行幂等初始化和 smoke test。`.env.example` 的宿主机端口默认是 3307：
+
+```powershell
+$env:TRACE_DB_ENABLED="true"
+$env:TRACE_DB_HOST="127.0.0.1"
+$env:TRACE_DB_PORT="3307"
+python scripts/init_trace_db.py
+python scripts/try_mysql.py
+```
+
+`init_trace_db.py` 可以对空库或历史 001-005 表重复执行，不会 DROP 表或删除数据。后台 Writer 首次连接也会执行同一套幂等初始化。查询最近 Trace 时使用密码提示，不要把密码写入命令历史：
+
+```powershell
+docker compose exec mysql mysql -u"$env:TRACE_DB_USER" -p -D "$env:TRACE_DB_NAME"
+```
+
+进入 MySQL 后可执行：
+
+```sql
+SELECT trace_id, status, total_ms, created_at, updated_at
+FROM agent_traces
+ORDER BY created_at DESC
+LIMIT 20;
+```
+
+关闭 Trace：将 `.env` 中的 `TRACE_DB_ENABLED` 改为 `false` 后重启 API，或在本地进程启动前执行 `$env:TRACE_DB_ENABLED="false"`。关闭后所有 Trace API 都是低开销 no-op。
 
 ## 运行前端
 
@@ -124,16 +166,18 @@ tests/                 自动化测试
 `tutor_agent.db` 是运行时生成的本地 SQLite 数据库，`chroma_db/` 是运行时生成的本地向量库目录，二者都已在 `.gitignore` 中忽略。
 ## Docker 部署
 
-生产环境使用 Docker Compose 启动前端 Nginx 和后端 FastAPI，SQLite、Chroma 与附件统一持久化到 `tutor_data` 卷。
+生产环境使用 Docker Compose 启动前端 Nginx、后端 FastAPI 和独立的 MySQL Trace 服务。SQLite、Chroma 与附件统一持久化到 `tutor_data` 卷；MySQL 使用独立的 `trace_mysql_data` 卷。API 使用 `mysql:3306`，MySQL 不可用时 API 仍可启动并后台重连。
 
 首次部署：
 
 ```bash
 cp .env.example .env
-# 编辑 .env，至少填写 OPENAI_*、EMBEDDING_* 配置
+# 编辑 .env，填写 OPENAI_*、EMBEDDING_*，并更换所有示例密码
+docker compose up -d mysql
+docker compose run --rm --build trace-db-init
 docker compose up -d --build
 docker compose run --rm api python scripts/build_knowledge_index.py
 ```
 
-访问 `http://服务器地址/`，接口健康检查为 `http://服务器地址/health`。后续更新执行 `git pull && docker compose up -d --build`；备份数据执行 `docker run --rm -v tutor_data:/data -v "$PWD/backups:/backup" alpine tar czf /backup/tutor-data-$(date +%F).tar.gz -C /data .`。
+访问 `http://服务器地址/`，接口健康检查为 `http://服务器地址/health`。后续更新执行 `git pull && docker compose up -d --build`；备份 SQLite/Chroma 数据执行 `docker run --rm -v tutor_data:/data -v "$PWD/backups:/backup" alpine tar czf /backup/tutor-data-$(date +%F).tar.gz -C /data .`，MySQL Trace 卷需要单独备份。
 
