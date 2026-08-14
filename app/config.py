@@ -87,6 +87,98 @@ class RerankerConfig:
     timeout_seconds: float
 
 
+@dataclass(frozen=True)
+class TraceDbConfig:
+    """MySQL configuration used only for Agent observability traces.
+
+    This configuration is intentionally loaded by callers when tracing is first
+    used.  SQLite and Chroma configuration do not depend on it.
+    """
+
+    enabled: bool = False
+    host: str = "127.0.0.1"
+    port: int = 3306
+    user: str = ""
+    password: str = ""
+    name: str = ""
+    connect_timeout_seconds: float = 3.0
+    queue_size: int = 1000
+    shutdown_flush_seconds: float = 2.0
+    capture_content: bool = False
+
+    @property
+    def connection_kwargs(self) -> dict[str, object]:
+        """Return PyMySQL keyword arguments after validating required values."""
+
+        missing = [
+            name
+            for name, value in (
+                ("TRACE_DB_USER", self.user),
+                ("TRACE_DB_PASSWORD", self.password),
+                ("TRACE_DB_NAME", self.name),
+            )
+            if not value
+        ]
+        if missing:
+            raise RuntimeError(f"缺少 Trace DB 配置: {', '.join(missing)}")
+        return {
+            "host": self.host,
+            "port": self.port,
+            "user": self.user,
+            "password": self.password,
+            "database": self.name,
+            "connect_timeout": self.connect_timeout_seconds,
+            "charset": "utf8mb4",
+        }
+
+    @staticmethod
+    def from_env() -> "TraceDbConfig":
+        """Load trace settings lazily from environment variables."""
+
+        load_dotenv()
+
+        def parse_bool(name: str, default: bool) -> bool:
+            raw = os.getenv(name)
+            if raw is None:
+                return default
+            return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+        def parse_int(name: str, default: int, minimum: int = 1) -> int:
+            try:
+                return max(minimum, int(os.getenv(name, str(default)).strip()))
+            except (TypeError, ValueError):
+                return default
+
+        def parse_float(name: str, default: float, minimum: float = 0.1) -> float:
+            try:
+                return max(minimum, float(os.getenv(name, str(default)).strip()))
+            except (TypeError, ValueError):
+                return default
+
+        return TraceDbConfig(
+            enabled=parse_bool("TRACE_DB_ENABLED", False),
+            host=os.getenv("TRACE_DB_HOST", "127.0.0.1").strip() or "127.0.0.1",
+            port=parse_int("TRACE_DB_PORT", 3306),
+            user=os.getenv("TRACE_DB_USER", "").strip(),
+            password=os.getenv("TRACE_DB_PASSWORD", "").strip(),
+            name=os.getenv("TRACE_DB_NAME", "").strip(),
+            connect_timeout_seconds=parse_float(
+                "TRACE_DB_CONNECT_TIMEOUT_SECONDS", 3.0
+            ),
+            queue_size=parse_int("TRACE_DB_QUEUE_SIZE", 1000),
+            shutdown_flush_seconds=parse_float(
+                "TRACE_DB_SHUTDOWN_FLUSH_SECONDS", 2.0
+            ),
+            capture_content=parse_bool("TRACE_DB_CAPTURE_CONTENT", False),
+        )
+
+
+def load_trace_db_config() -> TraceDbConfig:
+    """Load trace configuration only when the trace subsystem is used."""
+
+    return TraceDbConfig.from_env()
+
+
 def load_llm_config() -> LLMConfig:
     """Load and validate model configuration from environment variables."""
 

@@ -5,7 +5,7 @@ import re
 import time
 
 from openai import OpenAI
-from app.db.trace_db import save_trace
+from app.db import trace_db
 from app.db.models import DEFAULT_SESSION_TITLE
 from app.repositories.session_repository import (
     get_or_create_default_session,
@@ -121,6 +121,14 @@ class TutorAgentService:
         session_id = None
         persona_id = None
 
+        trace_db.start_trace(
+            trace_id=trace_id,
+            user_id=request.user_id,
+            session_id=request.session_id,
+            persona_id=request.persona_id,
+            question=request.message,
+        )
+
         try:
             user_id = request.user_id
             message = request.message
@@ -198,13 +206,12 @@ class TutorAgentService:
                 tool_trace=tool_trace,
             )
         except Exception:
-            status = "FAILED"
+            status = "ERROR"
             raise
         finally:
             total_ms = int((time.perf_counter() - started_at) * 1000)
-            save_trace(
+            trace_db.finish_trace(
                 user_id=request.user_id,
-                question=request.message,
                 total_ms=total_ms,
                 retrieval_ms=timings.get("retrieval"),
                 llm_ms=timings.get("llm"),
@@ -236,8 +243,21 @@ class TutorAgentService:
             {"event": "error", "data": {...}}
         """
 
+        started_at = time.perf_counter()
+        trace_id = timings.start_request()
+        status = "ERROR"
+        session_id = None
+        persona_id = None
         user_id = request.user_id
         message = request.message
+
+        trace_db.start_trace(
+            trace_id=trace_id,
+            user_id=user_id,
+            session_id=request.session_id,
+            persona_id=request.persona_id,
+            question=message,
+        )
 
         try:
             session = self._resolve_session(
@@ -245,45 +265,40 @@ class TutorAgentService:
                 session_id=request.session_id,
                 request_persona_id=request.persona_id,
             )
-        except Exception as exc:
-            yield {"event": "error", "data": {"message": str(exc)}}
-            return
+            session_id = session.id
+            persona_id = session.persona_id
+            persona = get_persona(session.persona_id)
 
-        persona = get_persona(session.persona_id)
-
-        context = self.memory_manager.load_context(
-            user_id=user_id,
-            session_id=session.id,
-            current_message=message,
-        )
-        if self.seed_context_enabled:
-            context.seed_knowledge_context = self.seed_context_provider(message)
-
-        private_jd_records = list_all_interview_jds()
-        context.private_jd_context = format_private_jd_context(private_jd_records)
-
-        # FR-3: 附件工具化，权限参数经 executor 注入。
-        if request.attachment_ids:
-            self._set_attachment_tool_defaults(
+            context = self.memory_manager.load_context(
                 user_id=user_id,
                 session_id=session.id,
-                attachment_ids=request.attachment_ids,
-                subject=session.subject,
+                current_message=message,
             )
-        else:
-            set_defaults = getattr(self.tool_executor, "set_default_tool_kwargs", None)
-            if callable(set_defaults):
-                set_defaults({"search_learning_notes": {"subject": session.subject}})
+            if self.seed_context_enabled:
+                context.seed_knowledge_context = self.seed_context_provider(message)
 
-        if not context.recent_history and session.title == DEFAULT_SESSION_TITLE:
-            update_session_title(session.id, make_title_from_message(message))
+            private_jd_records = list_all_interview_jds()
+            context.private_jd_context = format_private_jd_context(private_jd_records)
 
-        messages = self.prompt_builder.build_messages(context, persona=persona)
+            # FR-3: 附件工具化，权限参数经 executor 注入。
+            if request.attachment_ids:
+                self._set_attachment_tool_defaults(
+                    user_id=user_id,
+                    session_id=session.id,
+                    attachment_ids=request.attachment_ids,
+                    subject=session.subject,
+                )
+            else:
+                set_defaults = getattr(self.tool_executor, "set_default_tool_kwargs", None)
+                if callable(set_defaults):
+                    set_defaults({"search_learning_notes": {"subject": session.subject}})
 
-        collected_text = ""
-        tool_trace: ToolTrace | None = None
+            if not context.recent_history and session.title == DEFAULT_SESSION_TITLE:
+                update_session_title(session.id, make_title_from_message(message))
 
-        try:
+            messages = self.prompt_builder.build_messages(context, persona=persona)
+            tool_trace: ToolTrace | None = None
+
             stream_gen = self.react_orchestrator.run_stream(
                 messages,
                 force_web_search=request.force_web_search,
@@ -299,46 +314,73 @@ class TutorAgentService:
                     raw_reply, tool_trace = stop.value
                     break
                 except Exception as exc:
+                    status = "ERROR"
                     yield {"event": "error", "data": {"message": str(exc)}}
                     return
 
                 if event.type == "token":
-                    collected_text += event.data.get("text", "")
                     yield {"event": "token", "data": event.data}
                 elif event.type in ("tool_call", "tool_result"):
                     yield {"event": event.type, "data": event.data}
 
+            if tool_trace is None:
+                status = "ERROR"
+                yield {"event": "error", "data": {"message": "No response from agent"}}
+                return
+
+            reply = self.response_parser.parse_model_reply(raw_reply)
+            reply = self._finalize_reply_sources(
+                reply,
+                tool_trace,
+                note_references_allowed=request.rag_enabled,
+            )
+
+            self.memory_manager.save_turn_and_update_summary(
+                user_id=user_id,
+                session_id=session.id,
+                message=message,
+                reply=reply,
+            )
+
+            status = "OK"
+            yield {
+                "event": "done",
+                "data": {
+                    "full_response": reply.answer,
+                    "reply": reply.model_dump(),
+                    "session_id": session.id,
+                    "sources": [s.model_dump() for s in reply.sources],
+                },
+            }
+        except GeneratorExit:
+            if status != "OK":
+                status = "CANCELLED"
+            raise
         except Exception as exc:
+            status = "ERROR"
             yield {"event": "error", "data": {"message": str(exc)}}
-            return
-
-        if tool_trace is None:
-            yield {"event": "error", "data": {"message": "No response from agent"}}
-            return
-
-        reply = self.response_parser.parse_model_reply(raw_reply)
-        reply = self._finalize_reply_sources(
-            reply,
-            tool_trace,
-            note_references_allowed=request.rag_enabled,
-        )
-
-        self.memory_manager.save_turn_and_update_summary(
-            user_id=user_id,
-            session_id=session.id,
-            message=message,
-            reply=reply,
-        )
-
-        yield {
-            "event": "done",
-            "data": {
-                "full_response": reply.answer,
-                "reply": reply.model_dump(),
-                "session_id": session.id,
-                "sources": [s.model_dump() for s in reply.sources],
-            },
-        }
+        finally:
+            trace_db.finish_trace(
+                trace_id=trace_id,
+                user_id=user_id,
+                session_id=session_id,
+                persona_id=persona_id,
+                model=timings.get_meta("model"),
+                total_ms=int((time.perf_counter() - started_at) * 1000),
+                retrieval_ms=timings.get("retrieval"),
+                llm_ms=timings.get("llm"),
+                status=status,
+                react_rounds=timings.count("react_rounds") or 0,
+                llm_calls=timings.count("llm_calls") or 0,
+                tool_calls=timings.count("tool_calls") or 0,
+                tool_failures=timings.count("tool_failures") or 0,
+                embed_ms=timings.get("embed"),
+                search_ms=timings.get("search"),
+                rerank_ms=timings.get("rerank"),
+                tool_other_ms=timings.get("tool_other"),
+                prompt_tokens=timings.count("prompt_tokens"),
+                completion_tokens=timings.count("completion_tokens"),
+            )
 
     def _finalize_reply_sources(
         self,

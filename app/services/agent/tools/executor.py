@@ -6,7 +6,7 @@ import json
 import time
 from typing import Any
 
-from app.db.trace_db import save_tool_call
+from app.db import trace_db
 from app.services import timings
 from app.services.agent.tools.registry import ToolRegistry
 from app.services.tool_metrics import observe_tool_call
@@ -139,7 +139,7 @@ class ToolExecutor:
         if not ok:
             timings.bump("tool_failures")
 
-        save_tool_call(
+        trace_db.save_tool_call(
             trace_id=timings.get_trace_id(),
             round_number=timings.get_meta("round_number"),
             tool_name=name,
