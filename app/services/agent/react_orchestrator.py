@@ -6,6 +6,7 @@ import hashlib
 import json
 import time
 from collections.abc import Generator
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
@@ -13,6 +14,7 @@ from urllib.parse import urlsplit, urlunsplit
 from openai import OpenAI
 from openai.types.chat import ChatCompletionMessageParam
 
+from app.clients.llm_client_pool import get_llm_client
 from app.config import LLMConfig
 from app.db import trace_db
 from app.schemas.chat import Source, ToolCallTrace, ToolTrace
@@ -24,6 +26,7 @@ from app.services.memory_settings import (
 )
 from app.services.agent.tools.executor import ToolExecutor
 from app.services.agent.tools.registry import ToolRegistry
+from app.services.agent.model_registry import ModelSpec, resolve_model
 from app.services.web_search_settings import WEB_SEARCH_MAX_CALLS_PER_CHAT
 
 
@@ -60,6 +63,16 @@ class StreamEvent:
     data: dict[str, Any]
 
 
+@dataclass(frozen=True)
+class _ModelRuntime:
+    """Resolved request model, client, and provider-specific parameters."""
+
+    client: OpenAI
+    api_model: str
+    trace_model: str
+    request_params: dict[str, Any]
+
+
 @dataclass
 class _RunState:
     """Request-scoped tool budgets and evidence state."""
@@ -77,13 +90,22 @@ class _RunState:
     jd_id_by_fingerprint: dict[str, str] = field(default_factory=dict)
 
 
+@dataclass
+class _RoundResult:
+    """Accumulated output from one model round."""
+
+    content: str = ""
+    reasoning: str = ""
+    tool_calls: list[dict[str, Any]] = field(default_factory=list)
+
+
 class ReactOrchestrator:
     """Runs the model-tool-observation loop and returns the final model text."""
 
     def __init__(
         self,
-        config: LLMConfig,
-        client: OpenAI,
+        config: LLMConfig | None = None,
+        client: OpenAI | None = None,
         tool_registry: ToolRegistry | None = None,
         tool_executor: ToolExecutor | None = None,
         max_steps: int = MAX_TOOL_ROUNDS,
@@ -99,8 +121,37 @@ class ReactOrchestrator:
         self.max_steps = max_steps
         self.max_failures = max_failures
         self.max_observation_chars = max_observation_chars
+        self._model_spec_var: ContextVar[ModelSpec | None] = ContextVar(
+            f"react_orchestrator_model_spec_{id(self)}",
+            default=None,
+        )
 
     def run(
+        self,
+        messages: list[ChatCompletionMessageParam],
+        force_web_search: bool = False,
+        web_search_enabled: bool = True,
+        rag_enabled: bool = True,
+        force_rag: bool = False,
+        attachment_ids: list[str] | None = None,
+        model_spec: ModelSpec | None = None,
+    ) -> tuple[str, ToolTrace]:
+        """Execute one request with an isolated model selection."""
+
+        token = self._model_spec_var.set(model_spec)
+        try:
+            return self._run(
+                messages,
+                force_web_search=force_web_search,
+                web_search_enabled=web_search_enabled,
+                rag_enabled=rag_enabled,
+                force_rag=force_rag,
+                attachment_ids=attachment_ids,
+            )
+        finally:
+            self._model_spec_var.reset(token)
+
+    def _run(
         self,
         messages: list[ChatCompletionMessageParam],
         force_web_search: bool = False,
@@ -205,6 +256,33 @@ class ReactOrchestrator:
         rag_enabled: bool = True,
         force_rag: bool = False,
         attachment_ids: list[str] | None = None,
+        model_spec: ModelSpec | None = None,
+    ) -> Generator[StreamEvent, None, tuple[str, ToolTrace]]:
+        """Execute one streaming request with an isolated model selection."""
+
+        token = self._model_spec_var.set(model_spec)
+        try:
+            return (
+                yield from self._run_stream(
+                    messages,
+                    force_web_search=force_web_search,
+                    web_search_enabled=web_search_enabled,
+                    rag_enabled=rag_enabled,
+                    force_rag=force_rag,
+                    attachment_ids=attachment_ids,
+                )
+            )
+        finally:
+            self._model_spec_var.reset(token)
+
+    def _run_stream(
+        self,
+        messages: list[ChatCompletionMessageParam],
+        force_web_search: bool = False,
+        web_search_enabled: bool = True,
+        rag_enabled: bool = True,
+        force_rag: bool = False,
+        attachment_ids: list[str] | None = None,
     ) -> Generator[StreamEvent, None, tuple[str, ToolTrace]]:
         """Execute the ReAct loop, yielding StreamEvents for progress.
 
@@ -257,30 +335,21 @@ class ReactOrchestrator:
             first_model_round += 1
             yield StreamEvent(type="tool_result", data={"tool": WEB_SEARCH_TOOL_NAME, "result": {"ok": forced_trace.ok}})
 
+        visible_parts: list[str] = []
         for round_number in range(first_model_round, self.max_steps + 1):
+            timings.bump("react_rounds")
             timings.set_meta("round_number", round_number)
             active_tool_choice = self._resolve_tool_choice(run_state, round_number)
-            if active_tool_choice == "auto":
-                model_message = self._call_model_with_tools(working_messages)
-            else:
-                model_message = self._call_model_with_tools(
-                    working_messages,
-                    tool_choice=active_tool_choice,
-                )
-            tool_calls = self._message_tool_calls(model_message)
+            round_result = yield from self._stream_round(
+                working_messages,
+                tool_choice=active_tool_choice,
+            )
+            if round_result.content:
+                visible_parts.append(round_result.content)
+            tool_calls = round_result.tool_calls
 
             if not tool_calls:
-                raw_reply = self._message_content(model_message)
-                if not raw_reply:
-                    raise RuntimeError("模型没有返回内容")
-
-                streamed_parts: list[str] = []
-                for token_event in self._stream_final_reply(working_messages):
-                    if token_event.type == "token":
-                        streamed_parts.append(token_event.data.get("text", ""))
-                    yield token_event
-
-                raw_reply = "".join(streamed_parts)
+                raw_reply = "".join(visible_parts)
                 if not raw_reply:
                     raise RuntimeError("Model stream returned no content")
 
@@ -306,7 +375,7 @@ class ReactOrchestrator:
 
             working_messages, step_traces = self._build_messages_with_tool_results(
                 messages=working_messages,
-                first_message=model_message,
+                first_message=self._round_result_message(round_result),
                 tool_calls=tool_calls,
                 round_number=round_number,
                 run_state=run_state,
@@ -327,14 +396,17 @@ class ReactOrchestrator:
             if failure_count >= self.max_failures:
                 break
 
-        # Final model call (no streaming, fallback after tool budget exhausted)
+        # Tool budget was exhausted. Ask for a final streamed answer without tools.
         timings.set_meta("round_number", None)
-        raw_reply = self._call_model(working_messages)
+        final_round = yield from self._stream_round(
+            working_messages,
+            tool_choice="none",
+        )
+        if final_round.content:
+            visible_parts.append(final_round.content)
+        raw_reply = "".join(visible_parts)
         if not raw_reply:
-            raise RuntimeError("模型没有返回内容")
-
-        # Yield the full reply as a single token event
-        yield StreamEvent(type="token", data={"text": raw_reply})
+            raise RuntimeError("Model stream returned no content")
 
         final_trace = ToolTrace(
             used=bool(tool_call_traces),
@@ -343,43 +415,185 @@ class ReactOrchestrator:
         )
         return raw_reply, final_trace
 
-    def _stream_final_reply(
+    def _stream_round(
         self,
         messages: list[ChatCompletionMessageParam],
-    ) -> Generator[StreamEvent, None, None]:
-        """Stream the final model reply token-by-token."""
+        *,
+        tool_choice: str | dict | None = None,
+    ) -> Generator[StreamEvent, None, _RoundResult]:
+        """Make one streamed model call and accumulate its complete round result."""
 
+        runtime = self._model_runtime()
+        tools = self._active_tools()
+        active_tool_choice = tool_choice or "auto"
+        request_params = dict(runtime.request_params)
+        request_params.update(
+            {
+                "model": runtime.api_model,
+                "messages": messages,
+                "tools": tools,
+                "tool_choice": active_tool_choice,
+                "stream": True,
+                "stream_options": {"include_usage": True},
+            }
+        )
+
+        timings.bump("llm_calls")
+        if timings.get_meta("model") is None:
+            timings.set_meta("model", runtime.trace_model)
+
+        content_parts: list[str] = []
+        reasoning_parts: list[str] = []
+        tool_call_parts: dict[int, dict[str, str]] = {}
+        usage = None
+        finish_reason = None
         stream = None
+        started_at = time.perf_counter()
+        stream_error: Exception | None = None
+
         try:
-            stream = self.client.chat.completions.create(
-                model=self.config.model,
-                messages=messages,
-                stream=True,
-            )
-            for chunk in stream:
-                if not chunk.choices:
-                    continue
-                delta = chunk.choices[0].delta
-                content = delta.content if hasattr(delta, "content") else None
-                if content:
-                    yield StreamEvent(type="token", data={"text": content})
-        except Exception:
-            # Fallback to non-streaming if streaming fails
-            completion = self.client.chat.completions.create(
-                model=self.config.model,
-                messages=messages,
-            )
-            raw_reply = completion.choices[0].message.content or ""
-            if raw_reply:
-                yield StreamEvent(type="token", data={"text": raw_reply})
+            with timings.track("llm"):
+                stream = runtime.client.chat.completions.create(**request_params)
+                for chunk in stream:
+                    chunk_usage = self._object_value(chunk, "usage")
+                    if chunk_usage is not None:
+                        usage = chunk_usage
+
+                    choices = self._object_value(chunk, "choices") or []
+                    if not choices:
+                        continue
+
+                    choice = choices[0]
+                    choice_finish_reason = self._object_value(choice, "finish_reason")
+                    if choice_finish_reason:
+                        finish_reason = choice_finish_reason
+                    delta = self._object_value(choice, "delta")
+                    if delta is None:
+                        continue
+
+                    content = self._object_value(delta, "content")
+                    if content:
+                        text = str(content)
+                        content_parts.append(text)
+                        yield StreamEvent(type="token", data={"text": text})
+
+                    reasoning = self._object_value(delta, "reasoning_content")
+                    if reasoning:
+                        reasoning_parts.append(str(reasoning))
+
+                    for tool_call in self._object_value(delta, "tool_calls") or []:
+                        index = self._object_value(tool_call, "index", 0)
+                        try:
+                            tool_index = int(index)
+                        except (TypeError, ValueError):
+                            tool_index = 0
+                        slot = tool_call_parts.setdefault(
+                            tool_index,
+                            {"id": "", "name": "", "arguments": ""},
+                        )
+                        tool_call_id = self._object_value(tool_call, "id")
+                        if tool_call_id:
+                            slot["id"] = str(tool_call_id)
+                        function = self._object_value(tool_call, "function")
+                        function_name = self._object_value(function, "name")
+                        if function_name:
+                            slot["name"] = str(function_name)
+                        function_arguments = self._object_value(function, "arguments")
+                        if function_arguments:
+                            slot["arguments"] += str(function_arguments)
+        except Exception as exc:
+            stream_error = exc
         finally:
             close = getattr(stream, "close", None)
             if callable(close):
                 try:
                     close()
                 except Exception:
-                    # Cleanup must not mask the model error or client cancellation.
                     pass
+
+        stream_cost_ms = int((time.perf_counter() - started_at) * 1000)
+        self._record_llm_call(
+            usage=usage,
+            finish_reason=finish_reason,
+            call_type="with_tools",
+            cost_ms=stream_cost_ms,
+        )
+
+        if stream_error is not None:
+            timings.bump("llm_calls")
+            fallback_started_at = time.perf_counter()
+            with timings.track("llm"):
+                completion = runtime.client.chat.completions.create(
+                    model=runtime.api_model,
+                    messages=messages,
+                    tools=tools,
+                    tool_choice=active_tool_choice,
+                    **runtime.request_params,
+                )
+            self._record_llm_call(
+                completion=completion,
+                call_type="with_tools",
+                cost_ms=int((time.perf_counter() - fallback_started_at) * 1000),
+            )
+            fallback_result = self._round_result_from_message(
+                completion.choices[0].message
+            )
+            if fallback_result.content:
+                yield StreamEvent(
+                    type="token",
+                    data={"text": fallback_result.content},
+                )
+            return fallback_result
+
+        tool_calls = [
+            {
+                "id": slot["id"] or f"tool_call_{index}",
+                "type": "function",
+                "function": {
+                    "name": slot["name"],
+                    "arguments": slot["arguments"] or "{}",
+                },
+            }
+            for index, slot in sorted(tool_call_parts.items())
+        ]
+        return _RoundResult(
+            content="".join(content_parts),
+            reasoning="".join(reasoning_parts),
+            tool_calls=tool_calls,
+        )
+
+    def _round_result_message(self, result: _RoundResult) -> dict[str, Any]:
+        """Convert one accumulated round into an assistant tool-call message."""
+
+        message: dict[str, Any] = {
+            "role": "assistant",
+            "content": result.content or None,
+            "tool_calls": result.tool_calls,
+        }
+        if result.reasoning:
+            message["reasoning_content"] = result.reasoning
+        return message
+
+    def _round_result_from_message(self, message) -> _RoundResult:
+        """Normalize a non-stream fallback response to the stream result shape."""
+
+        tool_calls = self._message_tool_calls(message)
+        return _RoundResult(
+            content=self._message_content(message) or "",
+            reasoning=self._message_reasoning_content(message) or "",
+            tool_calls=[
+                self._tool_call_payload(tool_call, index)
+                for index, tool_call in enumerate(tool_calls)
+            ],
+        )
+
+    @staticmethod
+    def _object_value(value, name: str, default=None):
+        """Read a field from SDK objects and recorded-dict fixtures alike."""
+
+        if isinstance(value, dict):
+            return value.get(name, default)
+        return getattr(value, name, default)
 
     def _execute_forced_web_search(
         self,
@@ -486,6 +700,56 @@ class ReactOrchestrator:
 
         return ""
 
+    def _model_runtime(self) -> _ModelRuntime:
+        """Resolve the active request model without leaking it across requests."""
+
+        spec = self._model_spec_var.get()
+        if spec is None and self.config is None and self.client is None:
+            spec = resolve_model()
+
+        if spec is not None:
+            request_params = dict(spec.top_level_params)
+            if spec.extra_body:
+                request_params["extra_body"] = dict(spec.extra_body)
+            return _ModelRuntime(
+                client=get_llm_client(spec.provider),
+                api_model=spec.api_model,
+                trace_model=spec.model_id,
+                request_params=request_params,
+            )
+
+        if self.config is None or self.client is None:
+            raise RuntimeError("legacy model config and client must be provided together")
+
+        return _ModelRuntime(
+            client=self.client,
+            api_model=self.config.model,
+            trace_model=self.config.model,
+            request_params={},
+        )
+
+    def _active_tools(self) -> list[dict[str, Any]]:
+        """Return tools allowed for the active model and request switches."""
+
+        spec = self._model_spec_var.get()
+        if spec is not None and not spec.supports_tools:
+            return []
+
+        tools = self.tool_registry.get_tools_schema()
+        if not getattr(self, "_active_rag_enabled", True):
+            tools = [
+                tool
+                for tool in tools
+                if _tool_schema_name(tool) != RAG_TOOL_NAME
+            ]
+        if not getattr(self, "_active_web_search_enabled", True):
+            tools = [
+                tool
+                for tool in tools
+                if _tool_schema_name(tool) != WEB_SEARCH_TOOL_NAME
+            ]
+        return tools
+
     def _call_model_with_tools(
         self,
         messages: list[ChatCompletionMessageParam],
@@ -500,35 +764,22 @@ class ReactOrchestrator:
                 "tool_calls": [],
             }
 
+        runtime = self._model_runtime()
         timings.bump("llm_calls")
         if timings.get_meta("model") is None:
-            timings.set_meta("model", self.config.model)
+            timings.set_meta("model", runtime.trace_model)
 
-        tools = self.tool_registry.get_tools_schema()
-        if not getattr(self, "_active_rag_enabled", True):
-            # 强制关闭 RAG：从本轮工具 Schema 中真正移除检索工具，
-            # 不能只依赖 Prompt 约束模型。
-            tools = [
-                tool
-                for tool in tools
-                if _tool_schema_name(tool) != RAG_TOOL_NAME
-            ]
-        if not getattr(self, "_active_web_search_enabled", True):
-            # 强制关闭联网搜索：从本轮工具 Schema 中真正移除 web_search。
-            tools = [
-                tool
-                for tool in tools
-                if _tool_schema_name(tool) != WEB_SEARCH_TOOL_NAME
-            ]
+        tools = self._active_tools()
 
         active_tool_choice = tool_choice or "auto"
         call_started_at = time.perf_counter()
         with timings.track("llm"):
-            completion = self.client.chat.completions.create(
-                model=self.config.model,
+            completion = runtime.client.chat.completions.create(
+                model=runtime.api_model,
                 messages=messages,
                 tools=tools,
                 tool_choice=active_tool_choice,
+                **runtime.request_params,
             )
         self._record_llm_call(
             completion=completion,
@@ -1237,6 +1488,10 @@ class ReactOrchestrator:
         if content:
             message["content"] = content
 
+        reasoning = self._message_reasoning_content(first_message)
+        if reasoning:
+            message["reasoning_content"] = reasoning
+
         return message
 
     def _message_content(self, message) -> str | None:
@@ -1249,6 +1504,14 @@ class ReactOrchestrator:
             return message.get("content")
 
         return getattr(message, "content", None)
+
+    def _message_reasoning_content(self, message) -> str | None:
+        """Read provider reasoning retained only within a ReAct tool loop."""
+
+        if isinstance(message, dict):
+            return message.get("reasoning_content")
+
+        return getattr(message, "reasoning_content", None)
 
     def _message_tool_calls(self, message) -> list[Any]:
         """兼容 dict 和 SDK 消息对象，统一取出模型请求的工具调用列表。"""
@@ -1309,15 +1572,17 @@ class ReactOrchestrator:
     def _call_model(self, messages: list[ChatCompletionMessageParam]) -> str:
         """把 messages 发送给模型，并返回原始文本回复。"""
 
+        runtime = self._model_runtime()
         timings.bump("llm_calls")
         if timings.get_meta("model") is None:
-            timings.set_meta("model", self.config.model)
+            timings.set_meta("model", runtime.trace_model)
 
         call_started_at = time.perf_counter()
         with timings.track("llm"):
-            completion = self.client.chat.completions.create(
-                model=self.config.model,
+            completion = runtime.client.chat.completions.create(
+                model=runtime.api_model,
                 messages=messages,
+                **runtime.request_params,
             )
         self._record_llm_call(
             completion=completion,
@@ -1331,25 +1596,34 @@ class ReactOrchestrator:
 
         return raw_reply
 
-    def _record_llm_call(self, *, completion, call_type: str, cost_ms: int) -> None:
+    def _record_llm_call(
+        self,
+        *,
+        call_type: str,
+        cost_ms: int,
+        completion=None,
+        usage=None,
+        finish_reason: str | None = None,
+    ) -> None:
         """提取 usage / finish_reason 写入 llm_calls，并累加请求级 token 汇总。
 
         部分第三方 OpenAI 兼容端点不返回 usage，流式默认也不返回；
         usage 可能为 None，取不到就写 None，不抛异常、不写 0。
         """
 
-        usage = getattr(completion, "usage", None)
+        if completion is not None:
+            usage = getattr(completion, "usage", None)
+            if finish_reason is None:
+                try:
+                    finish_reason = completion.choices[0].finish_reason
+                except (AttributeError, IndexError):
+                    pass
+
         prompt_tokens = getattr(usage, "prompt_tokens", None) if usage else None
         completion_tokens = (
             getattr(usage, "completion_tokens", None) if usage else None
         )
         total_tokens = getattr(usage, "total_tokens", None) if usage else None
-        finish_reason = None
-        try:
-            finish_reason = completion.choices[0].finish_reason
-        except (AttributeError, IndexError):
-            pass
-
         if prompt_tokens is not None:
             timings.bump("prompt_tokens", prompt_tokens)
         if completion_tokens is not None:
@@ -1359,7 +1633,7 @@ class ReactOrchestrator:
             trace_id=timings.get_trace_id(),
             round_number=timings.get_meta("round_number"),
             call_type=call_type,
-            model=self.config.model,
+            model=self._model_runtime().trace_model,
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
             total_tokens=total_tokens,

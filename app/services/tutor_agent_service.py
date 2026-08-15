@@ -13,10 +13,10 @@ from app.repositories.session_repository import (
     make_title_from_message,
     update_session_title,
 )
-from app.clients.llm_client import create_llm_client
-from app.config import LLMConfig, load_llm_config
+from app.config import LLMConfig
 from app.schemas.chat import ChatRequest, ChatResponse, Source, ToolTrace, TutorReply
 from app.services.agent.memory_manager import MemoryManager
+from app.services.agent.model_registry import resolve_model
 from app.services.agent.personas import (
     DEFAULT_PERSONA_ID,
     get_persona,
@@ -88,11 +88,9 @@ class TutorAgentService:
     ) -> None:
         """初始化模型配置、模型客户端和 Agent 辅助组件。"""
 
-        self.config = config or load_llm_config()
-        self.client = client or create_llm_client(self.config)
         self.summary_service = summary_service or SummaryService(
-            config=self.config,
-            client=self.client,
+            config=config,
+            client=client,
         )
         self.response_parser = response_parser or ResponseParser()
         self.prompt_builder = prompt_builder or PromptBuilder(self.response_parser)
@@ -100,8 +98,8 @@ class TutorAgentService:
         self.tool_registry = tool_registry or ToolRegistry()
         self.tool_executor = tool_executor or ToolExecutor(self.tool_registry)
         self.react_orchestrator = react_orchestrator or ReactOrchestrator(
-            config=self.config,
-            client=self.client,
+            config=config,
+            client=client,
             tool_registry=self.tool_registry,
             tool_executor=self.tool_executor,
         )
@@ -115,8 +113,10 @@ class TutorAgentService:
     def chat(self, request: ChatRequest) -> ChatResponse:
         """处理一次聊天请求。"""
 
+        model_spec = resolve_model(request.model_id)
         started_at = time.perf_counter()
         trace_id = timings.start_request()
+        timings.set_meta("model", model_spec.model_id)
         status = "OK"
         session_id = None
         persona_id = None
@@ -179,6 +179,7 @@ class TutorAgentService:
                 rag_enabled=request.rag_enabled,
                 force_rag=request.force_rag,
                 attachment_ids=request.attachment_ids,
+                model_spec=model_spec,
             )
             # The model can only select source IDs; public Source objects always come
             # from the server-side Web/attachment ledgers (attachments now flow
@@ -202,6 +203,7 @@ class TutorAgentService:
                 user_id=user_id,
                 session_id=session.id,
                 message=message,
+                model_id=model_spec.model_id,
                 reply=reply,
                 tool_trace=tool_trace,
             )
@@ -243,8 +245,10 @@ class TutorAgentService:
             {"event": "error", "data": {...}}
         """
 
+        model_spec = resolve_model(request.model_id)
         started_at = time.perf_counter()
         trace_id = timings.start_request()
+        timings.set_meta("model", model_spec.model_id)
         status = "ERROR"
         session_id = None
         persona_id = None
@@ -306,6 +310,7 @@ class TutorAgentService:
                 rag_enabled=request.rag_enabled,
                 force_rag=request.force_rag,
                 attachment_ids=request.attachment_ids,
+                model_spec=model_spec,
             )
             while True:
                 try:
@@ -349,6 +354,7 @@ class TutorAgentService:
                     "full_response": reply.answer,
                     "reply": reply.model_dump(),
                     "session_id": session.id,
+                    "model_id": model_spec.model_id,
                     "sources": [s.model_dump() for s in reply.sources],
                 },
             }

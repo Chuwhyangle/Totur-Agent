@@ -22,6 +22,7 @@ export const API_BASE_URL = configuredApiBaseUrl ?? (
 const CHAT_URL = `${API_BASE_URL}/chat`
 const CHAT_STREAM_URL = `${API_BASE_URL}/chat/stream`
 const INTERVIEW_JDS_URL = `${API_BASE_URL}/interview-jds`
+const MODELS_URL = `${API_BASE_URL}/models`
 const PERSONAS_URL = `${API_BASE_URL}/personas`
 const SESSIONS_URL = `${API_BASE_URL}/sessions`
 const JOURNAL_URL = `${API_BASE_URL}/api/journal`
@@ -258,6 +259,10 @@ export async function postChatStream(requestBody, callbacks, options = {}) {
 
 export function getPersonas(options = {}) {
   return requestJson(PERSONAS_URL, { signal: options.signal }, 'Persona list request failed')
+}
+
+export function getModels(options = {}) {
+  return requestJson(MODELS_URL, { signal: options.signal }, 'Model list request failed')
 }
 
 export function createSession(requestBody, options = {}) {

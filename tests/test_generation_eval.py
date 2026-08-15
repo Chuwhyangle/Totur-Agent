@@ -30,6 +30,7 @@ def make_response(answer: str, used_tools: bool = False) -> ChatResponse:
         user_id="eval-user",
         session_id=1,
         message="question",
+        model_id="ds-flash-fast",
         reply=TutorReply(
             answer=answer,
             next_task="next",

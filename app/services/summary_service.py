@@ -10,6 +10,7 @@ from openai.types.chat import (
 )
 
 from app.clients.llm_client import create_llm_client
+from app.clients.llm_client_pool import get_llm_client
 from app.config import LLMConfig, load_llm_config
 from app.db.models import ConversationRecord
 from app.repositories.summary_repository import (
@@ -18,6 +19,7 @@ from app.repositories.summary_repository import (
     list_conversations_after,
     upsert_summary,
 )
+from app.services.agent.model_registry import resolve_model
 from app.services.memory_settings import RECENT_HISTORY_LIMIT, SUMMARY_TRIGGER_COUNT
 
 
@@ -137,11 +139,11 @@ class SummaryService:
     def _call_model(self, messages: list[ChatCompletionMessageParam]) -> str:
         """调用模型生成摘要正文。"""
 
-        config = self._get_config()
-        client = self._get_client(config)
+        client, model, request_params = self._default_model_runtime()
         completion = client.chat.completions.create(
-            model=config.model,
+            model=model,
             messages=messages,
+            **request_params,
         )
         raw_reply = completion.choices[0].message.content
 
@@ -149,6 +151,20 @@ class SummaryService:
             raise RuntimeError("摘要模型没有返回内容")
 
         return raw_reply
+
+    def _default_model_runtime(self) -> tuple[OpenAI, str, dict]:
+        """Resolve the stable default model used by background summaries."""
+
+        if self.config is not None:
+            return self._get_client(self.config), self.config.model, {}
+        if self.client is not None:
+            raise RuntimeError("summary client requires an explicit model config")
+
+        spec = resolve_model()
+        request_params = dict(spec.top_level_params)
+        if spec.extra_body:
+            request_params["extra_body"] = dict(spec.extra_body)
+        return get_llm_client(spec.provider), spec.api_model, request_params
 
     def _get_config(self) -> LLMConfig:
         """懒加载模型配置，方便测试时不读取环境变量。"""

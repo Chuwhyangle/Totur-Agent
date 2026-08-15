@@ -6,6 +6,19 @@ from app.db import trace_db
 
 
 @pytest.fixture(autouse=True)
+def configure_test_chat_models(monkeypatch):
+    """Keep application lifespan tests independent from developer .env files."""
+
+    monkeypatch.setenv(
+        "ENABLED_MODELS",
+        "ds-flash-fast,ds-flash-think,ds-pro-deep",
+    )
+    monkeypatch.setenv("DEFAULT_MODEL_ID", "ds-flash-fast")
+    monkeypatch.setenv("DEEPSEEK_KEY", "test-deepseek-key")
+    monkeypatch.setenv("DEEPSEEK_BASE_URL", "https://deepseek.example.test/v1")
+
+
+@pytest.fixture(autouse=True)
 def skip_trace_writes(monkeypatch):
     """Disable real trace writes while keeping one facade patch point."""
 

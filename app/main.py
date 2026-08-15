@@ -16,8 +16,10 @@ from app.api.routes.conversations import router as conversations_router
 from app.api.routes.health import router as health_router
 from app.api.routes.interview_jds import router as interview_jds_router
 from app.api.routes.journal import router as journal_router
+from app.api.routes.models import router as models_router
 from app.api.routes.personas import router as personas_router
 from app.api.routes.sessions import router as sessions_router
+from app.clients.llm_client_pool import close_llm_clients
 from app.clients.reranker_client import close_reranker_client
 from app.clients.web_search_client import close_web_search_client
 from app.config import ServerConfig
@@ -25,6 +27,7 @@ from app.mcp.settings import get_mcp_http_path, is_mcp_http_enabled
 from app.services.documents.attachment_recovery_service import (
     get_attachment_recovery_service,
 )
+from app.services.agent.model_registry import validate_model_configuration
 
 _server_config = ServerConfig.from_env()
 
@@ -104,6 +107,7 @@ async def _run_attachment_sweep(
 async def lifespan(_: FastAPI):
     """Run bounded recovery and release shared clients on shutdown."""
 
+    validate_model_configuration()
     stop_event = threading.Event()
     shutdown_event = asyncio.Event()
     try:
@@ -161,6 +165,7 @@ async def lifespan(_: FastAPI):
                 )
             close_reranker_client()
             close_web_search_client()
+            close_llm_clients()
 
 
 app = FastAPI(
@@ -184,6 +189,7 @@ app.include_router(attachments_router)
 app.include_router(conversations_router)
 app.include_router(health_router)
 app.include_router(personas_router)
+app.include_router(models_router)
 # Session endpoints: create, list, and inspect chat history.
 app.include_router(sessions_router)
 # Interview JD endpoints: store user profiles before matching tools.

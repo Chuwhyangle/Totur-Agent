@@ -814,10 +814,13 @@ def test_streamed_reply_matches_generator_return_value():
 
     orchestrator = make_orchestrator()
     orchestrator._call_model_with_tools = lambda _messages: final_message("preflight reply")
-    orchestrator._stream_final_reply = lambda _messages: iter([
-        StreamEvent(type="token", data={"text": "streamed "}),
-        StreamEvent(type="token", data={"text": "reply"}),
-    ])
+
+    def fake_stream_round(messages, *, tool_choice=None):
+        yield StreamEvent(type="token", data={"text": "streamed "})
+        yield StreamEvent(type="token", data={"text": "reply"})
+        return SimpleNamespace(content="streamed reply", reasoning="", tool_calls=[])
+
+    orchestrator._stream_round = fake_stream_round
 
     stream = orchestrator.run_stream([{"role": "user", "content": "Explain SSE"}])
     token_text = []
@@ -858,7 +861,7 @@ def test_stream_final_reply_closes_upstream_stream_when_cancelled():
         ),
     )
 
-    stream = orchestrator._stream_final_reply([])
+    stream = orchestrator._stream_round([])
     assert next(stream).data == {"text": "first"}
     stream.close()
 

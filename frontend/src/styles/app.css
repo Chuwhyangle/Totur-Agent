@@ -271,7 +271,8 @@ button:disabled { cursor: not-allowed; opacity: 0.48; }
 }
 .persona-field { position: relative; }
 .persona-field > span { display: none; }
-.persona-select {
+.persona-select,
+.model-select {
   height: 34px;
   max-width: 148px;
   padding: 0 30px 0 12px;
@@ -291,7 +292,8 @@ button:disabled { cursor: not-allowed; opacity: 0.48; }
   background-repeat: no-repeat;
   transition: border-color 0.2s var(--ease), box-shadow 0.2s var(--ease);
 }
-.persona-select:focus {
+.persona-select:focus,
+.model-select:focus {
   border-color: var(--pborder);
   box-shadow: var(--focus);
 }
@@ -1548,7 +1550,8 @@ button:disabled { cursor: not-allowed; opacity: 0.48; }
     flex-basis: 58px;
   }
   .brand-block span:last-child,
-  .persona-field { display: none; }
+  .persona-field,
+  .model-field { display: none; }
   .brand-mark {
     width: 32px;
     height: 32px;

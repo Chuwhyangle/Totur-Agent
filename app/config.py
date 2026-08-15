@@ -57,6 +57,14 @@ class LLMConfig:
     model: str
 
 
+@dataclass(frozen=True)
+class ProviderConfig:
+    """OpenAI-compatible chat provider connection configuration."""
+
+    api_key: str
+    base_url: str
+
+
 @dataclass
 class EmbeddingConfig:
     """Embedding 客户端所需的基础配置。"""
@@ -200,6 +208,32 @@ def load_llm_config() -> LLMConfig:
         base_url=base_url,
         model=model,
     )
+
+
+def load_provider_configs() -> dict[str, ProviderConfig]:
+    """Return chat providers whose key and base URL are both configured."""
+
+    load_dotenv()
+
+    provider_values = {
+        "openai": (
+            os.getenv("OPENAI_API_KEY", "").strip(),
+            os.getenv("OPENAI_BASE_URL", "").strip(),
+        ),
+        "deepseek": (
+            (
+                os.getenv("DEEPSEEK_KEY", "").strip()
+                or os.getenv("DEEPSEEK_API_KEY", "").strip()
+            ),
+            os.getenv("DEEPSEEK_BASE_URL", "").strip(),
+        ),
+    }
+
+    return {
+        provider: ProviderConfig(api_key=api_key, base_url=base_url)
+        for provider, (api_key, base_url) in provider_values.items()
+        if api_key and base_url
+    }
 
 
 def load_embedding_config() -> EmbeddingConfig:

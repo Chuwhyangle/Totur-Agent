@@ -7,6 +7,7 @@ import {
   getAttachments,
   getHealth,
   getInterviewJDs,
+  getModels,
   getPersonas,
   getSessionConversations,
   getSessions,
@@ -22,6 +23,7 @@ import ChatInput from './components/ChatInput.jsx'
 import ChatMessage from './components/ChatMessage.jsx'
 import InterviewJDPanel from './components/InterviewJDPanel.jsx'
 import Icon from './components/Icon.jsx'
+import ModelSelector from './components/ModelSelector.jsx'
 import PersonaSelector from './components/PersonaSelector.jsx'
 import SessionSidebar from './components/SessionSidebar.jsx'
 import UserIdInput from './components/UserIdInput.jsx'
@@ -120,6 +122,9 @@ function App() {
   const [personas, setPersonas] = useState([])
   const [personasStatus, setPersonasStatus] = useState('idle')
   const [selectedPersonaId, setSelectedPersonaId] = useState(DEFAULT_PERSONA_ID)
+  const [models, setModels] = useState([])
+  const [modelsStatus, setModelsStatus] = useState('idle')
+  const [selectedModelId, setSelectedModelId] = useState(() => localStorage.getItem('tutor-model') ?? null)
   const [isTargetPanelOpen, setIsTargetPanelOpen] = useState(false)
   const [theme, setTheme] = useState(() => localStorage.getItem('tutor-theme') ?? 'light')
   const [attachments, setAttachments] = useState([])
@@ -193,6 +198,27 @@ function App() {
     } catch (error) {
       setPersonas([])
       setPersonasStatus('error')
+      updateApiStatusAfterError(error)
+      return []
+    }
+  }, [])
+
+  const loadModels = useCallback(async () => {
+    setModelsStatus('loading')
+    try {
+      const { data } = await getModels()
+      const nextModels = Array.isArray(data) ? data : []
+      setModels(nextModels)
+      setModelsStatus('success')
+      setApiStatus('online')
+      setSelectedModelId((currentModelId) => {
+        const stillAvailable = nextModels.some((model) => model.model_id === currentModelId)
+        return stillAvailable ? currentModelId : (nextModels[0]?.model_id ?? null)
+      })
+      return nextModels
+    } catch (error) {
+      setModels([])
+      setModelsStatus('error')
       updateApiStatusAfterError(error)
       return []
     }
@@ -584,6 +610,7 @@ function App() {
       session_id: activeSessionId,
       persona_id: selectedPersonaId,
       message: trimmedMessage,
+      model_id: selectedModelId ?? undefined,
       ...WEB_SEARCH_MODE_REQUEST_FIELDS[webSearchModeForRequest],
       ...RAG_MODE_REQUEST_FIELDS[ragModeForRequest],
       attachment_ids: attachmentIds,
@@ -741,9 +768,10 @@ function App() {
   useEffect(() => {
     checkApiHealth()
     void loadPersonas()
+    void loadModels()
     void loadSessions()
     void loadInterviewJDs()
-  }, [checkApiHealth, loadPersonas, loadSessions, loadInterviewJDs])
+  }, [checkApiHealth, loadPersonas, loadModels, loadSessions, loadInterviewJDs])
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme
@@ -760,6 +788,11 @@ function App() {
     const next = !streamingEnabled
     setStreamingEnabled(next)
     localStorage.setItem('tutor-streaming', String(next))
+  }
+
+  function handleModelChange(nextModelId) {
+    setSelectedModelId(nextModelId)
+    localStorage.setItem('tutor-model', nextModelId)
   }
 
   function handleStopStreaming() {
@@ -805,6 +838,7 @@ function App() {
           <ApiStatus status={apiStatus} />
         </div>
         <div className="header-controls">
+          <ModelSelector models={models} selectedModelId={selectedModelId} status={modelsStatus} onModelChange={handleModelChange} />
           <PersonaSelector personas={personas} selectedPersonaId={selectedPersonaId} status={personasStatus} onPersonaChange={handlePersonaChange} />
           <button className="header-action-button" type="button" onClick={() => setIsTargetPanelOpen(true)}>
             <Icon name="target" size={17} /><span>学习目标</span>

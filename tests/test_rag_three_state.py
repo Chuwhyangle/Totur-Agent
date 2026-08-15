@@ -759,12 +759,13 @@ class TestStreamingMode:
         )
         orchestrator = make_orchestrator(registry)
         orchestrator._call_model_with_tools = lambda _messages: final_message()
-        orchestrator._stream_final_reply = lambda _messages: iter(
-            [
-                SimpleNamespace(type="token", data={"text": "streamed "}),
-                SimpleNamespace(type="token", data={"text": "reply"}),
-            ]
-        )
+
+        def fake_stream_round(messages, *, tool_choice=None):
+            yield SimpleNamespace(type="token", data={"text": "streamed "})
+            yield SimpleNamespace(type="token", data={"text": "reply"})
+            return SimpleNamespace(content="streamed reply", reasoning="", tool_calls=[])
+
+        orchestrator._stream_round = fake_stream_round
 
         stream = orchestrator.run_stream(
             [{"role": "user", "content": "notes"}],

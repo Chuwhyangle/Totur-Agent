@@ -11,6 +11,7 @@ class ChatRequest(BaseModel):
     user_id: str = Field(..., min_length=1)
     session_id: int | None = None
     message: str = Field(..., min_length=1)
+    model_id: str | None = None
     persona_id: str | None = None
     web_search_enabled: bool = True
     force_web_search: bool = False
@@ -116,5 +117,6 @@ class ChatResponse(BaseModel):
     user_id: str
     session_id: int
     message: str
+    model_id: str
     reply: TutorReply
     tool_trace: ToolTrace

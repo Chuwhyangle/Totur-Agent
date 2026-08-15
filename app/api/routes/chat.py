@@ -9,6 +9,7 @@ from app.services.agent.personas import (
     InvalidPersonaError,
     available_persona_ids,
 )
+from app.services.agent.model_registry import InvalidModelError, resolve_model
 from app.services.documents.attachment_retrieval_service import (
     AttachmentIndexMissingError,
     AttachmentNoRelevantEvidenceError,
@@ -34,6 +35,19 @@ def _format_sse_event(event_type: str, data: dict) -> str:
     return f"event: {event_type}\ndata: {json_data}\n\n"
 
 
+def _invalid_model_http_exception(error: InvalidModelError) -> HTTPException:
+    """Map model selection failures to the public 422 response shape."""
+
+    return HTTPException(
+        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+        detail={
+            "error": "invalid_model_id",
+            "model_id": error.model_id,
+            "available_models": error.available_model_ids,
+        },
+    )
+
+
 @router.post("/chat/stream")
 def chat_stream(request: ChatRequest) -> StreamingResponse:
     """Handle a chat request with SSE streaming.
@@ -45,6 +59,11 @@ def chat_stream(request: ChatRequest) -> StreamingResponse:
         - done: full response with sources
         - error: error message
     """
+
+    try:
+        resolve_model(request.model_id)
+    except InvalidModelError as error:
+        raise _invalid_model_http_exception(error) from error
 
     def event_generator():
         terminal_event_sent = False
@@ -81,6 +100,8 @@ def chat(request: ChatRequest) -> ChatResponse:
 
     try:
         return tutor_agent_service.chat(request)
+    except InvalidModelError as error:
+        raise _invalid_model_http_exception(error) from error
     except InvalidPersonaError as error:
         raise HTTPException(
             status_code=422,
