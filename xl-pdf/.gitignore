@@ -1,0 +1,4 @@
+# 生成物与依赖，不入库
+node_modules/
+pdfs/
+test.pdf
