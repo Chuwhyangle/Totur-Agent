@@ -2,9 +2,8 @@
 
 from datetime import datetime, timezone
 
-from sqlalchemy import text
+from sqlalchemy import Connection, text
 
-from app.db.database import initialize_database
 from app.db.engine import get_engine
 from app.db.models import (
     CHAT_SESSIONS_TABLE,
@@ -36,10 +35,14 @@ def create_session(
     title: str | None = None,
     persona_id: str = DEFAULT_PERSONA_ID,
     subject: str | None = None,
+    *,
+    conn: Connection | None = None,
 ) -> ChatSessionRecord:
-    """为某个用户创建一个聊天会话。"""
+    """为某个用户创建一个聊天会话。
 
-    initialize_database()
+    传入 conn 时复用调用方的连接与事务；不传则自行开启事务。
+    """
+
     now = datetime.now(timezone.utc).isoformat()
     # 如果前端没有传标题，就先使用默认会话标题。
     session_title = title.strip() if title and title.strip() else DEFAULT_SESSION_TITLE
@@ -48,43 +51,51 @@ def create_session(
         (user_id, title, persona_id, created_at, updated_at, subject)
     VALUES (:user_id, :title, :persona_id, :created_at, :updated_at, :subject)
     """
+    params = {
+        "user_id": user_id,
+        "title": session_title,
+        "persona_id": persona_id,
+        "created_at": now,
+        "updated_at": now,
+        "subject": subject,
+    }
 
-    with get_engine().begin() as connection:
-        cursor = connection.execute(
-            text(insert_sql),
-            {
-                "user_id": user_id,
-                "title": session_title,
-                "persona_id": persona_id,
-                "created_at": now,
-                "updated_at": now,
-                "subject": subject,
-            },
-        )
+    def _execute(cursor_connection: Connection) -> int:
+        cursor = cursor_connection.execute(text(insert_sql), params)
         new_id = cursor.lastrowid
-
         if new_id is None:
             raise RuntimeError("创建会话失败：没有拿到新记录 id")
+        return new_id
 
-        return ChatSessionRecord(
-            id=new_id,
-            user_id=user_id,
-            title=session_title,
-            persona_id=persona_id,
-            created_at=now,
-            updated_at=now,
-            subject=subject,
-        )
+    if conn is not None:
+        new_id = _execute(conn)
+    else:
+        with get_engine().begin() as connection:
+            new_id = _execute(connection)
+
+    return ChatSessionRecord(
+        id=new_id,
+        user_id=user_id,
+        title=session_title,
+        persona_id=persona_id,
+        created_at=now,
+        updated_at=now,
+        subject=subject,
+    )
 
 
 def get_or_create_default_session(
     user_id: str,
     persona_id: str = DEFAULT_PERSONA_ID,
     subject: str | None = None,
+    *,
+    conn: Connection | None = None,
 ) -> ChatSessionRecord:
-    """获取某个用户的默认会话；没有就自动创建。"""
+    """获取某个用户的默认会话；没有就自动创建。
 
-    initialize_database()
+    传入 conn 时复用调用方的连接与事务，并透传给 create_session。
+    """
+
     select_sql = f"""
     SELECT id, user_id, title, persona_id, created_at, updated_at, subject
     FROM {CHAT_SESSIONS_TABLE}
@@ -92,11 +103,33 @@ def get_or_create_default_session(
     ORDER BY id ASC
     LIMIT 1
     """
+    select_params = {
+        "user_id": user_id,
+        "title": DEFAULT_SESSION_TITLE,
+        "persona_id": persona_id,
+    }
+
+    if conn is not None:
+        row = conn.execute(
+            text(select_sql),
+            select_params,
+        ).mappings().fetchone()
+
+        if row is not None:
+            return _session_from_row(row)
+
+        # 旧版 /chat 不传 session_id 时，会走到这里创建默认会话。
+        return create_session(
+            user_id=user_id,
+            title=DEFAULT_SESSION_TITLE,
+            persona_id=persona_id,
+            conn=conn,
+        )
 
     with get_engine().connect() as connection:
         row = connection.execute(
             text(select_sql),
-            {"user_id": user_id, "title": DEFAULT_SESSION_TITLE, "persona_id": persona_id},
+            select_params,
         ).mappings().fetchone()
 
     if row is not None:
@@ -113,7 +146,6 @@ def get_or_create_default_session(
 def get_session(session_id: int) -> ChatSessionRecord | None:
     """根据 session_id 查询一个会话。"""
 
-    initialize_database()
     select_sql = f"""
     SELECT id, user_id, title, persona_id, created_at, updated_at, subject
     FROM {CHAT_SESSIONS_TABLE}
@@ -135,7 +167,6 @@ def get_session(session_id: int) -> ChatSessionRecord | None:
 def list_sessions(user_id: str, limit: int = 50) -> list[ChatSessionRecord]:
     """查询某个用户最近的会话列表，最新的排在前面。"""
 
-    initialize_database()
     select_sql = f"""
     SELECT id, user_id, title, persona_id, created_at, updated_at, subject
     FROM {CHAT_SESSIONS_TABLE}
@@ -153,28 +184,35 @@ def list_sessions(user_id: str, limit: int = 50) -> list[ChatSessionRecord]:
         return [_session_from_row(row) for row in rows]
 
 
-def touch_session(session_id: int) -> None:
-    """保存新对话后，更新会话的最后活跃时间。"""
+def touch_session(
+    session_id: int,
+    *,
+    conn: Connection | None = None,
+) -> None:
+    """保存新对话后，更新会话的最后活跃时间。
 
-    initialize_database()
+    传入 conn 时复用调用方的连接与事务；不传则自行开启事务。
+    """
+
     now = datetime.now(timezone.utc).isoformat()
     update_sql = f"""
     UPDATE {CHAT_SESSIONS_TABLE}
     SET updated_at = :updated_at
     WHERE id = :id
     """
+    params = {"updated_at": now, "id": session_id}
+
+    if conn is not None:
+        conn.execute(text(update_sql), params)
+        return
 
     with get_engine().begin() as connection:
-        connection.execute(
-            text(update_sql),
-            {"updated_at": now, "id": session_id},
-        )
+        connection.execute(text(update_sql), params)
 
 
 def update_session_title(session_id: int, title: str) -> None:
     """更新会话标题。"""
 
-    initialize_database()
     update_sql = f"""
     UPDATE {CHAT_SESSIONS_TABLE}
     SET title = :title
