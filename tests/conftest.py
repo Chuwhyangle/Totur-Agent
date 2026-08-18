@@ -1,17 +1,32 @@
 """pytest 全局 fixture。"""
 
+import inspect
+
 import pytest
 
 from app.db import trace_db
+from app.db.database import initialize_database
 from app.db.engine import reset_engine_for_tests
 
 
 @pytest.fixture(autouse=True)
-def isolated_test_database(tmp_path, monkeypatch):
-    """每个测试独立使用临时 SQLite 库，避免污染本地 tutor_agent.db。"""
+def isolated_test_database(tmp_path, monkeypatch, request):
+    """每个测试独立使用临时 SQLite 库，避免污染本地 tutor_agent.db。
+
+    A2 后 schema 初始化唯一入口在 app lifespan；TestClient 直连不触发
+    lifespan，由测试基建在此显式建 schema（业务路径仍只有 lifespan 一处）。
+    测试函数体内直接调用 initialize_database 的（旧库迁移/建表验证），
+    自己管理 schema 起点，测试基建不预建，避免与测试内建旧表冲突。
+    """
 
     monkeypatch.setenv("DATA_DIR", str(tmp_path))
     reset_engine_for_tests()
+    try:
+        source = inspect.getsource(request.node.function)
+    except (OSError, TypeError):
+        source = ""
+    if "initialize_database" not in source:
+        initialize_database()
     yield
     reset_engine_for_tests()
 
