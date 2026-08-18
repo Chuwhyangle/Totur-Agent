@@ -5,7 +5,10 @@ from __future__ import annotations
 import json
 from typing import Iterable
 
-from app.db.database import get_connection, initialize_database
+from sqlalchemy import text
+
+from app.db.database import initialize_database
+from app.db.engine import get_engine
 from app.db.models import PUBLIC_JOB_DESCRIPTIONS_TABLE, PublicJDRecord
 
 
@@ -50,7 +53,7 @@ def sync_public_jds(
     initialize_database()
     normalized_records = tuple(records)
     normalized_delete_ids = tuple(dict.fromkeys(delete_ids))
-    placeholders = ", ".join("?" for _ in _COLUMNS)
+    placeholders = ", ".join(f":p{i}" for i in range(len(_COLUMNS)))
     updates = ", ".join(
         f"{column}=excluded.{column}" for column in _COLUMNS if column != "jd_id"
     )
@@ -59,41 +62,41 @@ def sync_public_jds(
     VALUES ({placeholders})
     ON CONFLICT(jd_id) DO UPDATE SET {updates}
     """
-    connection = get_connection()
-    try:
+    with get_engine().begin() as connection:
         if full_rebuild:
-            connection.execute(f"DELETE FROM {PUBLIC_JOB_DESCRIPTIONS_TABLE}")
+            connection.execute(text(f"DELETE FROM {PUBLIC_JOB_DESCRIPTIONS_TABLE}"))
         elif normalized_delete_ids:
-            delete_placeholders = ", ".join("?" for _ in normalized_delete_ids)
+            delete_placeholders = ", ".join(
+                f":del{i}" for i in range(len(normalized_delete_ids))
+            )
             connection.execute(
-                f"DELETE FROM {PUBLIC_JOB_DESCRIPTIONS_TABLE} "
-                f"WHERE jd_id IN ({delete_placeholders})",
-                normalized_delete_ids,
+                text(
+                    f"DELETE FROM {PUBLIC_JOB_DESCRIPTIONS_TABLE} "
+                    f"WHERE jd_id IN ({delete_placeholders})"
+                ),
+                {
+                    f"del{i}": jd_id
+                    for i, jd_id in enumerate(normalized_delete_ids)
+                },
             )
         if normalized_records:
-            connection.executemany(sql, [_record_values(record) for record in normalized_records])
-        connection.commit()
+            connection.execute(
+                text(sql),
+                [_record_params(record) for record in normalized_records],
+            )
         row = connection.execute(
-            f"SELECT COUNT(*) AS total FROM {PUBLIC_JOB_DESCRIPTIONS_TABLE}"
-        ).fetchone()
+            text(f"SELECT COUNT(*) AS total FROM {PUBLIC_JOB_DESCRIPTIONS_TABLE}")
+        ).mappings().fetchone()
         return int(row["total"])
-    except Exception:
-        connection.rollback()
-        raise
-    finally:
-        connection.close()
 
 
 def count_public_jds() -> int:
     initialize_database()
-    connection = get_connection()
-    try:
+    with get_engine().connect() as connection:
         row = connection.execute(
-            f"SELECT COUNT(*) AS total FROM {PUBLIC_JOB_DESCRIPTIONS_TABLE}"
-        ).fetchone()
+            text(f"SELECT COUNT(*) AS total FROM {PUBLIC_JOB_DESCRIPTIONS_TABLE}")
+        ).mappings().fetchone()
         return int(row["total"])
-    finally:
-        connection.close()
 
 
 def list_public_jds(
@@ -109,7 +112,7 @@ def list_public_jds(
 
     initialize_database()
     clauses: list[str] = []
-    parameters: list[object] = []
+    parameters: dict[str, object] = {}
     for column, value in (
         ("category", category),
         ("relevance", relevance),
@@ -117,25 +120,24 @@ def list_public_jds(
         ("province", province),
     ):
         if value is not None:
-            clauses.append(f"{column} = ?")
-            parameters.append(value)
+            clauses.append(f"{column} = :{column}")
+            parameters[column] = value
     if salary_floor_k is not None:
-        clauses.append("salary_min_k >= ?")
-        parameters.append(float(salary_floor_k))
+        clauses.append("salary_min_k >= :salary_floor_k")
+        parameters["salary_floor_k"] = float(salary_floor_k)
     if salary_ceiling_k is not None:
-        clauses.append("salary_max_k <= ?")
-        parameters.append(float(salary_ceiling_k))
+        clauses.append("salary_max_k <= :salary_ceiling_k")
+        parameters["salary_ceiling_k"] = float(salary_ceiling_k)
     where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
-    connection = get_connection()
-    try:
+    with get_engine().connect() as connection:
         rows = connection.execute(
-            f"SELECT {', '.join(_COLUMNS)} "
-            f"FROM {PUBLIC_JOB_DESCRIPTIONS_TABLE} {where} ORDER BY jd_id",
+            text(
+                f"SELECT {', '.join(_COLUMNS)} "
+                f"FROM {PUBLIC_JOB_DESCRIPTIONS_TABLE} {where} ORDER BY jd_id"
+            ),
             parameters,
-        ).fetchall()
+        ).mappings().fetchall()
         return [_record_from_row(row) for row in rows]
-    finally:
-        connection.close()
 
 
 def _record_values(record: PublicJDRecord) -> tuple[object, ...]:
@@ -167,6 +169,14 @@ def _record_values(record: PublicJDRecord) -> tuple[object, ...]:
         record.row_sha256,
         record.parent_sha256,
     )
+
+
+def _record_params(record: PublicJDRecord) -> dict[str, object]:
+    """把记录转成命名参数 dict，供 executemany 使用。"""
+
+    return {
+        f"p{i}": value for i, value in enumerate(_record_values(record))
+    }
 
 
 def _record_from_row(row) -> PublicJDRecord:

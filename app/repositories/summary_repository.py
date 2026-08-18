@@ -2,7 +2,10 @@
 
 from datetime import datetime, timezone
 
-from app.db.database import get_connection, initialize_database
+from sqlalchemy import text
+
+from app.db.database import initialize_database
+from app.db.engine import get_engine
 from app.db.models import (
     CONVERSATIONS_TABLE,
     SESSION_SUMMARIES_TABLE,
@@ -18,19 +21,19 @@ def get_summary(session_id: int) -> SessionSummaryRecord | None:
     select_sql = f"""
     SELECT id, session_id, summary_text, last_conversation_id, created_at, updated_at
     FROM {SESSION_SUMMARIES_TABLE}
-    WHERE session_id = ?
+    WHERE session_id = :session_id
     """
-    connection = get_connection()
 
-    try:
-        row = connection.execute(select_sql, (session_id,)).fetchone()
+    with get_engine().connect() as connection:
+        row = connection.execute(
+            text(select_sql),
+            {"session_id": session_id},
+        ).mappings().fetchone()
 
         if row is None:
             return None
 
         return _summary_from_row(row)
-    finally:
-        connection.close()
 
 
 def upsert_summary(
@@ -45,29 +48,37 @@ def upsert_summary(
     select_sql = f"""
     SELECT id
     FROM {SESSION_SUMMARIES_TABLE}
-    WHERE session_id = ?
+    WHERE session_id = :session_id
     """
     insert_sql = f"""
     INSERT INTO {SESSION_SUMMARIES_TABLE}
         (session_id, summary_text, last_conversation_id, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?)
+    VALUES (:session_id, :summary_text, :last_conversation_id, :created_at, :updated_at)
     """
     update_sql = f"""
     UPDATE {SESSION_SUMMARIES_TABLE}
-    SET summary_text = ?,
-        last_conversation_id = ?,
-        updated_at = ?
-    WHERE session_id = ?
+    SET summary_text = :summary_text,
+        last_conversation_id = :last_conversation_id,
+        updated_at = :updated_at
+    WHERE session_id = :session_id
     """
-    connection = get_connection()
 
-    try:
-        existing_row = connection.execute(select_sql, (session_id,)).fetchone()
+    with get_engine().begin() as connection:
+        existing_row = connection.execute(
+            text(select_sql),
+            {"session_id": session_id},
+        ).mappings().fetchone()
 
         if existing_row is None:
             cursor = connection.execute(
-                insert_sql,
-                (session_id, summary_text, last_conversation_id, now, now),
+                text(insert_sql),
+                {
+                    "session_id": session_id,
+                    "summary_text": summary_text,
+                    "last_conversation_id": last_conversation_id,
+                    "created_at": now,
+                    "updated_at": now,
+                },
             )
             new_id = cursor.lastrowid
 
@@ -78,14 +89,16 @@ def upsert_summary(
         else:
             summary_id = int(existing_row["id"])
             connection.execute(
-                update_sql,
-                (summary_text, last_conversation_id, now, session_id),
+                text(update_sql),
+                {
+                    "summary_text": summary_text,
+                    "last_conversation_id": last_conversation_id,
+                    "updated_at": now,
+                    "session_id": session_id,
+                },
             )
 
-        connection.commit()
         return summary_id
-    finally:
-        connection.close()
 
 
 def count_unsummarized_conversations(session_id: int, after_id: int) -> int:
@@ -95,15 +108,15 @@ def count_unsummarized_conversations(session_id: int, after_id: int) -> int:
     select_sql = f"""
     SELECT COUNT(*) AS total
     FROM {CONVERSATIONS_TABLE}
-    WHERE session_id = ? AND id > ?
+    WHERE session_id = :session_id AND id > :after_id
     """
-    connection = get_connection()
 
-    try:
-        row = connection.execute(select_sql, (session_id, after_id)).fetchone()
+    with get_engine().connect() as connection:
+        row = connection.execute(
+            text(select_sql),
+            {"session_id": session_id, "after_id": after_id},
+        ).mappings().fetchone()
         return int(row["total"])
-    finally:
-        connection.close()
 
 
 def list_conversations_after(
@@ -117,21 +130,21 @@ def list_conversations_after(
     select_sql = f"""
     SELECT id, session_id, user_id, message, reply_json, created_at
     FROM {CONVERSATIONS_TABLE}
-    WHERE session_id = ? AND id > ?
+    WHERE session_id = :session_id AND id > :after_id
     ORDER BY id ASC
-    LIMIT ?
+    LIMIT :limit
     """
-    connection = get_connection()
 
-    try:
-        rows = connection.execute(select_sql, (session_id, after_id, limit)).fetchall()
+    with get_engine().connect() as connection:
+        rows = connection.execute(
+            text(select_sql),
+            {"session_id": session_id, "after_id": after_id, "limit": limit},
+        ).mappings().fetchall()
         return [_conversation_from_row(row) for row in rows]
-    finally:
-        connection.close()
 
 
 def _summary_from_row(row) -> SessionSummaryRecord:
-    """把 sqlite3.Row 转成摘要记录对象。"""
+    """把查询结果行转成摘要记录对象。"""
 
     return SessionSummaryRecord(
         id=row["id"],
@@ -144,7 +157,7 @@ def _summary_from_row(row) -> SessionSummaryRecord:
 
 
 def _conversation_from_row(row) -> ConversationRecord:
-    """把 sqlite3.Row 转成对话记录对象。"""
+    """把查询结果行转成对话记录对象。"""
 
     return ConversationRecord(
         id=row["id"],

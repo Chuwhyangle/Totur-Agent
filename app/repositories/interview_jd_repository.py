@@ -3,7 +3,10 @@
 from datetime import datetime, timezone
 import json
 
-from app.db.database import get_connection, initialize_database
+from sqlalchemy import text
+
+from app.db.database import initialize_database
+from app.db.engine import get_engine
 from app.db.models import INTERVIEW_JDS_TABLE, InterviewJDRecord
 
 
@@ -44,30 +47,44 @@ def create_interview_jd(
         created_at,
         updated_at
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """
-    values = (
-        user_id,
-        title,
-        role_family,
-        seniority,
-        _dump_list(target_graduation_years),
-        raw_text,
-        _dump_list(responsibilities),
-        _dump_list(must_have),
-        _dump_list(core_skills),
-        _dump_list(preferred_skills),
-        _dump_list(bonus_skills),
-        _dump_list(keywords),
-        _dump_list(interview_focus),
-        now,
-        now,
+    VALUES (
+        :user_id,
+        :title,
+        :role_family,
+        :seniority,
+        :target_graduation_years_json,
+        :raw_text,
+        :responsibilities_json,
+        :must_have_json,
+        :core_skills_json,
+        :preferred_skills_json,
+        :bonus_skills_json,
+        :keywords_json,
+        :interview_focus_json,
+        :created_at,
+        :updated_at
     )
-    connection = get_connection()
+    """
+    values = {
+        "user_id": user_id,
+        "title": title,
+        "role_family": role_family,
+        "seniority": seniority,
+        "target_graduation_years_json": _dump_list(target_graduation_years),
+        "raw_text": raw_text,
+        "responsibilities_json": _dump_list(responsibilities),
+        "must_have_json": _dump_list(must_have),
+        "core_skills_json": _dump_list(core_skills),
+        "preferred_skills_json": _dump_list(preferred_skills),
+        "bonus_skills_json": _dump_list(bonus_skills),
+        "keywords_json": _dump_list(keywords),
+        "interview_focus_json": _dump_list(interview_focus),
+        "created_at": now,
+        "updated_at": now,
+    }
 
-    try:
-        cursor = connection.execute(insert_sql, values)
-        connection.commit()
+    with get_engine().begin() as connection:
+        cursor = connection.execute(text(insert_sql), values)
         new_id = cursor.lastrowid
 
         if new_id is None:
@@ -91,8 +108,6 @@ def create_interview_jd(
             created_at=now,
             updated_at=now,
         )
-    finally:
-        connection.close()
 
 
 def list_interview_jds(user_id: str, limit: int = 20) -> list[InterviewJDRecord]:
@@ -118,18 +133,18 @@ def list_interview_jds(user_id: str, limit: int = 20) -> list[InterviewJDRecord]
         created_at,
         updated_at
     FROM {INTERVIEW_JDS_TABLE}
-    WHERE user_id = ?
+    WHERE user_id = :user_id
     ORDER BY updated_at DESC, id DESC
-    LIMIT ?
+    LIMIT :limit
     """
-    connection = get_connection()
 
-    try:
-        rows = connection.execute(select_sql, (user_id, limit)).fetchall()
+    with get_engine().connect() as connection:
+        rows = connection.execute(
+            text(select_sql),
+            {"user_id": user_id, "limit": limit},
+        ).mappings().fetchall()
 
         return [_record_from_row(row) for row in rows]
-    finally:
-        connection.close()
 
 
 def list_all_interview_jds(limit: int = 100) -> list[InterviewJDRecord]:
@@ -156,16 +171,16 @@ def list_all_interview_jds(limit: int = 100) -> list[InterviewJDRecord]:
         updated_at
     FROM {INTERVIEW_JDS_TABLE}
     ORDER BY updated_at DESC, id DESC
-    LIMIT ?
+    LIMIT :limit
     """
-    connection = get_connection()
 
-    try:
-        rows = connection.execute(select_sql, (limit,)).fetchall()
+    with get_engine().connect() as connection:
+        rows = connection.execute(
+            text(select_sql),
+            {"limit": limit},
+        ).mappings().fetchall()
 
         return [_record_from_row(row) for row in rows]
-    finally:
-        connection.close()
 
 
 def _dump_list(values: list[str] | None) -> str:
@@ -198,7 +213,7 @@ def _load_list(raw_json: str) -> list[str]:
 
 
 def _record_from_row(row) -> InterviewJDRecord:
-    """把 sqlite3.Row 转成 InterviewJDRecord。"""
+    """把查询结果行转成 InterviewJDRecord。"""
 
     return InterviewJDRecord(
         id=row["id"],
