@@ -23,7 +23,7 @@ def test_journal_entries_are_served_without_api_prefix(monkeypatch):
 def isolated_journal_database(tmp_path, monkeypatch):
     from app.db import database
 
-    monkeypatch.setattr(database, "DATABASE_PATH", tmp_path / "journal-api.db")
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
 
 
 def test_journal_api_crud_and_query_parameters():

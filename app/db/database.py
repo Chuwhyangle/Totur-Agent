@@ -1,8 +1,13 @@
-"""SQLite 连接和数据库表初始化。"""
+"""SQLite 连接和数据库表初始化。
+
+A1 后仅保留 schema 初始化职责；连接统一来自 app.db.engine。
+"""
 
 import sqlite3
 
-from app.config import StorageConfig
+from sqlalchemy import text
+
+from app.db.engine import get_engine
 from app.db.models import (
     CHAT_SESSIONS_TABLE,
     CONVERSATIONS_TABLE,
@@ -13,26 +18,6 @@ from app.db.models import (
     PUBLIC_JOB_DESCRIPTIONS_TABLE,
     SESSION_SUMMARIES_TABLE,
 )
-
-
-_storage = StorageConfig.from_env()
-DATABASE_PATH = _storage.database_path
-
-
-def get_connection() -> sqlite3.Connection:
-    """创建一个 SQLite 数据库连接。"""
-
-    connection = sqlite3.connect(DATABASE_PATH)
-
-    connection.row_factory = sqlite3.Row
-    # 开启外键检查，让 conversations.session_id 能关联到 chat_sessions.id。
-    connection.execute("PRAGMA foreign_keys = ON")
-    # WAL 模式：读写并发，减少锁竞争；对现有功能完全透明。
-    connection.execute("PRAGMA journal_mode = WAL")
-    # 并发写时最多等待 5 秒，避免 SQLITE_BUSY 立即报错。
-    connection.execute("PRAGMA busy_timeout = 5000")
-
-    return connection
 
 
 def initialize_database() -> None:
@@ -180,42 +165,38 @@ def initialize_database() -> None:
     ON {JOURNAL_ENTRIES_TABLE} (entry_date DESC);
     """
 
-    connection = get_connection()
-    try:
-        connection.execute(create_sessions_table_sql)
-        connection.execute(create_conversations_table_sql)
+    with get_engine().begin() as connection:
+        connection.execute(text(create_sessions_table_sql))
+        connection.execute(text(create_conversations_table_sql))
         # 旧版 chat_sessions 表没有 persona_id，这里会自动补上。
         _ensure_chat_sessions_persona_id_column(connection)
         _ensure_chat_sessions_subject_column(connection)
         # 每个会话只保留一条滚动摘要，后续由 repository 负责更新它。
-        connection.execute(create_session_summaries_table_sql)
+        connection.execute(text(create_session_summaries_table_sql))
         # JD 是用户提供的目标岗位资料，先持久化，再让后续工具检索它。
-        connection.execute(create_interview_jds_table_sql)
+        connection.execute(text(create_interview_jds_table_sql))
         # Public corpus JDs are synchronized offline for search filters and analytics.
-        connection.execute(create_public_job_descriptions_table_sql)
+        connection.execute(text(create_public_job_descriptions_table_sql))
         # Document rows retain cleanup paths until lifecycle cleanup is complete.
-        connection.execute(create_documents_table_sql)
+        connection.execute(text(create_documents_table_sql))
         _ensure_documents_schema(connection)
         # Journal entries for daily learning logs.
-        connection.execute(create_journal_entries_table_sql)
+        connection.execute(text(create_journal_entries_table_sql))
         # 旧版 conversations 表没有 session_id，这里会自动补上。
         _ensure_conversations_session_id_column(connection)
         # 把旧数据按 user_id 归入一个“默认会话”。
         _migrate_existing_conversations_to_default_sessions(connection)
-        connection.execute(create_sessions_index_sql)
-        connection.execute(create_conversations_session_index_sql)
-        connection.execute(create_conversations_user_index_sql)
-        connection.execute(create_session_summaries_last_conversation_index_sql)
-        connection.execute(create_interview_jds_user_index_sql)
-        connection.execute(create_public_jds_filter_index_sql)
-        connection.execute(create_public_jds_fingerprint_index_sql)
-        connection.execute(create_documents_user_session_index_sql)
-        connection.execute(create_documents_status_index_sql)
-        connection.execute(create_documents_expires_at_index_sql)
-        connection.execute(create_journal_entries_date_index_sql)
-        connection.commit()
-    finally:
-        connection.close()
+        connection.execute(text(create_sessions_index_sql))
+        connection.execute(text(create_conversations_session_index_sql))
+        connection.execute(text(create_conversations_user_index_sql))
+        connection.execute(text(create_session_summaries_last_conversation_index_sql))
+        connection.execute(text(create_interview_jds_user_index_sql))
+        connection.execute(text(create_public_jds_filter_index_sql))
+        connection.execute(text(create_public_jds_fingerprint_index_sql))
+        connection.execute(text(create_documents_user_session_index_sql))
+        connection.execute(text(create_documents_status_index_sql))
+        connection.execute(text(create_documents_expires_at_index_sql))
+        connection.execute(text(create_journal_entries_date_index_sql))
 
 
 def _create_documents_table_sql(table_name: str) -> str:
@@ -285,17 +266,19 @@ def _ensure_documents_schema(connection: sqlite3.Connection) -> None:
     """Idempotently add INDEXING and retain cleanup-safe session ownership."""
 
     table_row = connection.execute(
-        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?",
-        (DOCUMENTS_TABLE,),
-    ).fetchone()
+        text(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = :name"
+        ),
+        {"name": DOCUMENTS_TABLE},
+    ).mappings().fetchone()
     if table_row is None:
         return
 
     table_sql = str(table_row["sql"] or "").upper()
     supports_indexing = "'INDEXING'" in table_sql
     foreign_keys = connection.execute(
-        f"PRAGMA foreign_key_list({DOCUMENTS_TABLE})"
-    ).fetchall()
+        text(f"PRAGMA foreign_key_list({DOCUMENTS_TABLE})")
+    ).mappings().fetchall()
     session_foreign_key = next(
         (
             row
@@ -335,25 +318,28 @@ def _ensure_documents_schema(connection: sqlite3.Connection) -> None:
         updated_at,
         expires_at
     """
-    connection.execute(f"DROP TABLE IF EXISTS {temporary_table}")
-    connection.execute(_create_documents_table_sql(temporary_table))
+    connection.execute(text(f"DROP TABLE IF EXISTS {temporary_table}"))
+    connection.execute(text(_create_documents_table_sql(temporary_table)))
 
     if supports_indexing:
         connection.execute(
-            f"""
-            INSERT INTO {temporary_table} ({columns})
-            SELECT {columns}
-            FROM {DOCUMENTS_TABLE}
-            """
+            text(
+                f"""
+                INSERT INTO {temporary_table} ({columns})
+                SELECT {columns}
+                FROM {DOCUMENTS_TABLE}
+                """
+            )
         )
     else:
         # READY/PARTIAL rows created before attachment vector indexing existed
         # must not remain retrievable after the schema gains INDEXING.
         connection.execute(
-            f"""
-            INSERT INTO {temporary_table} ({columns})
-            SELECT
-                id,
+            text(
+                f"""
+                INSERT INTO {temporary_table} ({columns})
+                SELECT
+                    id,
                 scope,
                 user_id,
                 session_id,
@@ -385,11 +371,12 @@ def _ensure_documents_schema(connection: sqlite3.Connection) -> None:
                 expires_at
             FROM {DOCUMENTS_TABLE}
             """
+            )
         )
 
-    connection.execute(f"DROP TABLE {DOCUMENTS_TABLE}")
+    connection.execute(text(f"DROP TABLE {DOCUMENTS_TABLE}"))
     connection.execute(
-        f"ALTER TABLE {temporary_table} RENAME TO {DOCUMENTS_TABLE}"
+        text(f"ALTER TABLE {temporary_table} RENAME TO {DOCUMENTS_TABLE}")
     )
 
 
@@ -398,11 +385,13 @@ def _ensure_chat_sessions_subject_column(connection: sqlite3.Connection) -> None
 
     columns = {
         row["name"]
-        for row in connection.execute(f"PRAGMA table_info({CHAT_SESSIONS_TABLE})")
+        for row in connection.execute(
+            text(f"PRAGMA table_info({CHAT_SESSIONS_TABLE})")
+        ).mappings()
     }
     if "subject" not in columns:
         connection.execute(
-            f"ALTER TABLE {CHAT_SESSIONS_TABLE} ADD COLUMN subject TEXT"
+            text(f"ALTER TABLE {CHAT_SESSIONS_TABLE} ADD COLUMN subject TEXT")
         )
 
 
@@ -411,12 +400,16 @@ def _ensure_conversations_session_id_column(connection: sqlite3.Connection) -> N
 
     columns = {
         row["name"]
-        for row in connection.execute(f"PRAGMA table_info({CONVERSATIONS_TABLE})")
+        for row in connection.execute(
+            text(f"PRAGMA table_info({CONVERSATIONS_TABLE})")
+        ).mappings()
     }
 
     if "session_id" not in columns:
         connection.execute(
-            f"ALTER TABLE {CONVERSATIONS_TABLE} ADD COLUMN session_id INTEGER"
+            text(
+                f"ALTER TABLE {CONVERSATIONS_TABLE} ADD COLUMN session_id INTEGER"
+            )
         )
 
 
@@ -425,15 +418,19 @@ def _ensure_chat_sessions_persona_id_column(connection: sqlite3.Connection) -> N
 
     columns = {
         row["name"]
-        for row in connection.execute(f"PRAGMA table_info({CHAT_SESSIONS_TABLE})")
+        for row in connection.execute(
+            text(f"PRAGMA table_info({CHAT_SESSIONS_TABLE})")
+        ).mappings()
     }
 
     if "persona_id" not in columns:
         connection.execute(
-            f"""
-            ALTER TABLE {CHAT_SESSIONS_TABLE}
-            ADD COLUMN persona_id TEXT NOT NULL DEFAULT 'tutor'
-            """
+            text(
+                f"""
+                ALTER TABLE {CHAT_SESSIONS_TABLE}
+                ADD COLUMN persona_id TEXT NOT NULL DEFAULT 'tutor'
+                """
+            )
         )
 
 
@@ -443,16 +440,18 @@ def _migrate_existing_conversations_to_default_sessions(
     """把旧的用户历史记录迁移到每个用户自己的默认会话。"""
 
     users_with_old_rows = connection.execute(
-        f"""
-        SELECT
-            user_id,
-            MIN(created_at) AS first_created_at,
-            MAX(created_at) AS last_created_at
-        FROM {CONVERSATIONS_TABLE}
-        WHERE session_id IS NULL
-        GROUP BY user_id
-        """
-    ).fetchall()
+        text(
+            f"""
+            SELECT
+                user_id,
+                MIN(created_at) AS first_created_at,
+                MAX(created_at) AS last_created_at
+            FROM {CONVERSATIONS_TABLE}
+            WHERE session_id IS NULL
+            GROUP BY user_id
+            """
+        )
+    ).mappings().fetchall()
 
     for row in users_with_old_rows:
         user_id = row["user_id"]
@@ -467,12 +466,14 @@ def _migrate_existing_conversations_to_default_sessions(
         )
 
         connection.execute(
-            f"""
-            UPDATE {CONVERSATIONS_TABLE}
-            SET session_id = ?
-            WHERE user_id = ? AND session_id IS NULL
-            """,
-            (session_id, user_id),
+            text(
+                f"""
+                UPDATE {CONVERSATIONS_TABLE}
+                SET session_id = :session_id
+                WHERE user_id = :user_id AND session_id IS NULL
+                """
+            ),
+            {"session_id": session_id, "user_id": user_id},
         )
 
 
@@ -485,35 +486,47 @@ def _get_or_create_default_session_id(
     """获取某个用户的默认会话 id；没有就创建。"""
 
     row = connection.execute(
-        f"""
-        SELECT id
-        FROM {CHAT_SESSIONS_TABLE}
-        WHERE user_id = ? AND title = ?
-        ORDER BY id ASC
-        LIMIT 1
-        """,
-        (user_id, DEFAULT_SESSION_TITLE),
-    ).fetchone()
+        text(
+            f"""
+            SELECT id
+            FROM {CHAT_SESSIONS_TABLE}
+            WHERE user_id = :user_id AND title = :title
+            ORDER BY id ASC
+            LIMIT 1
+            """
+        ),
+        {"user_id": user_id, "title": DEFAULT_SESSION_TITLE},
+    ).mappings().fetchone()
 
     if row is not None:
         # 如果默认会话已存在，就把更新时间推进到旧数据的最新时间。
         connection.execute(
-            f"""
-            UPDATE {CHAT_SESSIONS_TABLE}
-            SET updated_at = MAX(updated_at, ?)
-            WHERE id = ?
-            """,
-            (updated_at, row["id"]),
+            text(
+                f"""
+                UPDATE {CHAT_SESSIONS_TABLE}
+                SET updated_at = MAX(updated_at, :updated_at)
+                WHERE id = :id
+                """
+            ),
+            {"updated_at": updated_at, "id": row["id"]},
         )
         return int(row["id"])
 
     cursor = connection.execute(
-        f"""
-        INSERT INTO {CHAT_SESSIONS_TABLE}
-            (user_id, title, persona_id, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?)
-        """,
-        (user_id, DEFAULT_SESSION_TITLE, "tutor", created_at, updated_at),
+        text(
+            f"""
+            INSERT INTO {CHAT_SESSIONS_TABLE}
+                (user_id, title, persona_id, created_at, updated_at)
+            VALUES (:user_id, :title, :persona_id, :created_at, :updated_at)
+            """
+        ),
+        {
+            "user_id": user_id,
+            "title": DEFAULT_SESSION_TITLE,
+            "persona_id": "tutor",
+            "created_at": created_at,
+            "updated_at": updated_at,
+        },
     )
     new_id = cursor.lastrowid
 

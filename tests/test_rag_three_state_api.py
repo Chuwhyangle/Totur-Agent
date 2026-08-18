@@ -18,7 +18,7 @@ client = TestClient(app)
 
 
 def use_temp_database(monkeypatch, tmp_path):
-    monkeypatch.setattr(database, "DATABASE_PATH", tmp_path / "rag-three-state.db")
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
 
 
 def model_reply(answer, source_ids=None):

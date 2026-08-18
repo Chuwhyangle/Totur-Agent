@@ -21,7 +21,7 @@ client = TestClient(app)
 
 
 def use_temp_database(monkeypatch, tmp_path):
-    monkeypatch.setattr(database, "DATABASE_PATH", tmp_path / "test_tutor_agent.db")
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
 
 
 def sample_jd_payload(user_id: str = "demo-user") -> dict:
@@ -50,7 +50,7 @@ def test_initialize_database_creates_interview_jds_table(monkeypatch, tmp_path):
 
     database.initialize_database()
 
-    connection = sqlite3.connect(database.DATABASE_PATH)
+    connection = sqlite3.connect(str(tmp_path / "tutor_agent.db"))
     connection.row_factory = sqlite3.Row
     try:
         columns = {

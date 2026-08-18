@@ -22,10 +22,12 @@ import chromadb
 import pymupdf
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import text
 
 from app.api.routes import attachments as attachments_route
 from app.api.routes import chat as chat_route
 from app.db import database
+from app.db.engine import get_engine
 from app.db.models import DOCUMENTS_TABLE, DocumentStatus
 from app.main import app
 import app.main as main_module
@@ -98,7 +100,7 @@ class RagHarness:
 
 @pytest.fixture
 def rag_harness(monkeypatch, tmp_path):
-    monkeypatch.setattr(database, "DATABASE_PATH", tmp_path / "attachment-rag-e2e.db")
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
     settings = TemporaryDocumentSettings(
         root_path=tmp_path / "attachment-files",
         max_bytes=2 * 1024 * 1024,
@@ -282,25 +284,21 @@ def _chat(client: TestClient, user_id: str, session_id: int, document_id: str, m
 
 
 def _backdate(record_id: str, *, expired: bool = False) -> None:
-    connection = database.get_connection()
-    try:
-        values: list[str] = [
-            (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
-        ]
-        assignments = "updated_at = ?"
-        if expired:
-            assignments += ", expires_at = ?"
-            values.append(
-                (datetime.now(timezone.utc) - timedelta(minutes=1)).isoformat()
-            )
-        values.append(record_id)
+    values: dict[str, object] = {
+        "updated_at": (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat(),
+    }
+    assignments = "updated_at = :updated_at"
+    if expired:
+        assignments += ", expires_at = :expires_at"
+        values["expires_at"] = (
+            datetime.now(timezone.utc) - timedelta(minutes=1)
+        ).isoformat()
+    values["id"] = record_id
+    with get_engine().begin() as connection:
         connection.execute(
-            f"UPDATE {DOCUMENTS_TABLE} SET {assignments} WHERE id = ?",
+            text(f"UPDATE {DOCUMENTS_TABLE} SET {assignments} WHERE id = :id"),
             values,
         )
-        connection.commit()
-    finally:
-        connection.close()
 
 
 def _wait_until(predicate, timeout: float = 3.0) -> bool:
@@ -319,7 +317,7 @@ def test_upload_persists_before_lazy_processing_factory_failure(
 ):
     """Embedding/Chroma construction failure must not break upload durability."""
 
-    monkeypatch.setattr(database, "DATABASE_PATH", tmp_path / "lazy-upload.db")
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
     settings = TemporaryDocumentSettings(
         root_path=tmp_path / "lazy-files",
         max_bytes=2 * 1024 * 1024,

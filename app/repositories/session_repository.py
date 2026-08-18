@@ -2,7 +2,10 @@
 
 from datetime import datetime, timezone
 
-from app.db.database import get_connection, initialize_database
+from sqlalchemy import text
+
+from app.db.database import initialize_database
+from app.db.engine import get_engine
 from app.db.models import (
     CHAT_SESSIONS_TABLE,
     DEFAULT_SESSION_TITLE,
@@ -43,16 +46,21 @@ def create_session(
     insert_sql = f"""
     INSERT INTO {CHAT_SESSIONS_TABLE}
         (user_id, title, persona_id, created_at, updated_at, subject)
-    VALUES (?, ?, ?, ?, ?, ?)
+    VALUES (:user_id, :title, :persona_id, :created_at, :updated_at, :subject)
     """
-    connection = get_connection()
 
-    try:
+    with get_engine().begin() as connection:
         cursor = connection.execute(
-            insert_sql,
-            (user_id, session_title, persona_id, now, now, subject),
+            text(insert_sql),
+            {
+                "user_id": user_id,
+                "title": session_title,
+                "persona_id": persona_id,
+                "created_at": now,
+                "updated_at": now,
+                "subject": subject,
+            },
         )
-        connection.commit()
         new_id = cursor.lastrowid
 
         if new_id is None:
@@ -67,8 +75,6 @@ def create_session(
             updated_at=now,
             subject=subject,
         )
-    finally:
-        connection.close()
 
 
 def get_or_create_default_session(
@@ -82,19 +88,16 @@ def get_or_create_default_session(
     select_sql = f"""
     SELECT id, user_id, title, persona_id, created_at, updated_at, subject
     FROM {CHAT_SESSIONS_TABLE}
-    WHERE user_id = ? AND title = ? AND persona_id = ?
+    WHERE user_id = :user_id AND title = :title AND persona_id = :persona_id
     ORDER BY id ASC
     LIMIT 1
     """
-    connection = get_connection()
 
-    try:
+    with get_engine().connect() as connection:
         row = connection.execute(
-            select_sql,
-            (user_id, DEFAULT_SESSION_TITLE, persona_id),
-        ).fetchone()
-    finally:
-        connection.close()
+            text(select_sql),
+            {"user_id": user_id, "title": DEFAULT_SESSION_TITLE, "persona_id": persona_id},
+        ).mappings().fetchone()
 
     if row is not None:
         return _session_from_row(row)
@@ -114,19 +117,19 @@ def get_session(session_id: int) -> ChatSessionRecord | None:
     select_sql = f"""
     SELECT id, user_id, title, persona_id, created_at, updated_at, subject
     FROM {CHAT_SESSIONS_TABLE}
-    WHERE id = ?
+    WHERE id = :id
     """
-    connection = get_connection()
 
-    try:
-        row = connection.execute(select_sql, (session_id,)).fetchone()
+    with get_engine().connect() as connection:
+        row = connection.execute(
+            text(select_sql),
+            {"id": session_id},
+        ).mappings().fetchone()
 
         if row is None:
             return None
 
         return _session_from_row(row)
-    finally:
-        connection.close()
 
 
 def list_sessions(user_id: str, limit: int = 50) -> list[ChatSessionRecord]:
@@ -136,21 +139,18 @@ def list_sessions(user_id: str, limit: int = 50) -> list[ChatSessionRecord]:
     select_sql = f"""
     SELECT id, user_id, title, persona_id, created_at, updated_at, subject
     FROM {CHAT_SESSIONS_TABLE}
-    WHERE user_id = ?
+    WHERE user_id = :user_id
     ORDER BY updated_at DESC, id DESC
-    LIMIT ?
+    LIMIT :limit
     """
-    connection = get_connection()
 
-    try:
+    with get_engine().connect() as connection:
         rows = connection.execute(
-            select_sql,
-            (user_id, limit),
-        ).fetchall()
+            text(select_sql),
+            {"user_id": user_id, "limit": limit},
+        ).mappings().fetchall()
 
         return [_session_from_row(row) for row in rows]
-    finally:
-        connection.close()
 
 
 def touch_session(session_id: int) -> None:
@@ -160,16 +160,15 @@ def touch_session(session_id: int) -> None:
     now = datetime.now(timezone.utc).isoformat()
     update_sql = f"""
     UPDATE {CHAT_SESSIONS_TABLE}
-    SET updated_at = ?
-    WHERE id = ?
+    SET updated_at = :updated_at
+    WHERE id = :id
     """
-    connection = get_connection()
 
-    try:
-        connection.execute(update_sql, (now, session_id))
-        connection.commit()
-    finally:
-        connection.close()
+    with get_engine().begin() as connection:
+        connection.execute(
+            text(update_sql),
+            {"updated_at": now, "id": session_id},
+        )
 
 
 def update_session_title(session_id: int, title: str) -> None:
@@ -178,20 +177,19 @@ def update_session_title(session_id: int, title: str) -> None:
     initialize_database()
     update_sql = f"""
     UPDATE {CHAT_SESSIONS_TABLE}
-    SET title = ?
-    WHERE id = ?
+    SET title = :title
+    WHERE id = :id
     """
-    connection = get_connection()
 
-    try:
-        connection.execute(update_sql, (title, session_id))
-        connection.commit()
-    finally:
-        connection.close()
+    with get_engine().begin() as connection:
+        connection.execute(
+            text(update_sql),
+            {"title": title, "id": session_id},
+        )
 
 
 def _session_from_row(row) -> ChatSessionRecord:
-    """把 sqlite3.Row 转成 ChatSessionRecord。"""
+    """把查询结果行转成 ChatSessionRecord。"""
 
     return ChatSessionRecord(
         id=row["id"],

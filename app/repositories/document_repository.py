@@ -4,7 +4,10 @@ from datetime import datetime, timezone
 from pathlib import PurePosixPath, PureWindowsPath
 from uuid import uuid4
 
-from app.db.database import get_connection, initialize_database
+from sqlalchemy import text
+
+from app.db.database import initialize_database
+from app.db.engine import get_engine
 from app.db.models import (
     CHAT_SESSIONS_TABLE,
     DOCUMENTS_TABLE,
@@ -38,15 +41,27 @@ _ACTIVE_ATTACHMENT_STATUSES = (
     DocumentStatus.PARTIAL.value,
     DocumentStatus.FAILED.value,
 )
-_ACTIVE_STATUS_PLACEHOLDERS = ", ".join(
-    "?" for _ in _ACTIVE_ATTACHMENT_STATUSES
-)
 _RETRIEVABLE_ATTACHMENT_STATUSES = (
     DocumentStatus.READY.value,
     DocumentStatus.PARTIAL.value,
 )
-_RETRIEVABLE_STATUS_PLACEHOLDERS = ", ".join(
-    "?" for _ in _RETRIEVABLE_ATTACHMENT_STATUSES
+
+
+def _status_placeholders(count: int) -> str:
+    """生成 SQLAlchemy 命名占位符列表，如 :status0, :status1。"""
+
+    return ", ".join(f":status{i}" for i in range(count))
+
+
+def _status_params(statuses: tuple[str, ...]) -> dict[str, str]:
+    """把状态值转成与 _status_placeholders 对应的命名参数 dict。"""
+
+    return {f"status{i}": status for i, status in enumerate(statuses)}
+
+
+_ACTIVE_STATUS_PLACEHOLDERS = _status_placeholders(len(_ACTIVE_ATTACHMENT_STATUSES))
+_RETRIEVABLE_STATUS_PLACEHOLDERS = _status_placeholders(
+    len(_RETRIEVABLE_ATTACHMENT_STATUSES)
 )
 
 
@@ -128,15 +143,37 @@ def create_attachment_document(
         created_at,
         updated_at,
         expires_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (
+        :id,
+        :scope,
+        :user_id,
+        :session_id,
+        :message_id,
+        :original_filename,
+        :mime_type,
+        :size_bytes,
+        :storage_path,
+        :parsed_path,
+        :content_hash,
+        :status,
+        :parser_name,
+        :parser_version,
+        :page_count,
+        :error_code,
+        :error_message,
+        :created_at,
+        :updated_at,
+        :expires_at
+    )
     """
-    connection = get_connection()
 
-    try:
+    with get_engine().begin() as connection:
         session = connection.execute(
-            f"SELECT user_id FROM {CHAT_SESSIONS_TABLE} WHERE id = ?",
-            (session_id,),
-        ).fetchone()
+            text(
+                f"SELECT user_id FROM {CHAT_SESSIONS_TABLE} WHERE id = :session_id"
+            ),
+            {"session_id": session_id},
+        ).mappings().fetchone()
         if session is None:
             raise DocumentSessionNotFoundError(
                 f"Chat session {session_id} does not exist"
@@ -146,57 +183,53 @@ def create_attachment_document(
                 f"Chat session {session_id} is not owned by user {user_id}"
             )
 
-        values = (
-            document_id,
-            DocumentScope.ATTACHMENT.value,
-            user_id,
-            session_id,
-            message_id,
-            original_filename,
-            mime_type,
-            size_bytes,
-            storage_path,
-            None,
-            content_hash,
-            DocumentStatus.UPLOADED.value,
-            None,
-            None,
-            None,
-            None,
-            None,
-            now,
-            now,
-            normalized_expires_at,
-        )
-        connection.execute(insert_sql, values)
+        values = {
+            "id": document_id,
+            "scope": DocumentScope.ATTACHMENT.value,
+            "user_id": user_id,
+            "session_id": session_id,
+            "message_id": message_id,
+            "original_filename": original_filename,
+            "mime_type": mime_type,
+            "size_bytes": size_bytes,
+            "storage_path": storage_path,
+            "parsed_path": None,
+            "content_hash": content_hash,
+            "status": DocumentStatus.UPLOADED.value,
+            "parser_name": None,
+            "parser_version": None,
+            "page_count": None,
+            "error_code": None,
+            "error_message": None,
+            "created_at": now,
+            "updated_at": now,
+            "expires_at": normalized_expires_at,
+        }
+        connection.execute(text(insert_sql), values)
         row = connection.execute(
-            f"SELECT {_DOCUMENT_COLUMNS} FROM {DOCUMENTS_TABLE} WHERE id = ?",
-            (document_id,),
-        ).fetchone()
+            text(
+                f"SELECT {_DOCUMENT_COLUMNS} FROM {DOCUMENTS_TABLE} WHERE id = :id"
+            ),
+            {"id": document_id},
+        ).mappings().fetchone()
         if row is None:
             raise RuntimeError("Created document record could not be reloaded")
 
-        created = _record_from_row(row)
-        connection.commit()
-        return created
-    finally:
-        connection.close()
+        return _record_from_row(row)
 
 
 def get_document(document_id: str) -> DocumentRecord | None:
     """Get document metadata by id for internal lifecycle operations."""
 
     initialize_database()
-    connection = get_connection()
-
-    try:
+    with get_engine().connect() as connection:
         row = connection.execute(
-            f"SELECT {_DOCUMENT_COLUMNS} FROM {DOCUMENTS_TABLE} WHERE id = ?",
-            (document_id,),
-        ).fetchone()
+            text(
+                f"SELECT {_DOCUMENT_COLUMNS} FROM {DOCUMENTS_TABLE} WHERE id = :id"
+            ),
+            {"id": document_id},
+        ).mappings().fetchone()
         return _record_from_row(row) if row is not None else None
-    finally:
-        connection.close()
 
 
 def get_attachment_for_cleanup(
@@ -205,27 +238,25 @@ def get_attachment_for_cleanup(
     """Get an attachment only while lifecycle cleanup is recoverable."""
 
     initialize_database()
-    connection = get_connection()
-
-    try:
+    with get_engine().connect() as connection:
         row = connection.execute(
-            f"""
-            SELECT {_DOCUMENT_COLUMNS}
-            FROM {DOCUMENTS_TABLE}
-            WHERE id = ?
-                AND scope = ?
-                AND status IN (?, ?)
-            """,
-            (
-                document_id,
-                DocumentScope.ATTACHMENT.value,
-                DocumentStatus.DELETING.value,
-                DocumentStatus.DELETED.value,
+            text(
+                f"""
+                SELECT {_DOCUMENT_COLUMNS}
+                FROM {DOCUMENTS_TABLE}
+                WHERE id = :id
+                    AND scope = :scope
+                    AND status IN (:status0, :status1)
+                """
             ),
-        ).fetchone()
+            {
+                "id": document_id,
+                "scope": DocumentScope.ATTACHMENT.value,
+                "status0": DocumentStatus.DELETING.value,
+                "status1": DocumentStatus.DELETED.value,
+            },
+        ).mappings().fetchone()
         return _record_from_row(row) if row is not None else None
-    finally:
-        connection.close()
 
 
 def get_owned_attachment(
@@ -236,30 +267,28 @@ def get_owned_attachment(
     """Return an attachment only when id, scope, user, and session all match."""
 
     initialize_database()
-    connection = get_connection()
-
-    try:
+    with get_engine().connect() as connection:
         row = connection.execute(
-            f"""
-            SELECT {_DOCUMENT_COLUMNS}
-            FROM {DOCUMENTS_TABLE}
-            WHERE id = ?
-                AND scope = ?
-                AND user_id = ?
-                AND session_id = ?
-                AND status IN ({_ACTIVE_STATUS_PLACEHOLDERS})
-            """,
-            (
-                document_id,
-                DocumentScope.ATTACHMENT.value,
-                user_id,
-                session_id,
-                *_ACTIVE_ATTACHMENT_STATUSES,
+            text(
+                f"""
+                SELECT {_DOCUMENT_COLUMNS}
+                FROM {DOCUMENTS_TABLE}
+                WHERE id = :id
+                    AND scope = :scope
+                    AND user_id = :user_id
+                    AND session_id = :session_id
+                    AND status IN ({_ACTIVE_STATUS_PLACEHOLDERS})
+                """
             ),
-        ).fetchone()
+            {
+                "id": document_id,
+                "scope": DocumentScope.ATTACHMENT.value,
+                "user_id": user_id,
+                "session_id": session_id,
+                **_status_params(_ACTIVE_ATTACHMENT_STATUSES),
+            },
+        ).mappings().fetchone()
         return _record_from_row(row) if row is not None else None
-    finally:
-        connection.close()
 
 
 def list_session_attachments(
@@ -269,29 +298,27 @@ def list_session_attachments(
     """List only attachments owned by one user in one session."""
 
     initialize_database()
-    connection = get_connection()
-
-    try:
+    with get_engine().connect() as connection:
         rows = connection.execute(
-            f"""
-            SELECT {_DOCUMENT_COLUMNS}
-            FROM {DOCUMENTS_TABLE}
-            WHERE scope = ?
-                AND user_id = ?
-                AND session_id = ?
-                AND status IN ({_ACTIVE_STATUS_PLACEHOLDERS})
-            ORDER BY created_at DESC, id DESC
-            """,
-            (
-                DocumentScope.ATTACHMENT.value,
-                user_id,
-                session_id,
-                *_ACTIVE_ATTACHMENT_STATUSES,
+            text(
+                f"""
+                SELECT {_DOCUMENT_COLUMNS}
+                FROM {DOCUMENTS_TABLE}
+                WHERE scope = :scope
+                    AND user_id = :user_id
+                    AND session_id = :session_id
+                    AND status IN ({_ACTIVE_STATUS_PLACEHOLDERS})
+                ORDER BY created_at DESC, id DESC
+                """
             ),
-        ).fetchall()
+            {
+                "scope": DocumentScope.ATTACHMENT.value,
+                "user_id": user_id,
+                "session_id": session_id,
+                **_status_params(_ACTIVE_ATTACHMENT_STATUSES),
+            },
+        ).mappings().fetchall()
         return [_record_from_row(row) for row in rows]
-    finally:
-        connection.close()
 
 
 def get_accessible_attachment(
@@ -304,32 +331,30 @@ def get_accessible_attachment(
 
     initialize_database()
     normalized_now = _normalize_utc_iso(now, "now")
-    connection = get_connection()
-
-    try:
+    with get_engine().connect() as connection:
         row = connection.execute(
-            f"""
-            SELECT {_DOCUMENT_COLUMNS}
-            FROM {DOCUMENTS_TABLE}
-            WHERE id = ?
-                AND scope = ?
-                AND user_id = ?
-                AND session_id = ?
-                AND expires_at > ?
-                AND status IN ({_ACTIVE_STATUS_PLACEHOLDERS})
-            """,
-            (
-                document_id,
-                DocumentScope.ATTACHMENT.value,
-                user_id,
-                session_id,
-                normalized_now,
-                *_ACTIVE_ATTACHMENT_STATUSES,
+            text(
+                f"""
+                SELECT {_DOCUMENT_COLUMNS}
+                FROM {DOCUMENTS_TABLE}
+                WHERE id = :id
+                    AND scope = :scope
+                    AND user_id = :user_id
+                    AND session_id = :session_id
+                    AND expires_at > :now
+                    AND status IN ({_ACTIVE_STATUS_PLACEHOLDERS})
+                """
             ),
-        ).fetchone()
+            {
+                "id": document_id,
+                "scope": DocumentScope.ATTACHMENT.value,
+                "user_id": user_id,
+                "session_id": session_id,
+                "now": normalized_now,
+                **_status_params(_ACTIVE_ATTACHMENT_STATUSES),
+            },
+        ).mappings().fetchone()
         return _record_from_row(row) if row is not None else None
-    finally:
-        connection.close()
 
 
 def list_accessible_session_attachments(
@@ -341,31 +366,29 @@ def list_accessible_session_attachments(
 
     initialize_database()
     normalized_now = _normalize_utc_iso(now, "now")
-    connection = get_connection()
-
-    try:
+    with get_engine().connect() as connection:
         rows = connection.execute(
-            f"""
-            SELECT {_DOCUMENT_COLUMNS}
-            FROM {DOCUMENTS_TABLE}
-            WHERE scope = ?
-                AND user_id = ?
-                AND session_id = ?
-                AND expires_at > ?
-                AND status IN ({_ACTIVE_STATUS_PLACEHOLDERS})
-            ORDER BY created_at DESC, id DESC
-            """,
-            (
-                DocumentScope.ATTACHMENT.value,
-                user_id,
-                session_id,
-                normalized_now,
-                *_ACTIVE_ATTACHMENT_STATUSES,
+            text(
+                f"""
+                SELECT {_DOCUMENT_COLUMNS}
+                FROM {DOCUMENTS_TABLE}
+                WHERE scope = :scope
+                    AND user_id = :user_id
+                    AND session_id = :session_id
+                    AND expires_at > :now
+                    AND status IN ({_ACTIVE_STATUS_PLACEHOLDERS})
+                ORDER BY created_at DESC, id DESC
+                """
             ),
-        ).fetchall()
+            {
+                "scope": DocumentScope.ATTACHMENT.value,
+                "user_id": user_id,
+                "session_id": session_id,
+                "now": normalized_now,
+                **_status_params(_ACTIVE_ATTACHMENT_STATUSES),
+            },
+        ).mappings().fetchall()
         return [_record_from_row(row) for row in rows]
-    finally:
-        connection.close()
 
 
 def count_accessible_session_attachments(
@@ -377,30 +400,28 @@ def count_accessible_session_attachments(
 
     initialize_database()
     normalized_now = _normalize_utc_iso(now, "now")
-    connection = get_connection()
-
-    try:
+    with get_engine().connect() as connection:
         row = connection.execute(
-            f"""
-            SELECT COUNT(*) AS attachment_count
-            FROM {DOCUMENTS_TABLE}
-            WHERE scope = ?
-                AND user_id = ?
-                AND session_id = ?
-                AND expires_at > ?
-                AND status IN ({_ACTIVE_STATUS_PLACEHOLDERS})
-            """,
-            (
-                DocumentScope.ATTACHMENT.value,
-                user_id,
-                session_id,
-                normalized_now,
-                *_ACTIVE_ATTACHMENT_STATUSES,
+            text(
+                f"""
+                SELECT COUNT(*) AS attachment_count
+                FROM {DOCUMENTS_TABLE}
+                WHERE scope = :scope
+                    AND user_id = :user_id
+                    AND session_id = :session_id
+                    AND expires_at > :now
+                    AND status IN ({_ACTIVE_STATUS_PLACEHOLDERS})
+                """
             ),
-        ).fetchone()
+            {
+                "scope": DocumentScope.ATTACHMENT.value,
+                "user_id": user_id,
+                "session_id": session_id,
+                "now": normalized_now,
+                **_status_params(_ACTIVE_ATTACHMENT_STATUSES),
+            },
+        ).mappings().fetchone()
         return int(row["attachment_count"])
-    finally:
-        connection.close()
 
 
 def get_retrievable_attachment(
@@ -413,32 +434,30 @@ def get_retrievable_attachment(
 
     initialize_database()
     normalized_now = _normalize_utc_iso(now, "now")
-    connection = get_connection()
-
-    try:
+    with get_engine().connect() as connection:
         row = connection.execute(
-            f"""
-            SELECT {_DOCUMENT_COLUMNS}
-            FROM {DOCUMENTS_TABLE}
-            WHERE id = ?
-                AND scope = ?
-                AND user_id = ?
-                AND session_id = ?
-                AND expires_at > ?
-                AND status IN ({_RETRIEVABLE_STATUS_PLACEHOLDERS})
-            """,
-            (
-                document_id,
-                DocumentScope.ATTACHMENT.value,
-                user_id,
-                session_id,
-                normalized_now,
-                *_RETRIEVABLE_ATTACHMENT_STATUSES,
+            text(
+                f"""
+                SELECT {_DOCUMENT_COLUMNS}
+                FROM {DOCUMENTS_TABLE}
+                WHERE id = :id
+                    AND scope = :scope
+                    AND user_id = :user_id
+                    AND session_id = :session_id
+                    AND expires_at > :now
+                    AND status IN ({_RETRIEVABLE_STATUS_PLACEHOLDERS})
+                """
             ),
-        ).fetchone()
+            {
+                "id": document_id,
+                "scope": DocumentScope.ATTACHMENT.value,
+                "user_id": user_id,
+                "session_id": session_id,
+                "now": normalized_now,
+                **_status_params(_RETRIEVABLE_ATTACHMENT_STATUSES),
+            },
+        ).mappings().fetchone()
         return _record_from_row(row) if row is not None else None
-    finally:
-        connection.close()
 
 
 def update_document_status(
@@ -518,13 +537,14 @@ def update_document_status(
         )
 
     initialize_database()
-    connection = get_connection()
 
-    try:
+    with get_engine().begin() as connection:
         row = connection.execute(
-            f"SELECT {_DOCUMENT_COLUMNS} FROM {DOCUMENTS_TABLE} WHERE id = ?",
-            (document_id,),
-        ).fetchone()
+            text(
+                f"SELECT {_DOCUMENT_COLUMNS} FROM {DOCUMENTS_TABLE} WHERE id = :id"
+            ),
+            {"id": document_id},
+        ).mappings().fetchone()
         if row is None:
             return None
 
@@ -600,14 +620,20 @@ def update_document_status(
                 if error_message is not None:
                     updates["error_message"] = error_message
 
-        assignments = ", ".join(f"{column} = ?" for column in updates)
-        values = [*updates.values(), document_id, current.status.value]
+        assignments = ", ".join(f"{column} = :{column}" for column in updates)
+        values = {
+            **updates,
+            "id": document_id,
+            "current_status": current.status.value,
+        }
         cursor = connection.execute(
-            f"""
-            UPDATE {DOCUMENTS_TABLE}
-            SET {assignments}
-            WHERE id = ? AND status = ?
-            """,
+            text(
+                f"""
+                UPDATE {DOCUMENTS_TABLE}
+                SET {assignments}
+                WHERE id = :id AND status = :current_status
+                """
+            ),
             values,
         )
         if cursor.rowcount != 1:
@@ -616,17 +642,15 @@ def update_document_status(
             )
 
         updated_row = connection.execute(
-            f"SELECT {_DOCUMENT_COLUMNS} FROM {DOCUMENTS_TABLE} WHERE id = ?",
-            (document_id,),
-        ).fetchone()
+            text(
+                f"SELECT {_DOCUMENT_COLUMNS} FROM {DOCUMENTS_TABLE} WHERE id = :id"
+            ),
+            {"id": document_id},
+        ).mappings().fetchone()
         if updated_row is None:
             raise RuntimeError("Updated document record could not be reloaded")
 
-        updated = _record_from_row(updated_row)
-        connection.commit()
-        return updated
-    finally:
-        connection.close()
+        return _record_from_row(updated_row)
 
 
 def list_recoverable_processing_attachments(
@@ -642,31 +666,29 @@ def list_recoverable_processing_attachments(
 
     initialize_database()
     normalized_now = _normalize_utc_iso(now, "now")
-    connection = get_connection()
-
-    try:
+    with get_engine().connect() as connection:
         rows = connection.execute(
-            f"""
-            SELECT {_DOCUMENT_COLUMNS}
-            FROM {DOCUMENTS_TABLE}
-            WHERE scope = ?
-                AND expires_at > ?
-                AND status IN (?, ?, ?)
-            ORDER BY updated_at ASC, created_at ASC, id ASC
-            LIMIT ?
-            """,
-            (
-                DocumentScope.ATTACHMENT.value,
-                normalized_now,
-                DocumentStatus.UPLOADED.value,
-                DocumentStatus.PARSING.value,
-                DocumentStatus.INDEXING.value,
-                limit,
+            text(
+                f"""
+                SELECT {_DOCUMENT_COLUMNS}
+                FROM {DOCUMENTS_TABLE}
+                WHERE scope = :scope
+                    AND expires_at > :now
+                    AND status IN (:status0, :status1, :status2)
+                ORDER BY updated_at ASC, created_at ASC, id ASC
+                LIMIT :limit
+                """
             ),
-        ).fetchall()
+            {
+                "scope": DocumentScope.ATTACHMENT.value,
+                "now": normalized_now,
+                "status0": DocumentStatus.UPLOADED.value,
+                "status1": DocumentStatus.PARSING.value,
+                "status2": DocumentStatus.INDEXING.value,
+                "limit": limit,
+            },
+        ).mappings().fetchall()
         return [_record_from_row(row) for row in rows]
-    finally:
-        connection.close()
 
 
 def list_stale_cleanup_attachments(
@@ -738,30 +760,28 @@ def _list_stale_attachments(
         updated_before,
         "updated_before",
     )
-    placeholders = ", ".join("?" for _ in statuses)
-    connection = get_connection()
-
-    try:
+    placeholders = _status_placeholders(len(statuses))
+    with get_engine().connect() as connection:
         rows = connection.execute(
-            f"""
-            SELECT {_DOCUMENT_COLUMNS}
-            FROM {DOCUMENTS_TABLE}
-            WHERE scope = ?
-                AND status IN ({placeholders})
-                AND updated_at <= ?
-            ORDER BY updated_at ASC, created_at ASC, id ASC
-            LIMIT ?
-            """,
-            (
-                DocumentScope.ATTACHMENT.value,
-                *(status.value for status in statuses),
-                normalized_updated_before,
-                limit,
+            text(
+                f"""
+                SELECT {_DOCUMENT_COLUMNS}
+                FROM {DOCUMENTS_TABLE}
+                WHERE scope = :scope
+                    AND status IN ({placeholders})
+                    AND updated_at <= :updated_before
+                ORDER BY updated_at ASC, created_at ASC, id ASC
+                LIMIT :limit
+                """
             ),
-        ).fetchall()
+            {
+                "scope": DocumentScope.ATTACHMENT.value,
+                **_status_params(tuple(status.value for status in statuses)),
+                "updated_before": normalized_updated_before,
+                "limit": limit,
+            },
+        ).mappings().fetchall()
         return [_record_from_row(row) for row in rows]
-    finally:
-        connection.close()
 
 def list_expired_attachments(
     now: datetime | str,
@@ -776,43 +796,42 @@ def list_expired_attachments(
 
     initialize_database()
     normalized_now = _normalize_utc_iso(now, "now")
-    connection = get_connection()
-
-    try:
+    with get_engine().connect() as connection:
         rows = connection.execute(
-            f"""
-            SELECT {_DOCUMENT_COLUMNS}
-            FROM {DOCUMENTS_TABLE}
-            WHERE scope = ?
-                AND expires_at IS NOT NULL
-                AND expires_at <= ?
-                AND status IN ({_ACTIVE_STATUS_PLACEHOLDERS})
-            ORDER BY expires_at ASC, created_at ASC, id ASC
-            LIMIT ?
-            """,
-            (
-                DocumentScope.ATTACHMENT.value,
-                normalized_now,
-                *_ACTIVE_ATTACHMENT_STATUSES,
-                limit,
+            text(
+                f"""
+                SELECT {_DOCUMENT_COLUMNS}
+                FROM {DOCUMENTS_TABLE}
+                WHERE scope = :scope
+                    AND expires_at IS NOT NULL
+                    AND expires_at <= :now
+                    AND status IN ({_ACTIVE_STATUS_PLACEHOLDERS})
+                ORDER BY expires_at ASC, created_at ASC, id ASC
+                LIMIT :limit
+                """
             ),
-        ).fetchall()
+            {
+                "scope": DocumentScope.ATTACHMENT.value,
+                "now": normalized_now,
+                **_status_params(_ACTIVE_ATTACHMENT_STATUSES),
+                "limit": limit,
+            },
+        ).mappings().fetchall()
         return [_record_from_row(row) for row in rows]
-    finally:
-        connection.close()
 
 
 def delete_document_record(document_id: str) -> bool:
     """Purge SQLite metadata only after lifecycle cleanup reaches DELETED."""
 
     initialize_database()
-    connection = get_connection()
 
-    try:
+    with get_engine().begin() as connection:
         row = connection.execute(
-            f"SELECT status FROM {DOCUMENTS_TABLE} WHERE id = ?",
-            (document_id,),
-        ).fetchone()
+            text(
+                f"SELECT status FROM {DOCUMENTS_TABLE} WHERE id = :id"
+            ),
+            {"id": document_id},
+        ).mappings().fetchone()
         if row is None:
             return False
         if row["status"] != DocumentStatus.DELETED.value:
@@ -822,20 +841,19 @@ def delete_document_record(document_id: str) -> bool:
             )
 
         cursor = connection.execute(
-            f"""
-            DELETE FROM {DOCUMENTS_TABLE}
-            WHERE id = ? AND status = ?
-            """,
-            (document_id, DocumentStatus.DELETED.value),
+            text(
+                f"""
+                DELETE FROM {DOCUMENTS_TABLE}
+                WHERE id = :id AND status = :status
+                """
+            ),
+            {"id": document_id, "status": DocumentStatus.DELETED.value},
         )
         if cursor.rowcount != 1:
             raise DocumentRepositoryError(
                 "Document status changed concurrently; retry the purge"
             )
-        connection.commit()
         return True
-    finally:
-        connection.close()
 
 
 def _validate_parsed_storage_key(parsed_path: str) -> None:

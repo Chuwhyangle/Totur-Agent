@@ -2,7 +2,10 @@
 
 from datetime import datetime, timezone
 
-from app.db.database import get_connection, initialize_database
+from sqlalchemy import text
+
+from app.db.database import initialize_database
+from app.db.engine import get_engine
 from app.db.models import ConversationRecord, CONVERSATIONS_TABLE
 from app.repositories.session_repository import (
     get_or_create_default_session,
@@ -27,28 +30,30 @@ def save_conversation(
     insert_sql = f"""
     INSERT INTO {CONVERSATIONS_TABLE}
         (session_id, user_id, message, reply_json, created_at)
-    VALUES (?, ?, ?, ?, ?)
+    VALUES (:session_id, :user_id, :message, :reply_json, :created_at)
     """
     created_at = datetime.now(timezone.utc).isoformat()
-    connection = get_connection()
 
-    try:
+    with get_engine().begin() as connection:
         cursor = connection.execute(
-            insert_sql,
-            (conversation_session_id, user_id, message, reply_json, created_at),
+            text(insert_sql),
+            {
+                "session_id": conversation_session_id,
+                "user_id": user_id,
+                "message": message,
+                "reply_json": reply_json,
+                "created_at": created_at,
+            },
         )
-        connection.commit()
         new_id = cursor.lastrowid
 
         if new_id is None:
             raise RuntimeError("保存对话失败：没有拿到新记录 id")
 
-        # 有新消息后，更新会话的最后活跃时间，方便会话列表按最近排序。
-        touch_session(conversation_session_id)
+    # 有新消息后，更新会话的最后活跃时间，方便会话列表按最近排序。
+    touch_session(conversation_session_id)
 
-        return new_id
-    finally:
-        connection.close()
+    return new_id
 
 
 def list_recent_conversations(
@@ -58,28 +63,26 @@ def list_recent_conversations(
 ) -> list[ConversationRecord]:
     """查询最近对话；传 session_id 时只查该会话。"""
     initialize_database()
-    where_sql = "WHERE user_id = ?"
-    params: tuple[str, int] | tuple[str, int, int] = (user_id, limit)
+    where_sql = "WHERE user_id = :user_id"
+    params: dict = {"user_id": user_id, "limit": limit}
 
     if session_id is not None:
         # 多会话模式下，历史边界是 user_id + session_id。
-        where_sql = "WHERE user_id = ? AND session_id = ?"
-        params = (user_id, session_id, limit)
+        where_sql = "WHERE user_id = :user_id AND session_id = :session_id"
+        params = {"user_id": user_id, "session_id": session_id, "limit": limit}
 
     select_sql = f"""
     SELECT id, session_id, user_id, message, reply_json, created_at
     FROM {CONVERSATIONS_TABLE}
     {where_sql}
     ORDER BY id DESC
-    LIMIT ?
+    LIMIT :limit
     """
-    connection = get_connection()
-    try:
-        cursor = connection.execute(
-            select_sql,
+    with get_engine().connect() as connection:
+        rows = connection.execute(
+            text(select_sql),
             params,
-        )
-        rows = cursor.fetchall()
+        ).mappings().fetchall()
         conversations = [
             ConversationRecord(
                 id=row["id"],
@@ -93,5 +96,3 @@ def list_recent_conversations(
         ]
 
         return conversations
-    finally:
-        connection.close()

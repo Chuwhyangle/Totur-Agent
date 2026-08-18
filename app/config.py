@@ -18,6 +18,11 @@ class StorageConfig:
         return self.DATA_DIR / "tutor_agent.db"
 
     @property
+    def database_url(self) -> str:
+        """SQLAlchemy 连接串；SQLite 阶段恒为 sqlite:/// 绝对路径。"""
+        return f"sqlite:///{self.database_path.resolve().as_posix()}"
+
+    @property
     def chroma_persist_dir(self) -> Path:
         return self.DATA_DIR / "chroma_db"
 

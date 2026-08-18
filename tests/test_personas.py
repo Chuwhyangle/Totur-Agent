@@ -16,7 +16,7 @@ client = TestClient(app)
 def use_temp_database(monkeypatch, tmp_path):
     """让聊天接口测试使用临时 SQLite 数据库。"""
 
-    monkeypatch.setattr(database, "DATABASE_PATH", tmp_path / "test_tutor_agent.db")
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
 
 
 def final_reply() -> str:

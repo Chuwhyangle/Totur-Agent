@@ -3,6 +3,17 @@
 import pytest
 
 from app.db import trace_db
+from app.db.engine import reset_engine_for_tests
+
+
+@pytest.fixture(autouse=True)
+def isolated_test_database(tmp_path, monkeypatch):
+    """每个测试独立使用临时 SQLite 库，避免污染本地 tutor_agent.db。"""
+
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    reset_engine_for_tests()
+    yield
+    reset_engine_for_tests()
 
 
 @pytest.fixture(autouse=True)

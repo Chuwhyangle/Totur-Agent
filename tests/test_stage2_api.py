@@ -41,7 +41,7 @@ client = TestClient(app)
 
 
 def use_temp_database(monkeypatch, tmp_path):
-    monkeypatch.setattr(database, "DATABASE_PATH", tmp_path / "test_tutor_agent.db")
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
 
 
 def test_initialize_database_migrates_old_conversations_into_default_sessions(
@@ -50,7 +50,7 @@ def test_initialize_database_migrates_old_conversations_into_default_sessions(
 ):
     use_temp_database(monkeypatch, tmp_path)
 
-    connection = sqlite3.connect(database.DATABASE_PATH)
+    connection = sqlite3.connect(str(tmp_path / "tutor_agent.db"))
     try:
         connection.execute(
             f"""
@@ -81,7 +81,7 @@ def test_initialize_database_migrates_old_conversations_into_default_sessions(
 
     database.initialize_database()
 
-    connection = sqlite3.connect(database.DATABASE_PATH)
+    connection = sqlite3.connect(str(tmp_path / "tutor_agent.db"))
     connection.row_factory = sqlite3.Row
     try:
         columns = {
@@ -130,7 +130,7 @@ def test_initialize_database_adds_persona_id_to_existing_sessions(
 ):
     use_temp_database(monkeypatch, tmp_path)
 
-    connection = sqlite3.connect(database.DATABASE_PATH)
+    connection = sqlite3.connect(str(tmp_path / "tutor_agent.db"))
     try:
         connection.execute(
             f"""
@@ -162,7 +162,7 @@ def test_initialize_database_adds_persona_id_to_existing_sessions(
 
     database.initialize_database()
 
-    connection = sqlite3.connect(database.DATABASE_PATH)
+    connection = sqlite3.connect(str(tmp_path / "tutor_agent.db"))
     connection.row_factory = sqlite3.Row
     try:
         columns = {

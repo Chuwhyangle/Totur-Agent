@@ -88,7 +88,7 @@ def test_chat_rejects_unavailable_model_id(path):
 
 
 def test_same_session_can_switch_models_without_losing_history(monkeypatch, tmp_path):
-    monkeypatch.setattr(database, "DATABASE_PATH", tmp_path / "model-selection.db")
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
     monkeypatch.setattr(chat_route.tutor_agent_service, "seed_context_enabled", False)
 
     selected_models: list[str] = []
