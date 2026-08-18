@@ -7,7 +7,6 @@ from typing import Iterable
 
 from sqlalchemy import text
 
-from app.db.database import initialize_database
 from app.db.engine import get_engine
 from app.db.models import PUBLIC_JOB_DESCRIPTIONS_TABLE, PublicJDRecord
 
@@ -50,7 +49,6 @@ def sync_public_jds(
 ) -> int:
     """Apply one idempotent SQLite snapshot mutation in a transaction."""
 
-    initialize_database()
     normalized_records = tuple(records)
     normalized_delete_ids = tuple(dict.fromkeys(delete_ids))
     placeholders = ", ".join(f":p{i}" for i in range(len(_COLUMNS)))
@@ -91,7 +89,6 @@ def sync_public_jds(
 
 
 def count_public_jds() -> int:
-    initialize_database()
     with get_engine().connect() as connection:
         row = connection.execute(
             text(f"SELECT COUNT(*) AS total FROM {PUBLIC_JOB_DESCRIPTIONS_TABLE}")
@@ -110,7 +107,6 @@ def list_public_jds(
 ) -> list[PublicJDRecord]:
     """List structured JDs with deterministic exact filters."""
 
-    initialize_database()
     clauses: list[str] = []
     parameters: dict[str, object] = {}
     for column, value in (

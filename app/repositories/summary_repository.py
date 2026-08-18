@@ -4,7 +4,6 @@ from datetime import datetime, timezone
 
 from sqlalchemy import text
 
-from app.db.database import initialize_database
 from app.db.engine import get_engine
 from app.db.models import (
     CONVERSATIONS_TABLE,
@@ -17,7 +16,6 @@ from app.db.models import (
 def get_summary(session_id: int) -> SessionSummaryRecord | None:
     """查询某个会话当前保存的摘要；没有摘要时返回 None。"""
 
-    initialize_database()
     select_sql = f"""
     SELECT id, session_id, summary_text, last_conversation_id, created_at, updated_at
     FROM {SESSION_SUMMARIES_TABLE}
@@ -43,7 +41,6 @@ def upsert_summary(
 ) -> int:
     """新增或更新某个会话的滚动摘要，并返回摘要记录 id。"""
 
-    initialize_database()
     now = datetime.now(timezone.utc).isoformat()
     select_sql = f"""
     SELECT id
@@ -104,7 +101,6 @@ def upsert_summary(
 def count_unsummarized_conversations(session_id: int, after_id: int) -> int:
     """统计某个会话里 id 大于 after_id、还没进入摘要的对话条数。"""
 
-    initialize_database()
     select_sql = f"""
     SELECT COUNT(*) AS total
     FROM {CONVERSATIONS_TABLE}
@@ -126,7 +122,6 @@ def list_conversations_after(
 ) -> list[ConversationRecord]:
     """按时间从旧到新读取某个会话中 id 大于 after_id 的对话。"""
 
-    initialize_database()
     select_sql = f"""
     SELECT id, session_id, user_id, message, reply_json, created_at
     FROM {CONVERSATIONS_TABLE}

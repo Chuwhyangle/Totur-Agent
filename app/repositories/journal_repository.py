@@ -4,7 +4,6 @@ from datetime import datetime, timezone
 
 from sqlalchemy import text
 
-from app.db.database import initialize_database
 from app.db.engine import get_engine
 from app.db.models import JOURNAL_ENTRIES_TABLE, JournalEntryRecord
 
@@ -19,7 +18,6 @@ def create_journal_entry(
 ) -> JournalEntryRecord:
     """创建一条日记记录。"""
 
-    initialize_database()
     now = datetime.now(timezone.utc).isoformat()
     insert_sql = f"""
     INSERT INTO {JOURNAL_ENTRIES_TABLE} (
@@ -77,7 +75,6 @@ def create_journal_entry(
 def get_journal_entry(entry_id: int) -> JournalEntryRecord | None:
     """根据 id 获取单条日记。"""
 
-    initialize_database()
     select_sql = f"""
     SELECT id, session_id, persona_id, title, content, tags, entry_date, created_at, updated_at
     FROM {JOURNAL_ENTRIES_TABLE}
@@ -101,7 +98,6 @@ def list_journal_entries(
 ) -> list[JournalEntryRecord]:
     """查询日记列表，支持按日期和标签过滤。"""
 
-    initialize_database()
     conditions = []
     params: dict[str, object] = {}
 
@@ -151,7 +147,6 @@ def update_journal_entry(
 ) -> JournalEntryRecord | None:
     """更新一条日记。"""
 
-    initialize_database()
     updates = []
     params: dict[str, object] = {}
 
@@ -192,7 +187,6 @@ def update_journal_entry(
 def delete_journal_entry(entry_id: int) -> bool:
     """删除一条日记。返回是否删除成功。"""
 
-    initialize_database()
     delete_sql = f"DELETE FROM {JOURNAL_ENTRIES_TABLE} WHERE id = :id"
 
     with get_engine().begin() as connection:

@@ -5,7 +5,6 @@ import json
 
 from sqlalchemy import text
 
-from app.db.database import initialize_database
 from app.db.engine import get_engine
 from app.db.models import INTERVIEW_JDS_TABLE, InterviewJDRecord
 
@@ -27,7 +26,6 @@ def create_interview_jd(
 ) -> InterviewJDRecord:
     """保存一条用户提供的目标岗位 JD。"""
 
-    initialize_database()
     now = datetime.now(timezone.utc).isoformat()
     insert_sql = f"""
     INSERT INTO {INTERVIEW_JDS_TABLE} (
@@ -113,7 +111,6 @@ def create_interview_jd(
 def list_interview_jds(user_id: str, limit: int = 20) -> list[InterviewJDRecord]:
     """查询某个用户保存的最近 JD，最新的排在前面。"""
 
-    initialize_database()
     select_sql = f"""
     SELECT
         id,
@@ -150,7 +147,6 @@ def list_interview_jds(user_id: str, limit: int = 20) -> list[InterviewJDRecord]
 def list_all_interview_jds(limit: int = 100) -> list[InterviewJDRecord]:
     """查询当前资料库里的 JD，供第一版工具全表检索。"""
 
-    initialize_database()
     select_sql = f"""
     SELECT
         id,

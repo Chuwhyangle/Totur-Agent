@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.routes.attachments import router as attachments_router
 from app.api.routes.chat import router as chat_router
 from app.db import trace_db
+from app.db.database import initialize_database
 from app.api.routes.conversations import router as conversations_router
 from app.api.routes.health import router as health_router
 from app.api.routes.interview_jds import router as interview_jds_router
@@ -108,6 +109,8 @@ async def lifespan(_: FastAPI):
     """Run bounded recovery and release shared clients on shutdown."""
 
     validate_model_configuration()
+    # 业务库 schema 就绪先于观测库；只在启动时执行一次（A2）。
+    initialize_database()
     stop_event = threading.Event()
     shutdown_event = asyncio.Event()
     try:

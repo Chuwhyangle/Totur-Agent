@@ -6,7 +6,6 @@ from uuid import uuid4
 
 from sqlalchemy import text
 
-from app.db.database import initialize_database
 from app.db.engine import get_engine
 from app.db.models import (
     CHAT_SESSIONS_TABLE,
@@ -113,7 +112,6 @@ def create_attachment_document(
     if not storage_path or not storage_path.strip():
         raise InvalidDocumentRecord("storage_path must not be empty")
 
-    initialize_database()
     document_id = str(uuid4())
     now = _utc_now()
     normalized_expires_at = _normalize_utc_iso(expires_at, "expires_at")
@@ -221,7 +219,6 @@ def create_attachment_document(
 def get_document(document_id: str) -> DocumentRecord | None:
     """Get document metadata by id for internal lifecycle operations."""
 
-    initialize_database()
     with get_engine().connect() as connection:
         row = connection.execute(
             text(
@@ -237,7 +234,6 @@ def get_attachment_for_cleanup(
 ) -> DocumentRecord | None:
     """Get an attachment only while lifecycle cleanup is recoverable."""
 
-    initialize_database()
     with get_engine().connect() as connection:
         row = connection.execute(
             text(
@@ -266,7 +262,6 @@ def get_owned_attachment(
 ) -> DocumentRecord | None:
     """Return an attachment only when id, scope, user, and session all match."""
 
-    initialize_database()
     with get_engine().connect() as connection:
         row = connection.execute(
             text(
@@ -297,7 +292,6 @@ def list_session_attachments(
 ) -> list[DocumentRecord]:
     """List only attachments owned by one user in one session."""
 
-    initialize_database()
     with get_engine().connect() as connection:
         rows = connection.execute(
             text(
@@ -329,7 +323,6 @@ def get_accessible_attachment(
 ) -> DocumentRecord | None:
     """Return one unexpired attachment visible to its owning session."""
 
-    initialize_database()
     normalized_now = _normalize_utc_iso(now, "now")
     with get_engine().connect() as connection:
         row = connection.execute(
@@ -364,7 +357,6 @@ def list_accessible_session_attachments(
 ) -> list[DocumentRecord]:
     """List unexpired active attachments for one user and session."""
 
-    initialize_database()
     normalized_now = _normalize_utc_iso(now, "now")
     with get_engine().connect() as connection:
         rows = connection.execute(
@@ -398,7 +390,6 @@ def count_accessible_session_attachments(
 ) -> int:
     """Count unexpired active attachments for upload quota checks."""
 
-    initialize_database()
     normalized_now = _normalize_utc_iso(now, "now")
     with get_engine().connect() as connection:
         row = connection.execute(
@@ -432,7 +423,6 @@ def get_retrievable_attachment(
 ) -> DocumentRecord | None:
     """Return only unexpired READY/PARTIAL attachment parser results."""
 
-    initialize_database()
     normalized_now = _normalize_utc_iso(now, "now")
     with get_engine().connect() as connection:
         row = connection.execute(
@@ -536,7 +526,6 @@ def update_document_status(
             "version, and content_hash may be supplied"
         )
 
-    initialize_database()
 
     with get_engine().begin() as connection:
         row = connection.execute(
@@ -664,7 +653,6 @@ def list_recoverable_processing_attachments(
     if limit == 0:
         return []
 
-    initialize_database()
     normalized_now = _normalize_utc_iso(now, "now")
     with get_engine().connect() as connection:
         rows = connection.execute(
@@ -755,7 +743,6 @@ def _list_stale_attachments(
     if not statuses:
         return []
 
-    initialize_database()
     normalized_updated_before = _normalize_utc_iso(
         updated_before,
         "updated_before",
@@ -794,7 +781,6 @@ def list_expired_attachments(
     if limit == 0:
         return []
 
-    initialize_database()
     normalized_now = _normalize_utc_iso(now, "now")
     with get_engine().connect() as connection:
         rows = connection.execute(
@@ -823,7 +809,6 @@ def list_expired_attachments(
 def delete_document_record(document_id: str) -> bool:
     """Purge SQLite metadata only after lifecycle cleanup reaches DELETED."""
 
-    initialize_database()
 
     with get_engine().begin() as connection:
         row = connection.execute(
