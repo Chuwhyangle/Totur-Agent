@@ -48,7 +48,7 @@ class FakeVectorRepository:
 
 
 def _use_temp_database(monkeypatch, tmp_path) -> None:
-    monkeypatch.setattr(database, "DATABASE_PATH", tmp_path / "retry-recovery.db")
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
 
 
 def _create_attachment(

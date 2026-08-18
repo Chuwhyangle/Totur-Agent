@@ -8,8 +8,8 @@ from app.repositories import journal_repository as repository
 
 @pytest.fixture(autouse=True)
 def isolated_database(tmp_path, monkeypatch):
-    database_path = tmp_path / "journal-test.db"
-    monkeypatch.setattr(database, "DATABASE_PATH", database_path)
+    database_path = tmp_path / "tutor_agent.db"
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
     yield database_path
     assert database_path.parent == tmp_path
 

@@ -13,7 +13,7 @@ import app.services.agent.tools.executor as executor_module
 
 
 def use_temp_database(monkeypatch, tmp_path):
-    monkeypatch.setattr(database, "DATABASE_PATH", tmp_path / "test_tutor_agent.db")
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
 
 
 def test_tool_registry_exposes_score_jd_skill_fit_schema():

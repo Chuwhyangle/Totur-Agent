@@ -30,7 +30,7 @@ class FakeSummaryService:
 
 
 def use_temp_database(monkeypatch, tmp_path):
-    monkeypatch.setattr(database, "DATABASE_PATH", tmp_path / "test_tutor_agent.db")
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
 
 
 def _reply_json(answer: str) -> str:

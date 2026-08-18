@@ -47,7 +47,7 @@ class FailingVectorRepository:
 
 
 def make_context(monkeypatch, tmp_path, *, parsed_document=None, expires_at="2030-01-01T00:00:00+00:00", embedding_client=None, vector_repository=None):
-    monkeypatch.setattr(database, "DATABASE_PATH", tmp_path / "indexing.db")
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
     session = create_session("alice")
     settings = TemporaryDocumentSettings(root_path=tmp_path / "files", min_extracted_chars=1)
     files = TemporaryFileStorage(settings.root_path, settings.write_chunk_bytes)

@@ -59,7 +59,7 @@ class ExplodingProcessingService:
 
 
 def create_record(monkeypatch, tmp_path):
-    monkeypatch.setattr(database, "DATABASE_PATH", tmp_path / "processing.db")
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
     session = create_session("alice")
     return create_attachment_document(
         user_id="alice",

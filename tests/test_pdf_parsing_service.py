@@ -36,7 +36,7 @@ from app.services.documents.temporary_file_storage import TemporaryFileStorage
 
 
 def use_temp_database(monkeypatch, tmp_path):
-    monkeypatch.setattr(database, "DATABASE_PATH", tmp_path / "parsing.db")
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
 
 
 def create_pdf(path: Path, text: str | None = "Extractable PDF text content"):

@@ -42,7 +42,16 @@ from app.repositories.session_repository import create_session, list_sessions
 
 
 def use_temp_database(monkeypatch, tmp_path):
-    monkeypatch.setattr(database, "DATABASE_PATH", tmp_path / "documents.db")
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+
+
+def open_engine_db(tmp_path):
+    """打开当前测试的底层 SQLite 库（A1 后库文件固定为 tutor_agent.db）。"""
+
+    connection = sqlite3.connect(str(tmp_path / "tutor_agent.db"))
+    connection.row_factory = sqlite3.Row
+    connection.execute("PRAGMA foreign_keys = ON")
+    return connection
 
 
 def create_attachment(
@@ -72,7 +81,7 @@ def test_initialize_database_creates_documents_table_and_indexes(
 
     database.initialize_database()
 
-    connection = sqlite3.connect(database.DATABASE_PATH)
+    connection = open_engine_db(tmp_path)
     connection.row_factory = sqlite3.Row
     try:
         columns = {
@@ -130,7 +139,7 @@ def test_initialize_database_is_idempotent(monkeypatch, tmp_path):
     database.initialize_database()
     database.initialize_database()
 
-    connection = sqlite3.connect(database.DATABASE_PATH)
+    connection = open_engine_db(tmp_path)
     try:
         table_count = connection.execute(
             "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?",
@@ -481,7 +490,7 @@ def test_expired_query_returns_only_attachments_sorted_by_expiration(
         expires_at="2030-01-04T00:00:00+00:00",
     )
 
-    connection = database.get_connection()
+    connection = open_engine_db(tmp_path)
     try:
         connection.execute(
             f"""
@@ -623,7 +632,7 @@ def test_stale_deleting_query_filters_and_orders_candidates(
         recent.id: "2031-01-01T00:00:00+00:00",
         deleted.id: "2028-01-01T00:00:00+00:00",
     }
-    connection = database.get_connection()
+    connection = open_engine_db(tmp_path)
     try:
         connection.executemany(
             f"UPDATE {DOCUMENTS_TABLE} SET updated_at = ? WHERE id = ?",
@@ -666,7 +675,7 @@ def test_stale_cleanup_query_includes_deleting_and_deleted_with_stable_order(
         active.id: "2027-01-01T00:00:00+00:00",
         recent.id: "2031-01-01T00:00:00+00:00",
     }
-    connection = database.get_connection()
+    connection = open_engine_db(tmp_path)
     try:
         connection.executemany(
             f"UPDATE {DOCUMENTS_TABLE} SET updated_at = ? WHERE id = ?",
@@ -712,7 +721,7 @@ def test_stale_parsing_query_filters_orders_and_limits(monkeypatch, tmp_path):
         recent.id: "2031-01-01T00:00:00+00:00",
         ready.id: "2027-01-01T00:00:00+00:00",
     }
-    connection = database.get_connection()
+    connection = open_engine_db(tmp_path)
     try:
         connection.executemany(
             f"UPDATE {DOCUMENTS_TABLE} SET updated_at = ? WHERE id = ?",
@@ -816,7 +825,7 @@ def test_initialize_database_migrates_cascade_fk_to_restrict(
 ):
     use_temp_database(monkeypatch, tmp_path)
 
-    connection = sqlite3.connect(database.DATABASE_PATH)
+    connection = open_engine_db(tmp_path)
     connection.row_factory = sqlite3.Row
     try:
         connection.execute(
@@ -890,7 +899,7 @@ def test_initialize_database_migrates_cascade_fk_to_restrict(
     database.initialize_database()
     database.initialize_database()
 
-    connection = database.get_connection()
+    connection = open_engine_db(tmp_path)
     try:
         foreign_keys = connection.execute(
             f"PRAGMA foreign_key_list({DOCUMENTS_TABLE})"
@@ -930,7 +939,7 @@ def test_session_delete_is_restricted_until_document_cleanup_finishes(
         expires_at="2030-01-01T00:00:00+00:00",
     )
 
-    connection = database.get_connection()
+    connection = open_engine_db(tmp_path)
     try:
         with pytest.raises(sqlite3.IntegrityError):
             connection.execute(
@@ -950,7 +959,7 @@ def test_session_delete_is_restricted_until_document_cleanup_finishes(
     update_document_status(document.id, DocumentStatus.DELETED)
     assert delete_document_record(document.id) is True
 
-    connection = database.get_connection()
+    connection = open_engine_db(tmp_path)
     try:
         connection.execute(
             f"DELETE FROM {CHAT_SESSIONS_TABLE} WHERE id = ?",
@@ -992,7 +1001,7 @@ def test_legacy_database_initialization_preserves_existing_functionality(
 ):
     use_temp_database(monkeypatch, tmp_path)
 
-    connection = sqlite3.connect(database.DATABASE_PATH)
+    connection = open_engine_db(tmp_path)
     try:
         connection.execute(
             f"""
@@ -1026,7 +1035,7 @@ def test_legacy_database_initialization_preserves_existing_functionality(
     database.initialize_database()
     sessions = list_sessions("legacy-user")
 
-    connection = sqlite3.connect(database.DATABASE_PATH)
+    connection = open_engine_db(tmp_path)
     connection.row_factory = sqlite3.Row
     try:
         conversation = connection.execute(
@@ -1281,7 +1290,7 @@ def test_stale_processing_query_includes_parsing_and_indexing(monkeypatch, tmp_p
     )
     update_document_status(ready.id, DocumentStatus.READY)
 
-    connection = database.get_connection()
+    connection = open_engine_db(tmp_path)
     try:
         connection.executemany(
             f"UPDATE {DOCUMENTS_TABLE} SET updated_at = ? WHERE id = ?",
@@ -1311,7 +1320,7 @@ def test_initialize_database_migrates_legacy_ready_rows_for_reindex(
     tmp_path,
 ):
     use_temp_database(monkeypatch, tmp_path)
-    connection = sqlite3.connect(database.DATABASE_PATH)
+    connection = open_engine_db(tmp_path)
     try:
         connection.execute(
             f"""
@@ -1400,7 +1409,7 @@ def test_initialize_database_migrates_legacy_ready_rows_for_reindex(
 
     ready = get_document("legacy-ready")
     partial = get_document("legacy-partial")
-    connection = database.get_connection()
+    connection = open_engine_db(tmp_path)
     try:
         table_sql = connection.execute(
             "SELECT sql FROM sqlite_master WHERE type='table' AND name=?",
