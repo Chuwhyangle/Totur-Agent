@@ -20,6 +20,9 @@ def isolated_test_database(tmp_path, monkeypatch, request):
     """
 
     monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    # 测试始终走 SQLite：置空后 StorageConfig 回退到文件路径。
+    # 不能用 delenv——load_dotenv 会把 .env 里的 DATABASE_URL 重新载入。
+    monkeypatch.setenv("DATABASE_URL", "")
     reset_engine_for_tests()
     try:
         source = inspect.getsource(request.node.function)
