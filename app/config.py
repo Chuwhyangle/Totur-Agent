@@ -19,7 +19,14 @@ class StorageConfig:
 
     @property
     def database_url(self) -> str:
-        """SQLAlchemy 连接串；SQLite 阶段恒为 sqlite:/// 绝对路径。"""
+        """SQLAlchemy 连接串。
+
+        DATABASE_URL 环境变量优先（mysql+pymysql://...）；未设置时退回
+        SQLite 文件路径（本地开发与测试）。
+        """
+        env_url = os.getenv("DATABASE_URL", "").strip()
+        if env_url:
+            return env_url
         return f"sqlite:///{self.database_path.resolve().as_posix()}"
 
     @property
