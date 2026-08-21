@@ -1,10 +1,15 @@
-"""Local defense: keep write-capable remote MCP tools out of the Agent.
+"""Local defense-in-depth: keep write-capable remote MCP tools out of the Agent.
 
-The GitHub hosted MCP server is configured read-only (X-MCP-Readonly=true,
-toolsets repos/issues/pull_requests), but that relies on the remote honoring
-those headers. This module is an independent local filter applied to every
-discovered remote tool so obvious write operations (create/update/delete/
-merge/push, ...) never reach the ReAct loop in this phase.
+IMPORTANT: this module is only the SECOND layer of defense, not the primary
+security boundary. The primary boundary is the per-server ``allowed_tools``
+allowlist enforced in ``app/mcp/client.py`` (policy constants live in
+``app/mcp/github_policy.py``); GitHub hosted MCP configs must pass a
+code-level read-only allowlist, so unknown tools are blocked by default.
+
+write_guard remains as an independent name/description filter applied to
+every discovered remote tool, so obvious write operations
+(create/update/delete/merge/push, ...) never reach the ReAct loop even for
+servers without an explicit allowlist.
 
 Rules are deliberately conservative and name-based: remote MCP tools follow
 a verb_noun naming convention, so verb tokens are a reliable signal. A small

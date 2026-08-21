@@ -18,6 +18,20 @@ from app.services import rag_settings
 logger = logging.getLogger(__name__)
 
 
+def _sanitize_exception(exc: BaseException) -> str:
+    """Redact MCP-related exception text without a hard dependency on app.mcp.
+
+    Falls back to a type-only message when the MCP client module cannot be
+    imported, so registry.py still loads when the optional MCP stack is
+    absent and never forwards raw exception text that might embed secrets.
+    """
+    try:
+        from app.mcp.client import sanitize_error_message
+    except ImportError:
+        return f"{type(exc).__name__} (details redacted)"
+    return sanitize_error_message(str(exc))
+
+
 SEARCH_ATTACHMENTS_SCHEMA: dict[str, Any] = {
     "type": "function",
     "function": {
@@ -333,11 +347,12 @@ class ToolRegistry:
 
                     self._mcp_client_adapter = MCPClientAdapter()
             except Exception as exc:
-                # Config errors from app.mcp.settings never include secret
-                # values; client errors are sanitized before logging.
+                # Settings errors never include secret values; client errors
+                # are sanitized before logging. Redact defensively anyway so
+                # no raw MCP exception text (which could embed config) leaks.
                 logger.warning(
                     "MCP client unavailable, continuing with local tools only: %s",
-                    exc,
+                    _sanitize_exception(exc),
                 )
                 self._mcp_client_adapter = None
 
@@ -362,8 +377,13 @@ class ToolRegistry:
         if self._mcp_client_adapter is not None:
             try:
                 schemas.extend(self._mcp_client_adapter.get_tools_schema())
-            except Exception:
-                pass
+            except Exception as exc:
+                # Never fail the whole tool list because MCP schema discovery
+                # broke: log a redacted warning and keep local tools working.
+                logger.warning(
+                    "MCP tool schema unavailable, continuing with local tools only: %s",
+                    _sanitize_exception(exc),
+                )
         return schemas
 
     def has_tool(self, name: str) -> bool:
@@ -380,7 +400,14 @@ class ToolRegistry:
             return False
         try:
             return bool(self._mcp_client_adapter.has_tool(name))
-        except Exception:
+        except Exception as exc:
+            # Do not swallow silently; log a redacted warning and degrade to
+            # "not an external tool" so local tool resolution still works.
+            logger.warning(
+                "MCP tool availability check failed for %s: %s",
+                name,
+                _sanitize_exception(exc),
+            )
             return False
 
     def get_tool(self, name: str) -> Callable[..., dict[str, Any]] | None:

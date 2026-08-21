@@ -15,6 +15,11 @@ import httpx
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 from mcp.client.streamable_http import streamable_http_client
+from app.mcp.github_policy import (
+    BLOCK_REASON_NOT_IN_ALLOWLIST,
+    BLOCK_REASON_WRITE_GUARD,
+    is_github_server,
+)
 from app.mcp.settings import (
     McpRemoteServerConfig,
     get_mcp_client_retry_seconds,
@@ -37,6 +42,11 @@ _SENSITIVE_MENTION = re.compile(
     r"(?i)\b(authorization|proxy-authorization|x-api-key|api[-_]?key|"
     r"password|passwd|secret|bearer|access[-_]?token|auth[-_]?token)\b"
 )
+# Bare GitHub token formats: redacted even when the error text mentions no
+# Authorization/Bearer keyword at all.
+_GITHUB_TOKEN = re.compile(
+    r"\b(?:github[_]?pat|ghp|gho|ghu|ghs|ghr)[_-][A-Za-z0-9]+"
+)
 
 
 def sanitize_error_message(text: str) -> str:
@@ -50,6 +60,7 @@ def sanitize_error_message(text: str) -> str:
         return text
     redacted = _BEARER_TOKEN.sub(r"\1 <redacted>", text)
     redacted = _SENSITIVE_ASSIGNMENT.sub(r"\1\2<redacted>", redacted)
+    redacted = _GITHUB_TOKEN.sub("<redacted>", redacted)
     if _SENSITIVE_MENTION.search(redacted):
         return "remote call failed (details redacted)"
     return redacted
@@ -60,6 +71,7 @@ class RemoteToolBinding:
     server: McpRemoteServerConfig
     remote_name: str
     schema: dict[str, Any]
+    remote_description: str = ""
 
 @asynccontextmanager
 async def _connect_server(config: McpRemoteServerConfig, timeout_seconds: float):
@@ -73,10 +85,15 @@ async def _connect_server(config: McpRemoteServerConfig, timeout_seconds: float)
                 await session.initialize()
                 yield session
         return
+    # GitHub hosted MCP never follows redirects: a redirect to a different
+    # scheme/host/port must not receive the Authorization header. The
+    # canonical URL validated at config load is used directly. Non-GitHub
+    # servers keep the legacy redirect behavior.
+    follow_redirects = not is_github_server(config.name, config.url)
     async with httpx.AsyncClient(
         headers=config.headers,
         timeout=timeout_seconds,
-        follow_redirects=True,
+        follow_redirects=follow_redirects,
     ) as http_client:
         async with streamable_http_client(config.url or "", http_client=http_client) as (read_stream, write_stream, _):
             async with ClientSession(read_stream, write_stream, read_timeout_seconds=timeout) as session:
@@ -101,7 +118,10 @@ class MCPClientAdapter:
         self._session_factory = session_factory or self._default_session_factory
         self._bindings: dict[str, RemoteToolBinding] = {}
         self.discovery_errors: dict[str, str] = {}
-        self.blocked_tools: dict[str, list[str]] = {}
+        # Server name -> list of {"name": tool, "reason": ...} entries.
+        # Only tool names and security reasons are recorded, never arguments,
+        # headers, or tokens.
+        self.blocked_tools: dict[str, list[dict[str, str]]] = {}
         self._discovery_attempted = False
         self._next_retry_at = 0.0
         self._discovery_lock = Lock()
@@ -138,6 +158,21 @@ class MCPClientAdapter:
         binding = self._bindings.get(name)
         if binding is None:
             return {"ok": False, "error": "tool_not_found", "message": f"unknown MCP tool: {name}"}
+        # Re-check the server policy right before any remote call, so even a
+        # caller that bypasses the registry/discovery path can never trigger
+        # a remote request for a blocked tool.
+        reason = _tool_block_reason(
+            binding.server, binding.remote_name, binding.remote_description
+        )
+        if reason is not None:
+            logger.warning("MCP tool %s blocked before execution: %s", name, reason)
+            return {
+                "ok": False,
+                "error": "mcp_tool_blocked",
+                "message": f"MCP tool {binding.remote_name} is blocked by the server policy",
+                "server": binding.server.name,
+                "tool": binding.remote_name,
+            }
         with observe_tool_call(name, "mcp_client") as metric:
             try:
                 result = _run_async(self._call(binding, arguments))
@@ -152,7 +187,7 @@ class MCPClientAdapter:
     async def _discover(self) -> list[dict[str, Any]]:
         bindings: dict[str, RemoteToolBinding] = {}
         errors: dict[str, str] = {}
-        blocked: dict[str, list[str]] = {}
+        blocked: dict[str, list[dict[str, str]]] = {}
         for server in self.servers:
             try:
                 async with self._session_factory(server) as session:
@@ -160,8 +195,15 @@ class MCPClientAdapter:
                     while True:
                         result = await session.list_tools(cursor=cursor)
                         for tool in result.tools:
-                            if is_write_tool(tool.name, tool.description or ""):
-                                blocked.setdefault(server.name, []).append(tool.name)
+                            # Defense order: server allowlist first (primary
+                            # boundary), write_guard second (defense in depth).
+                            reason = _tool_block_reason(
+                                server, tool.name, tool.description or ""
+                            )
+                            if reason is not None:
+                                blocked.setdefault(server.name, []).append(
+                                    {"name": tool.name, "reason": reason}
+                                )
                                 continue
                             public_name = _public_tool_name(server.name, tool.name, set(bindings))
                             description = f"[{server.name} MCP] {tool.description or tool.name}"
@@ -173,7 +215,10 @@ class MCPClientAdapter:
                                     "parameters": tool.inputSchema or {"type": "object", "properties": {}},
                                 },
                             }
-                            bindings[public_name] = RemoteToolBinding(public_name, server, tool.name, schema)
+                            bindings[public_name] = RemoteToolBinding(
+                                public_name, server, tool.name, schema,
+                                remote_description=tool.description or "",
+                            )
                         cursor = getattr(result, "nextCursor", None)
                         if not cursor:
                             break
@@ -201,6 +246,32 @@ class MCPClientAdapter:
             result.setdefault("mcp_server", binding.server.name)
             return result
         return {"ok": True, "content": message, "mcp_server": binding.server.name, "tool": binding.remote_name}
+
+def _tool_block_reason(
+    config: McpRemoteServerConfig, tool_name: str, description: str = ""
+) -> str | None:
+    """Return the security reason a remote tool must be blocked, or None.
+
+    Defense order:
+    1. The server-level allowed_tools allowlist is the primary boundary.
+       GitHub configs always carry a non-empty allowlist (validated at load
+       time); a GitHub config without one fails closed and blocks everything.
+    2. write_guard is only the second layer for obvious write tools.
+
+    Non-GitHub servers without an allowlist keep the legacy behavior: only
+    write_guard applies, exactly as before this policy existed.
+    """
+    allowed = config.allowed_tools
+    if allowed:
+        if tool_name not in allowed:
+            return BLOCK_REASON_NOT_IN_ALLOWLIST
+    elif is_github_server(config.name, config.url):
+        # GitHub without an explicit allowlist: fail closed, block all.
+        return BLOCK_REASON_NOT_IN_ALLOWLIST
+    if is_write_tool(tool_name, description):
+        return BLOCK_REASON_WRITE_GUARD
+    return None
+
 
 def _public_tool_name(server_name: str, tool_name: str, existing: set[str]) -> str:
     normalized = re.sub(r"[^a-zA-Z0-9_-]+", "_", f"mcp_{server_name}_{tool_name}").strip("_")
