@@ -66,6 +66,33 @@ python -m uvicorn app.main:app --reload --port 8001
 http://127.0.0.1:8001/docs
 ```
 
+## GitHub MCP（只读）
+
+MCP Client 可接入 GitHub 官方 Hosted MCP Server（Streamable HTTP），只开放仓库、Issue、Pull Request 的只读工具。默认关闭（`MCP_CLIENT_ENABLED=false`），未配置的用户不受影响。
+
+在 `.env` 中配置（参考 `.env.example`）：
+
+```text
+GITHUB_MCP_PAT=你自己的 PAT，绝不提交到代码或日志
+MCP_CLIENT_ENABLED=true
+MCP_CLIENT_TIMEOUT_SECONDS=20
+MCP_CLIENT_RETRY_SECONDS=30
+MCP_CLIENT_SERVERS=[{"name":"github","transport":"streamable-http","url":"https://api.githubcopilot.com/mcp/","headers":{"Authorization":"Bearer ${GITHUB_MCP_PAT}","X-MCP-Toolsets":"repos,issues,pull_requests","X-MCP-Readonly":"true"}}]
+```
+
+安全边界：
+
+- `${GITHUB_MCP_PAT}` 由 `app/mcp/settings.py` 的 `expand_env_refs` 展开（fail-closed：引用缺失或为空 Bearer 时报错，只显示变量名，不显示值）。`GITHUB_MCP_PAT` 需定义在 `MCP_CLIENT_SERVERS` 之上（dotenv 按文件顺序插值）。
+- 配置校验强制 `X-MCP-Readonly=true`，Toolsets 仅允许 `repos,issues,pull_requests`。
+- 本地防御：`app/mcp/write_guard.py` 过滤 create/update/delete/merge/push 等明显写工具，不进入 Agent 工具列表。
+- 发现或调用失败时降级：内部工具照常工作，错误消息脱敏，不打印 Authorization/PAT。
+
+手动验证（只打印工具名和脱敏错误摘要，不打印 Token）：
+
+```powershell
+.\.venv\Scripts\python.exe scripts\check_mcp_client.py
+```
+
 ## Agent Trace 与 MySQL
 
 Trace 默认关闭。请求线程只把埋点放入有界内存队列，后台 Writer 才连接 MySQL；队列满或 MySQL 故障时记录会丢失，但聊天请求继续使用 SQLite 和 Chroma 正常工作。`TRACE_DB_CAPTURE_CONTENT=false` 时不保存 question 和检索 query，工具参数预览始终限长并脱敏常见凭据字段。

@@ -2,9 +2,43 @@
 from __future__ import annotations
 import json
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlparse
 from dotenv import load_dotenv
+
+# Hosted GitHub MCP guardrails. The remote is asked for read-only tooling via
+# headers, and the local settings validate that configuration explicitly.
+GITHUB_MCP_HOST = "api.githubcopilot.com"
+ALLOWED_GITHUB_TOOLSETS = frozenset({"repos", "issues", "pull_requests"})
+
+_ENV_REF_PATTERN = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
+
+
+def expand_env_refs(raw: str) -> str:
+    """Expand ${NAME} references against the process environment, fail-closed.
+
+    python-dotenv only interpolates values it parses from a .env file; values
+    provided by the real process environment keep their literal ${NAME}
+    references. This small resolver covers both cases deterministically:
+    an undefined reference raises RuntimeError naming the variable only, and
+    never embeds the variable's value in the message. Use $$ to emit a
+    literal $.
+    """
+    escaped = raw.replace("$$", "\x00")
+
+    def _resolve(match: re.Match[str]) -> str:
+        name = match.group(1)
+        value = os.environ.get(name)
+        if value is None:
+            raise RuntimeError(
+                f"MCP_CLIENT_SERVERS references undefined environment variable: {name}"
+            )
+        return value
+
+    expanded = _ENV_REF_PATTERN.sub(_resolve, escaped)
+    return expanded.replace("\x00", "$")
 
 def _env_bool(name: str, default: bool = False) -> bool:
     raw = os.getenv(name)
@@ -65,6 +99,48 @@ class McpRemoteServerConfig:
     headers: dict[str, str] | None = None
     env: dict[str, str] | None = None
 
+def _validate_remote_headers(
+    index: int,
+    name: str,
+    transport: str,
+    url: str,
+    headers: dict[str, str],
+) -> None:
+    """Reject unsafe remote MCP header configuration without echoing values."""
+    for key, value in headers.items():
+        if key.lower() == "authorization":
+            scheme, _, token = value.partition(" ")
+            if scheme.strip().lower() == "bearer" and not token.strip():
+                raise RuntimeError(
+                    f"MCP_CLIENT_SERVERS[{index}].headers.Authorization has an empty "
+                    "Bearer token; set the referenced environment variable "
+                    "(e.g. GITHUB_MCP_PAT) to a non-empty value before enabling "
+                    "the MCP client. When both live in .env, define the token "
+                    "variable above MCP_CLIENT_SERVERS."
+                )
+    try:
+        host = (urlparse(url).hostname or "").lower()
+    except ValueError:
+        host = ""
+    is_github = name.lower() == "github" or host == GITHUB_MCP_HOST
+    if transport == "streamable-http" and is_github:
+        if str(headers.get("X-MCP-Readonly", "")).strip().lower() != "true":
+            raise RuntimeError(
+                f"MCP_CLIENT_SERVERS[{index}] targets the GitHub hosted MCP server; "
+                "headers must include X-MCP-Readonly: \"true\""
+            )
+        toolsets = str(headers.get("X-MCP-Toolsets", "")).strip()
+        if toolsets:
+            requested = {part.strip().lower() for part in toolsets.split(",") if part.strip()}
+            invalid = sorted(requested - ALLOWED_GITHUB_TOOLSETS)
+            if invalid:
+                raise RuntimeError(
+                    f"MCP_CLIENT_SERVERS[{index}] requests unsupported GitHub toolsets: "
+                    f"{', '.join(invalid)}; only repos, issues, pull_requests "
+                    "are allowed in this phase"
+                )
+
+
 def load_mcp_client_servers() -> list[McpRemoteServerConfig]:
     load_dotenv()
     if not is_mcp_client_enabled():
@@ -72,6 +148,7 @@ def load_mcp_client_servers() -> list[McpRemoteServerConfig]:
     raw = os.getenv("MCP_CLIENT_SERVERS", "").strip()
     if not raw:
         return []
+    raw = expand_env_refs(raw)
     try:
         payload = json.loads(raw)
     except json.JSONDecodeError as exc:
@@ -105,6 +182,8 @@ def load_mcp_client_servers() -> list[McpRemoteServerConfig]:
             raise RuntimeError(f"MCP_CLIENT_SERVERS[{index}].command is required")
         if transport == "streamable-http" and not url:
             raise RuntimeError(f"MCP_CLIENT_SERVERS[{index}].url is required")
+        parsed_headers = {str(key): str(value) for key, value in headers.items()}
+        _validate_remote_headers(index, name, transport, url, parsed_headers)
         servers.append(McpRemoteServerConfig(
             name=name,
             transport=transport,
@@ -112,7 +191,7 @@ def load_mcp_client_servers() -> list[McpRemoteServerConfig]:
             args=tuple(str(arg) for arg in args),
             cwd=str(item["cwd"]) if item.get("cwd") else None,
             url=url,
-            headers={str(key): str(value) for key, value in headers.items()} or None,
+            headers=parsed_headers or None,
             env={str(key): str(value) for key, value in env.items()} or None,
         ))
     return servers
