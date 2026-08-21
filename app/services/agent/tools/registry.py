@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from copy import deepcopy
 from typing import Any
@@ -13,6 +14,8 @@ from app.services.agent.tools.search_learning_notes import search_learning_notes
 from app.services.agent.tools.score_jd_skill_fit import score_jd_skill_fit
 from app.services.agent.tools.web_search import web_search
 from app.services import rag_settings
+
+logger = logging.getLogger(__name__)
 
 
 SEARCH_ATTACHMENTS_SCHEMA: dict[str, Any] = {
@@ -329,7 +332,13 @@ class ToolRegistry:
                     from app.mcp.client import MCPClientAdapter
 
                     self._mcp_client_adapter = MCPClientAdapter()
-            except Exception:
+            except Exception as exc:
+                # Config errors from app.mcp.settings never include secret
+                # values; client errors are sanitized before logging.
+                logger.warning(
+                    "MCP client unavailable, continuing with local tools only: %s",
+                    exc,
+                )
                 self._mcp_client_adapter = None
 
     def get_tools_schema(self) -> list[dict[str, Any]]:

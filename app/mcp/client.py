@@ -21,10 +21,38 @@ from app.mcp.settings import (
     get_mcp_client_timeout_seconds,
     load_mcp_client_servers,
 )
+from app.mcp.write_guard import is_write_tool
 from app.services.tool_metrics import observe_tool_call
 
 logger = logging.getLogger(__name__)
 SessionFactory = Callable[[McpRemoteServerConfig], AsyncContextManager[ClientSession]]
+
+_BEARER_TOKEN = re.compile(r"(?i)(bearer)\s+[^\s,;\"'<>]+")
+_SENSITIVE_ASSIGNMENT = re.compile(
+    r"(?i)\b(authorization|proxy-authorization|x-api-key|api[-_]?key|"
+    r"access[-_]?token|auth[-_]?token|password|passwd|secret)\b"
+    r"(\s*[:=]\s*)[^\s,;\"'\)]+"
+)
+_SENSITIVE_MENTION = re.compile(
+    r"(?i)\b(authorization|proxy-authorization|x-api-key|api[-_]?key|"
+    r"password|passwd|secret|bearer|access[-_]?token|auth[-_]?token)\b"
+)
+
+
+def sanitize_error_message(text: str) -> str:
+    """Redact secrets from error text before it reaches logs or users.
+
+    Never prints Authorization headers, tokens, passwords, or PAT values.
+    When a sensitive key is still mentioned after redaction, fall back to a
+    generic message instead of risking partial leakage.
+    """
+    if not text:
+        return text
+    redacted = _BEARER_TOKEN.sub(r"\1 <redacted>", text)
+    redacted = _SENSITIVE_ASSIGNMENT.sub(r"\1\2<redacted>", redacted)
+    if _SENSITIVE_MENTION.search(redacted):
+        return "remote call failed (details redacted)"
+    return redacted
 
 @dataclass(frozen=True)
 class RemoteToolBinding:
@@ -73,6 +101,7 @@ class MCPClientAdapter:
         self._session_factory = session_factory or self._default_session_factory
         self._bindings: dict[str, RemoteToolBinding] = {}
         self.discovery_errors: dict[str, str] = {}
+        self.blocked_tools: dict[str, list[str]] = {}
         self._discovery_attempted = False
         self._next_retry_at = 0.0
         self._discovery_lock = Lock()
@@ -113,15 +142,17 @@ class MCPClientAdapter:
             try:
                 result = _run_async(self._call(binding, arguments))
             except Exception as exc:
-                logger.warning("MCP tool %s failed: %s", name, exc)
+                safe_message = sanitize_error_message(str(exc))
+                logger.warning("MCP tool %s failed: %s", name, safe_message)
                 metric.set_ok(False)
-                return {"ok": False, "error": "mcp_tool_failed", "message": str(exc), "server": binding.server.name, "tool": binding.remote_name}
+                return {"ok": False, "error": "mcp_tool_failed", "message": safe_message, "server": binding.server.name, "tool": binding.remote_name}
             metric.set_ok(bool(result.get("ok")))
             return result
 
     async def _discover(self) -> list[dict[str, Any]]:
         bindings: dict[str, RemoteToolBinding] = {}
         errors: dict[str, str] = {}
+        blocked: dict[str, list[str]] = {}
         for server in self.servers:
             try:
                 async with self._session_factory(server) as session:
@@ -129,6 +160,9 @@ class MCPClientAdapter:
                     while True:
                         result = await session.list_tools(cursor=cursor)
                         for tool in result.tools:
+                            if is_write_tool(tool.name, tool.description or ""):
+                                blocked.setdefault(server.name, []).append(tool.name)
+                                continue
                             public_name = _public_tool_name(server.name, tool.name, set(bindings))
                             description = f"[{server.name} MCP] {tool.description or tool.name}"
                             schema = {
@@ -144,10 +178,12 @@ class MCPClientAdapter:
                         if not cursor:
                             break
             except Exception as exc:
-                errors[server.name] = str(exc)
-                logger.warning("MCP server discovery failed for %s: %s", server.name, exc)
+                safe_message = sanitize_error_message(str(exc))
+                errors[server.name] = safe_message
+                logger.warning("MCP server discovery failed for %s: %s", server.name, safe_message)
         self._bindings = bindings
         self.discovery_errors = errors
+        self.blocked_tools = blocked
         return [binding.schema for binding in bindings.values()]
 
     async def _call(self, binding: RemoteToolBinding, arguments: dict[str, Any]) -> dict[str, Any]:
@@ -158,7 +194,7 @@ class MCPClientAdapter:
         texts = [getattr(item, "text", "") for item in response.content if getattr(item, "type", None) == "text"]
         message = "\n".join(text for text in texts if text)
         if is_error:
-            return {"ok": False, "error": "mcp_remote_error", "message": message or "remote MCP tool failed", "server": binding.server.name, "tool": binding.remote_name}
+            return {"ok": False, "error": "mcp_remote_error", "message": sanitize_error_message(message or "remote MCP tool failed"), "server": binding.server.name, "tool": binding.remote_name}
         if isinstance(structured, dict):
             result = dict(structured)
             result.setdefault("ok", True)
