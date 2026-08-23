@@ -49,7 +49,19 @@ def main() -> int:
             print(f"- {schema['function']['name']}")
 
     for server_name, blocked in adapter.blocked_tools.items():
-        print(f"Locally blocked write tools from {server_name}: {', '.join(blocked)}")
+        print(f"Locally blocked tools from {server_name}:")
+        for entry in blocked or []:
+            # Entries are {"name": ..., "reason": ...} dicts. Defensive
+            # handling keeps the check script alive even if the structure
+            # ever changes; never prints arguments, headers, or tokens.
+            if isinstance(entry, dict):
+                tool_name = str(entry.get("name") or "unknown")
+                reason = str(entry.get("reason") or "unknown")
+            elif isinstance(entry, str):
+                tool_name, reason = entry, "unknown"
+            else:
+                tool_name, reason = repr(entry), "unknown"
+            print(f"- {tool_name}: {reason}")
 
     if adapter.discovery_errors:
         print("Discovery errors (safe summary):")

@@ -21,6 +21,17 @@ FAKE_PAT = "test-pat-placeholder-not-a-real-token"
 # Never exists in any developer .env; used to simulate a missing variable.
 MISSING_VAR = "MCP_MISSING_PAT_7F3A9C"
 
+# Code-level read-only allowlist from app/mcp/github_policy.py.
+GITHUB_READ_TOOLS = [
+    "get_file_contents",
+    "search_code",
+    "search_repositories",
+    "issue_read",
+    "list_issues",
+    "pull_request_read",
+    "search_pull_requests",
+]
+
 
 @pytest.fixture(autouse=True)
 def mcp_env(monkeypatch):
@@ -41,6 +52,7 @@ def _servers_json(header_value: str, url: str = "https://api.githubcopilot.com/m
                 "X-MCP-Toolsets": "repos,issues,pull_requests",
                 "X-MCP-Readonly": "true",
             },
+            "allowed_tools": GITHUB_READ_TOOLS,
         }
     ])
 
@@ -220,3 +232,142 @@ def test_expand_env_refs_double_dollar_escapes(monkeypatch):
 
 def test_expand_env_refs_ignores_plain_dollar(monkeypatch):
     assert expand_env_refs("a=$5") == "a=$5"
+
+
+# --- Endpoint guardrails (P0-1) ---
+
+
+def test_github_name_with_non_github_url_is_rejected(monkeypatch):
+    monkeypatch.setenv("MCP_CLIENT_ENABLED", "true")
+    monkeypatch.setenv(
+        "MCP_CLIENT_SERVERS",
+        _servers_json("Bearer ${GITHUB_MCP_PAT}", url="https://evil.example.com/mcp/"),
+    )
+
+    with pytest.raises(RuntimeError, match="official"):
+        load_mcp_client_servers()
+
+
+def test_github_http_url_is_rejected(monkeypatch):
+    monkeypatch.setenv("MCP_CLIENT_ENABLED", "true")
+    monkeypatch.setenv(
+        "MCP_CLIENT_SERVERS",
+        _servers_json("Bearer ${GITHUB_MCP_PAT}", url="http://api.githubcopilot.com/mcp/"),
+    )
+
+    with pytest.raises(RuntimeError, match="https"):
+        load_mcp_client_servers()
+
+
+def test_official_https_github_url_is_accepted(monkeypatch):
+    monkeypatch.setenv("MCP_CLIENT_ENABLED", "true")
+    monkeypatch.setenv("MCP_CLIENT_SERVERS", _servers_json("Bearer ${GITHUB_MCP_PAT}"))
+
+    servers = load_mcp_client_servers()
+
+    assert servers[0].url == "https://api.githubcopilot.com/mcp/"
+
+
+# --- Mandatory headers (P0-2) ---
+
+
+def test_github_server_requires_authorization(monkeypatch):
+    payload = json.loads(_servers_json("Bearer ${GITHUB_MCP_PAT}"))
+    del payload[0]["headers"]["Authorization"]
+    monkeypatch.setenv("MCP_CLIENT_ENABLED", "true")
+    monkeypatch.setenv("MCP_CLIENT_SERVERS", json.dumps(payload))
+
+    with pytest.raises(RuntimeError, match="Authorization"):
+        load_mcp_client_servers()
+
+
+def test_github_server_rejects_basic_authorization(monkeypatch):
+    payload = json.loads(_servers_json("Bearer ${GITHUB_MCP_PAT}"))
+    payload[0]["headers"]["Authorization"] = "Basic abc"
+    monkeypatch.setenv("MCP_CLIENT_ENABLED", "true")
+    monkeypatch.setenv("MCP_CLIENT_SERVERS", json.dumps(payload))
+
+    with pytest.raises(RuntimeError, match="Bearer scheme"):
+        load_mcp_client_servers()
+
+
+def test_github_server_requires_toolsets(monkeypatch):
+    payload = json.loads(_servers_json("Bearer ${GITHUB_MCP_PAT}"))
+    del payload[0]["headers"]["X-MCP-Toolsets"]
+    monkeypatch.setenv("MCP_CLIENT_ENABLED", "true")
+    monkeypatch.setenv("MCP_CLIENT_SERVERS", json.dumps(payload))
+
+    with pytest.raises(RuntimeError, match="X-MCP-Toolsets"):
+        load_mcp_client_servers()
+
+
+def test_github_toolsets_missing_one_is_rejected(monkeypatch):
+    payload = json.loads(_servers_json("Bearer ${GITHUB_MCP_PAT}"))
+    payload[0]["headers"]["X-MCP-Toolsets"] = "repos,issues"
+    monkeypatch.setenv("MCP_CLIENT_ENABLED", "true")
+    monkeypatch.setenv("MCP_CLIENT_SERVERS", json.dumps(payload))
+
+    with pytest.raises(RuntimeError, match="pull_requests"):
+        load_mcp_client_servers()
+
+
+def test_github_header_names_are_case_insensitive(monkeypatch):
+    payload = json.loads(_servers_json("Bearer ${GITHUB_MCP_PAT}"))
+    payload[0]["headers"] = {
+        "authorization": "Bearer ${GITHUB_MCP_PAT}",
+        "x-mcp-toolsets": "repos,issues,pull_requests",
+        "x-mcp-readonly": "true",
+    }
+    monkeypatch.setenv("MCP_CLIENT_ENABLED", "true")
+    monkeypatch.setenv("MCP_CLIENT_SERVERS", json.dumps(payload))
+
+    servers = load_mcp_client_servers()
+
+    assert servers[0].headers == {
+        "Authorization": f"Bearer {FAKE_PAT}",
+        "X-MCP-Readonly": "true",
+        "X-MCP-Toolsets": "repos,issues,pull_requests",
+    }
+
+
+def test_github_duplicate_header_case_variants_are_rejected(monkeypatch):
+    payload = json.loads(_servers_json("Bearer ${GITHUB_MCP_PAT}"))
+    payload[0]["headers"]["x-mcp-readonly"] = "true"
+    monkeypatch.setenv("MCP_CLIENT_ENABLED", "true")
+    monkeypatch.setenv("MCP_CLIENT_SERVERS", json.dumps(payload))
+
+    with pytest.raises(RuntimeError, match="duplicate"):
+        load_mcp_client_servers()
+
+
+# --- allowed_tools allowlist (P0-3) ---
+
+
+def test_github_server_requires_allowed_tools(monkeypatch):
+    payload = json.loads(_servers_json("Bearer ${GITHUB_MCP_PAT}"))
+    del payload[0]["allowed_tools"]
+    monkeypatch.setenv("MCP_CLIENT_ENABLED", "true")
+    monkeypatch.setenv("MCP_CLIENT_SERVERS", json.dumps(payload))
+
+    with pytest.raises(RuntimeError, match="allowed_tools"):
+        load_mcp_client_servers()
+
+
+def test_github_server_rejects_empty_allowed_tools(monkeypatch):
+    payload = json.loads(_servers_json("Bearer ${GITHUB_MCP_PAT}"))
+    payload[0]["allowed_tools"] = []
+    monkeypatch.setenv("MCP_CLIENT_ENABLED", "true")
+    monkeypatch.setenv("MCP_CLIENT_SERVERS", json.dumps(payload))
+
+    with pytest.raises(RuntimeError, match="not be empty"):
+        load_mcp_client_servers()
+
+
+def test_github_allowlist_rejects_non_allowlist_tool(monkeypatch):
+    payload = json.loads(_servers_json("Bearer ${GITHUB_MCP_PAT}"))
+    payload[0]["allowed_tools"] = ["create_issue"]
+    monkeypatch.setenv("MCP_CLIENT_ENABLED", "true")
+    monkeypatch.setenv("MCP_CLIENT_SERVERS", json.dumps(payload))
+
+    with pytest.raises(RuntimeError, match="outside"):
+        load_mcp_client_servers()

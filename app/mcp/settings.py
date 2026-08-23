@@ -1,19 +1,28 @@
-﻿"""Feature flags and runtime settings for MCP server and client."""
+"""Feature flags and runtime settings for MCP server and client."""
 from __future__ import annotations
 import json
 import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from urllib.parse import urlparse
 from dotenv import load_dotenv
 
-# Hosted GitHub MCP guardrails. The remote is asked for read-only tooling via
-# headers, and the local settings validate that configuration explicitly.
+from app.mcp.github_policy import (
+    GITHUB_FORBIDDEN_HEADERS,
+    GITHUB_READ_ONLY_ALLOWED_TOOLS,
+    GITHUB_REQUIRED_TOOLSETS,
+    is_github_server,
+    validate_github_hosted_mcp_endpoint,
+)
+
+# Re-exported for backward compatibility with earlier imports.
 GITHUB_MCP_HOST = "api.githubcopilot.com"
-ALLOWED_GITHUB_TOOLSETS = frozenset({"repos", "issues", "pull_requests"})
+ALLOWED_GITHUB_TOOLSETS = frozenset(GITHUB_REQUIRED_TOOLSETS)
 
 _ENV_REF_PATTERN = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
+# CR, LF, NUL and any other C0/C1 control characters are never valid in
+# header names or values and are rejected before reaching an HTTP client.
+_HEADER_CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f]")
 
 
 def expand_env_refs(raw: str) -> str:
@@ -98,47 +107,252 @@ class McpRemoteServerConfig:
     url: str | None = None
     headers: dict[str, str] | None = None
     env: dict[str, str] | None = None
+    # Server-level tool policy: when non-empty, only these remote tool names
+    # may be discovered or executed. GitHub hosted MCP configs are required
+    # to set a non-empty allowlist (a subset of the code-level read-only
+    # allowlist); other servers may omit it to keep legacy behavior.
+    allowed_tools: tuple[str, ...] = ()
 
-def _validate_remote_headers(
-    index: int,
-    name: str,
-    transport: str,
-    url: str,
-    headers: dict[str, str],
-) -> None:
-    """Reject unsafe remote MCP header configuration without echoing values."""
-    for key, value in headers.items():
-        if key.lower() == "authorization":
-            scheme, _, token = value.partition(" ")
-            if scheme.strip().lower() == "bearer" and not token.strip():
-                raise RuntimeError(
-                    f"MCP_CLIENT_SERVERS[{index}].headers.Authorization has an empty "
-                    "Bearer token; set the referenced environment variable "
-                    "(e.g. GITHUB_MCP_PAT) to a non-empty value before enabling "
-                    "the MCP client. When both live in .env, define the token "
-                    "variable above MCP_CLIENT_SERVERS."
-                )
-    try:
-        host = (urlparse(url).hostname or "").lower()
-    except ValueError:
-        host = ""
-    is_github = name.lower() == "github" or host == GITHUB_MCP_HOST
-    if transport == "streamable-http" and is_github:
-        if str(headers.get("X-MCP-Readonly", "")).strip().lower() != "true":
+    def __repr__(self) -> str:
+        # Header/env values can hold the PAT; never embed them in a repr so
+        # an accidentally logged config cannot leak secrets.
+        headers = {key: "<redacted>" for key in (self.headers or {})}
+        env = {key: "<redacted>" for key in (self.env or {})}
+        return (
+            f"McpRemoteServerConfig(name={self.name!r}, transport={self.transport!r}, "
+            f"command={self.command!r}, args={self.args!r}, cwd={self.cwd!r}, "
+            f"url={self.url!r}, headers={headers!r}, env={env!r}, "
+            f"allowed_tools={self.allowed_tools!r})"
+        )
+
+
+def _parse_headers(prefix: str, raw_headers: object) -> dict[str, str]:
+    """Normalize a headers mapping into a case-folded, safe dict.
+
+    Header names are compared case-insensitively per HTTP semantics, so the
+    result is keyed by the lower-case name. Rejects empty names, control
+    characters (CR/LF/NUL, ...) in names or values, and duplicate headers
+    that differ only in case. Never echoes header values in errors.
+    """
+    if not isinstance(raw_headers, dict):
+        raise RuntimeError(f"{prefix}.headers must be an object")
+    parsed: dict[str, str] = {}
+    for raw_key, raw_value in raw_headers.items():
+        key = str(raw_key).strip()
+        if not key:
             raise RuntimeError(
-                f"MCP_CLIENT_SERVERS[{index}] targets the GitHub hosted MCP server; "
-                "headers must include X-MCP-Readonly: \"true\""
+                f"{prefix}.headers contains an empty header name"
             )
-        toolsets = str(headers.get("X-MCP-Toolsets", "")).strip()
-        if toolsets:
-            requested = {part.strip().lower() for part in toolsets.split(",") if part.strip()}
-            invalid = sorted(requested - ALLOWED_GITHUB_TOOLSETS)
-            if invalid:
-                raise RuntimeError(
-                    f"MCP_CLIENT_SERVERS[{index}] requests unsupported GitHub toolsets: "
-                    f"{', '.join(invalid)}; only repos, issues, pull_requests "
-                    "are allowed in this phase"
-                )
+        if _HEADER_CONTROL_CHARS.search(key):
+            raise RuntimeError(
+                f"{prefix}.headers contains an invalid header name"
+            )
+        value = str(raw_value).strip()
+        if _HEADER_CONTROL_CHARS.search(value):
+            raise RuntimeError(
+                f"{prefix}.headers contains an invalid header value"
+            )
+        folded = key.lower()
+        if folded in parsed:
+            raise RuntimeError(
+                f"{prefix}.headers contains a duplicate header: {folded}"
+            )
+        parsed[folded] = value
+    return parsed
+
+
+def _validate_bearer_token_not_empty(prefix: str, parsed: dict[str, str]) -> None:
+    """Shared check for any server: a Bearer Authorization may never be empty."""
+    authorization = parsed.get("authorization")
+    if authorization is None:
+        return
+    scheme, _, token = authorization.partition(" ")
+    if scheme.strip().lower() == "bearer" and not token.strip():
+        raise RuntimeError(
+            f"{prefix}.headers.Authorization has an empty "
+            "Bearer token; set the referenced environment variable "
+            "(e.g. GITHUB_MCP_PAT) to a non-empty value before enabling "
+            "the MCP client. When both live in .env, define the token "
+            "variable above MCP_CLIENT_SERVERS."
+        )
+
+
+def _validate_github_headers(
+    prefix: str,
+    parsed: dict[str, str],
+) -> dict[str, str]:
+    """Enforce GitHub hosted MCP headers and return the canonical dict.
+
+    Fail-closed: Authorization, X-MCP-Readonly and X-MCP-Toolsets are all
+    mandatory with exact semantics; headers that would widen the tool
+    surface are rejected. The returned dict is the stable, canonical format
+    handed to the HTTP client (only the three safe headers survive).
+    Errors name the offending header but never include its value.
+    """
+    for forbidden in sorted(GITHUB_FORBIDDEN_HEADERS & parsed.keys()):
+        raise RuntimeError(
+            f"{prefix}.headers must not set {forbidden} "
+            "for the GitHub hosted MCP server"
+        )
+
+    authorization = parsed.get("authorization")
+    if authorization is None:
+        raise RuntimeError(
+            f"{prefix}.headers is missing Authorization "
+            "for the GitHub hosted MCP server"
+        )
+    scheme, separator, token = authorization.partition(" ")
+    if not separator or scheme.strip().lower() != "bearer":
+        raise RuntimeError(
+            f"{prefix}.headers.Authorization must use "
+            "the Bearer scheme for the GitHub hosted MCP server"
+        )
+    token = token.strip()
+    if not token:
+        raise RuntimeError(
+            f"{prefix}.headers.Authorization has an empty "
+            "Bearer token; set the referenced environment variable "
+            "(e.g. GITHUB_MCP_PAT) to a non-empty value before enabling "
+            "the MCP client. When both live in .env, define the token "
+            "variable above MCP_CLIENT_SERVERS."
+        )
+    if any(char.isspace() for char in token) or _HEADER_CONTROL_CHARS.search(token):
+        raise RuntimeError(
+            f"{prefix}.headers.Authorization contains an "
+            "invalid Bearer token"
+        )
+
+    readonly = parsed.get("x-mcp-readonly")
+    if readonly is None or readonly.strip().lower() != "true":
+        raise RuntimeError(
+            f"{prefix} targets the GitHub hosted MCP server; "
+            'headers must include X-MCP-Readonly: "true"'
+        )
+
+    toolsets_raw = parsed.get("x-mcp-toolsets")
+    if toolsets_raw is None or not toolsets_raw.strip():
+        raise RuntimeError(
+            f"{prefix} targets the GitHub hosted MCP server; "
+            "headers must include X-MCP-Toolsets"
+        )
+    requested = {
+        part.strip().lower() for part in toolsets_raw.split(",") if part.strip()
+    }
+    if requested != GITHUB_REQUIRED_TOOLSETS:
+        missing = sorted(GITHUB_REQUIRED_TOOLSETS - requested)
+        extra = sorted(requested - GITHUB_REQUIRED_TOOLSETS)
+        detail_parts: list[str] = []
+        if missing:
+            detail_parts.append(f"missing {', '.join(missing)}")
+        if extra:
+            detail_parts.append(f"unsupported {', '.join(extra)}")
+        raise RuntimeError(
+            f"{prefix}.headers.X-MCP-Toolsets must be exactly "
+            f"repos,issues,pull_requests ({'; '.join(detail_parts)})"
+        )
+
+    # Canonical, stable format for the HTTP client. Only these three headers
+    # survive; anything else on a GitHub config is dropped by design.
+    return {
+        "Authorization": f"Bearer {token}",
+        "X-MCP-Readonly": "true",
+        "X-MCP-Toolsets": "repos,issues,pull_requests",
+    }
+
+
+def _parse_allowed_tools(
+    index: int,
+    raw_allowed_tools: object,
+    is_github: bool,
+) -> tuple[str, ...]:
+    """Parse and validate the server-level allowed_tools list.
+
+    Must be a non-empty array of unique, non-empty strings. For GitHub it is
+    mandatory and must be a subset of the code-level read-only allowlist.
+    Errors name the field only; tool names are not secrets but values are
+    still not echoed wholesale.
+    """
+    if raw_allowed_tools is None:
+        if is_github:
+            raise RuntimeError(
+                f"MCP_CLIENT_SERVERS[{index}].allowed_tools is required for "
+                "the GitHub hosted MCP server"
+            )
+        return ()
+    if not isinstance(raw_allowed_tools, list):
+        raise RuntimeError(
+            f"MCP_CLIENT_SERVERS[{index}].allowed_tools must be an array of tool names"
+        )
+    if not raw_allowed_tools:
+        raise RuntimeError(f"MCP_CLIENT_SERVERS[{index}].allowed_tools must not be empty")
+    tools: list[str] = []
+    seen: set[str] = set()
+    for raw_tool in raw_allowed_tools:
+        if not isinstance(raw_tool, str):
+            raise RuntimeError(
+                f"MCP_CLIENT_SERVERS[{index}].allowed_tools must contain only strings"
+            )
+        tool = raw_tool.strip()
+        if not tool:
+            raise RuntimeError(
+                f"MCP_CLIENT_SERVERS[{index}].allowed_tools must not contain empty strings"
+            )
+        if tool in seen:
+            raise RuntimeError(
+                f"MCP_CLIENT_SERVERS[{index}].allowed_tools must not contain duplicates"
+            )
+        seen.add(tool)
+        tools.append(tool)
+    if is_github:
+        outside = sorted(set(tools) - GITHUB_READ_ONLY_ALLOWED_TOOLS)
+        if outside:
+            raise RuntimeError(
+                f"MCP_CLIENT_SERVERS[{index}].allowed_tools contains tools outside "
+                f"the GitHub read-only allowlist: {', '.join(outside)}"
+            )
+    return tuple(tools)
+
+
+def validate_github_server_config(
+    config: McpRemoteServerConfig,
+    prefix: str = "MCP server",
+) -> None:
+    """Lightweight fail-closed re-validation of a GitHub server config.
+
+    ``load_mcp_client_servers()`` enforces the full policy at config load
+    time. This function re-checks the same invariants for hand-built
+    ``McpRemoteServerConfig`` instances that bypass the loader (e.g. passed
+    directly to ``MCPClientAdapter``). It reuses the same parsing helpers so
+    there is exactly one rule set.
+
+    Raises RuntimeError with field-level messages that never include header
+    values or tokens. Non-GitHub configs pass through untouched.
+    """
+    if not is_github_server(config.name, config.url):
+        return
+    if config.transport != "streamable-http":
+        raise RuntimeError(
+            f"{prefix} uses the GitHub name/host and must use transport streamable-http"
+        )
+    try:
+        validate_github_hosted_mcp_endpoint(config.url)
+    except ValueError as exc:
+        raise RuntimeError(
+            f"{prefix} endpoint is not the official GitHub hosted MCP endpoint: {exc}"
+        ) from None
+    parsed = _parse_headers(prefix, config.headers)
+    _validate_github_headers(prefix, parsed)
+    if not config.allowed_tools:
+        raise RuntimeError(
+            f"{prefix} allowed_tools is required and must not be empty for "
+            "the GitHub hosted MCP server"
+        )
+    outside = sorted(set(config.allowed_tools) - GITHUB_READ_ONLY_ALLOWED_TOOLS)
+    if outside:
+        raise RuntimeError(
+            f"{prefix} allowed_tools contains tools outside the GitHub "
+            f"read-only allowlist: {', '.join(outside)}"
+        )
 
 
 def load_mcp_client_servers() -> list[McpRemoteServerConfig]:
@@ -168,12 +382,9 @@ def load_mcp_client_servers() -> list[McpRemoteServerConfig]:
         if transport not in {"stdio", "streamable-http"}:
             raise RuntimeError(f"MCP_CLIENT_SERVERS[{index}].transport must be stdio or streamable-http")
         args = item.get("args") or []
-        headers = item.get("headers") or {}
         env = item.get("env") or {}
         if not isinstance(args, list):
             raise RuntimeError(f"MCP_CLIENT_SERVERS[{index}].args must be an array")
-        if not isinstance(headers, dict):
-            raise RuntimeError(f"MCP_CLIENT_SERVERS[{index}].headers must be an object")
         if not isinstance(env, dict):
             raise RuntimeError(f"MCP_CLIENT_SERVERS[{index}].env must be an object")
         command = str(item.get("command") or "").strip() or None
@@ -182,8 +393,38 @@ def load_mcp_client_servers() -> list[McpRemoteServerConfig]:
             raise RuntimeError(f"MCP_CLIENT_SERVERS[{index}].command is required")
         if transport == "streamable-http" and not url:
             raise RuntimeError(f"MCP_CLIENT_SERVERS[{index}].url is required")
-        parsed_headers = {str(key): str(value) for key, value in headers.items()}
-        _validate_remote_headers(index, name, transport, url, parsed_headers)
+
+        # GitHub policy applies when the name or the URL host matches GitHub.
+        is_github = is_github_server(name, url)
+
+        # P0-1: GitHub endpoint validation runs here, before any network
+        # connection can be established. The URL is replaced by the
+        # canonical endpoint on success.
+        if is_github:
+            if transport != "streamable-http":
+                raise RuntimeError(
+                    f"MCP_CLIENT_SERVERS[{index}] uses the GitHub name/host and "
+                    "must use transport streamable-http"
+                )
+            try:
+                url = validate_github_hosted_mcp_endpoint(url)
+            except ValueError as exc:
+                raise RuntimeError(
+                    f"MCP_CLIENT_SERVERS[{index}].url is not a valid official "
+                    f"GitHub hosted MCP endpoint: {exc}"
+                ) from None
+
+        parsed_headers = _parse_headers(f"MCP_CLIENT_SERVERS[{index}]", item.get("headers") or {})
+        _validate_bearer_token_not_empty(f"MCP_CLIENT_SERVERS[{index}]", parsed_headers)
+        if is_github:
+            headers = _validate_github_headers(f"MCP_CLIENT_SERVERS[{index}]", parsed_headers)
+        else:
+            headers = parsed_headers or None
+
+        allowed_tools = _parse_allowed_tools(
+            index, item.get("allowed_tools"), is_github
+        )
+
         servers.append(McpRemoteServerConfig(
             name=name,
             transport=transport,
@@ -191,7 +432,8 @@ def load_mcp_client_servers() -> list[McpRemoteServerConfig]:
             args=tuple(str(arg) for arg in args),
             cwd=str(item["cwd"]) if item.get("cwd") else None,
             url=url,
-            headers=parsed_headers or None,
+            headers=headers,
             env={str(key): str(value) for key, value in env.items()} or None,
+            allowed_tools=allowed_tools,
         ))
     return servers

@@ -77,15 +77,17 @@ GITHUB_MCP_PAT=你自己的 PAT，绝不提交到代码或日志
 MCP_CLIENT_ENABLED=true
 MCP_CLIENT_TIMEOUT_SECONDS=20
 MCP_CLIENT_RETRY_SECONDS=30
-MCP_CLIENT_SERVERS=[{"name":"github","transport":"streamable-http","url":"https://api.githubcopilot.com/mcp/","headers":{"Authorization":"Bearer ${GITHUB_MCP_PAT}","X-MCP-Toolsets":"repos,issues,pull_requests","X-MCP-Readonly":"true"}}]
+MCP_CLIENT_SERVERS=[{"name":"github","transport":"streamable-http","url":"https://api.githubcopilot.com/mcp/","headers":{"Authorization":"Bearer ${GITHUB_MCP_PAT}","X-MCP-Toolsets":"repos,issues,pull_requests","X-MCP-Readonly":"true"},"allowed_tools":["get_file_contents","search_code","search_repositories","issue_read","list_issues","pull_request_read","search_pull_requests"]}]
 ```
 
 安全边界：
 
 - `${GITHUB_MCP_PAT}` 由 `app/mcp/settings.py` 的 `expand_env_refs` 展开（fail-closed：引用缺失或为空 Bearer 时报错，只显示变量名，不显示值）。`GITHUB_MCP_PAT` 需定义在 `MCP_CLIENT_SERVERS` 之上（dotenv 按文件顺序插值）。
-- 配置校验强制 `X-MCP-Readonly=true`，Toolsets 仅允许 `repos,issues,pull_requests`。
-- 本地防御：`app/mcp/write_guard.py` 过滤 create/update/delete/merge/push 等明显写工具，不进入 Agent 工具列表。
-- 发现或调用失败时降级：内部工具照常工作，错误消息脱敏，不打印 Authorization/PAT。
+- 端点校验：GitHub 配置只能指向官方 `https://api.githubcopilot.com/mcp/`（`app/mcp/github_policy.py`）。scheme 必须为 https，hostname 必须精确等于 `api.githubcopilot.com`，端口只能为空或 443，不能带 userinfo/query/fragment，路径只能是 `/mcp` 或 `/mcp/`。任何偏差在建立网络连接之前直接拒绝配置，且 GitHub 连接禁用自动重定向，PAT 不会跟随跨域跳转。
+- Header 强制（大小写不敏感校验，通过后规范化为固定格式）：`Authorization: Bearer <非空 PAT>`、`X-MCP-Readonly: true`、`X-MCP-Toolsets` 必须精确等于 `repos,issues,pull_requests`；`X-MCP-Tools`、`X-MCP-Exclude-Tools`、`X-MCP-Insiders` 等扩大工具范围的 Header 一律拒绝。
+- 工具白名单是主要安全边界：GitHub 配置必须提供 `allowed_tools`，且必须是代码级只读白名单（`get_file_contents`、`search_code`、`search_repositories`、`issue_read`、`list_issues`、`pull_request_read`、`search_pull_requests`）的子集；不在白名单的远端工具（含未知新工具与 `request_copilot_review` 等写工具）默认阻止，`execute()` 发起远端请求前会再次复查。
+- `app/mcp/write_guard.py` 仅作为第二层防御，过滤 create/update/delete/merge/push 等明显写工具，不进入 Agent 工具列表。
+- 发现或调用失败时降级：内部工具照常工作，错误消息脱敏（含 `github_pat_`、`ghp_`、`gho_`、`ghu_`、`ghs_`、`ghr_` 等裸 Token 格式），不打印 Authorization/PAT。
 
 手动验证（只打印工具名和脱敏错误摘要，不打印 Token）：
 
