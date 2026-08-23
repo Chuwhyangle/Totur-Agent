@@ -25,6 +25,7 @@ from app.mcp.settings import (
     get_mcp_client_retry_seconds,
     get_mcp_client_timeout_seconds,
     load_mcp_client_servers,
+    validate_github_server_config,
 )
 from app.mcp.write_guard import is_write_tool
 from app.services.tool_metrics import observe_tool_call
@@ -43,10 +44,12 @@ _SENSITIVE_MENTION = re.compile(
     r"password|passwd|secret|bearer|access[-_]?token|auth[-_]?token)\b"
 )
 # Bare GitHub token formats: redacted even when the error text mentions no
-# Authorization/Bearer keyword at all.
-_GITHUB_TOKEN = re.compile(
-    r"\b(?:github[_]?pat|ghp|gho|ghu|ghs|ghr)[_-][A-Za-z0-9]+"
-)
+# Authorization/Bearer keyword at all. Kept as two explicit patterns:
+# - fine-grained PATs (github_pat_) may contain underscores;
+# - classic/OAuth tokens (ghp_/gho_/ghu_/ghs_/ghr_) are alphanumeric runs.
+# The character class must consume the whole token so no tail is left behind.
+_FINE_GRAINED_GITHUB_TOKEN = re.compile(r"(?i)\bgithub[_-]?pat_[A-Za-z0-9_]+")
+_CLASSIC_GITHUB_TOKEN = re.compile(r"(?i)\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9_]+")
 
 
 def sanitize_error_message(text: str) -> str:
@@ -60,7 +63,8 @@ def sanitize_error_message(text: str) -> str:
         return text
     redacted = _BEARER_TOKEN.sub(r"\1 <redacted>", text)
     redacted = _SENSITIVE_ASSIGNMENT.sub(r"\1\2<redacted>", redacted)
-    redacted = _GITHUB_TOKEN.sub("<redacted>", redacted)
+    redacted = _FINE_GRAINED_GITHUB_TOKEN.sub("<redacted>", redacted)
+    redacted = _CLASSIC_GITHUB_TOKEN.sub("<redacted>", redacted)
     if _SENSITIVE_MENTION.search(redacted):
         return "remote call failed (details redacted)"
     return redacted
@@ -110,6 +114,11 @@ class MCPClientAdapter:
         retry_seconds: float | None = None,
     ) -> None:
         self.servers = list(servers if servers is not None else load_mcp_client_servers())
+        # Hand-built McpRemoteServerConfig instances bypass the config loader,
+        # so re-run the same lightweight GitHub security validation here
+        # (shared helpers in settings.py; non-GitHub servers pass through).
+        for server in self.servers:
+            validate_github_server_config(server, prefix=f"MCP server {server.name!r}")
         self.timeout_seconds = timeout_seconds or get_mcp_client_timeout_seconds()
         self.retry_seconds = max(
             retry_seconds if retry_seconds is not None else get_mcp_client_retry_seconds(),
