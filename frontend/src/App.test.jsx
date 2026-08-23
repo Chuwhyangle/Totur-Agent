@@ -136,7 +136,7 @@ describe('App attachment scope and sending', () => {
     await openSession(user)
     await waitFor(() => expect(api.getAttachments).toHaveBeenCalledTimes(1))
 
-    await user.selectOptions(screen.getByRole('combobox'), 'reviewer')
+    await user.selectOptions(screen.getByLabelText('人设'), 'reviewer')
     await act(async () => {
       attachmentList.resolve({ data: { items: [readyAttachment('old', 'old-persona.pdf')] } })
       await attachmentList.promise
@@ -458,13 +458,22 @@ describe('App SSE sending', () => {
     mockAppBootstrap()
   })
 
-  it('accumulates stream tokens into a displayable assistant reply and clears sending state on done', async () => {
+  it('uses done.reply as the final source of truth and clears sending state on done', async () => {
     const user = userEvent.setup()
     api.getAttachments.mockResolvedValue({ data: { items: [] } })
     api.postChatStream.mockImplementation(async (_request, callbacks) => {
       callbacks.onToken('Hello ')
       callbacks.onToken('world')
-      callbacks.onDone({ session_id: 'session-1' })
+      callbacks.onDone({
+        session_id: 'session-1',
+        reply: {
+          answer: '最终回复',
+          next_task: '',
+          exercise: '',
+          checkpoints: [],
+          sources: [],
+        },
+      })
     })
 
     render(<App />)
@@ -472,9 +481,98 @@ describe('App SSE sending', () => {
     await user.type(screen.getByPlaceholderText('写下你的问题，或让导师帮你拆解下一步…'), 'stream this')
     await user.click(screen.getByRole('button', { name: '发送消息' }))
 
-    expect(await screen.findByText('Hello world')).not.toBeNull()
+    expect(await screen.findByText('最终回复')).not.toBeNull()
+    expect(screen.queryByText('Hello world')).toBeNull()
     expect(api.postChatStream).toHaveBeenCalledTimes(1)
     expect(api.postChat).not.toHaveBeenCalled()
+    await waitFor(() => expect(screen.getByRole('button', { name: '流式' }).disabled).toBe(false))
+  })
+
+  it('shows the tool status even when a tool call arrives before the first token', async () => {
+    const user = userEvent.setup()
+    const streamGate = deferred()
+    api.getAttachments.mockResolvedValue({ data: { items: [] } })
+    api.postChatStream.mockImplementation(async (_request, callbacks) => {
+      callbacks.onToolCall('web_search', { query: 'FastAPI' })
+      await streamGate.promise
+      callbacks.onToolResult('web_search', { ok: true })
+      callbacks.onToken('最终正文')
+      callbacks.onDone({
+        session_id: 'session-1',
+        reply: { answer: '最终正文', next_task: '', exercise: '', checkpoints: [], sources: [] },
+      })
+    })
+
+    render(<App />)
+    await openSession(user)
+    await user.type(document.querySelector('.chat-input'), 'search this')
+    await user.click(document.querySelector('.send-button'))
+
+    // 首个 token 未到时，工具状态已可见（不再只有加载动画）
+    expect(await screen.findByText(/正在调用 web_search/)).not.toBeNull()
+
+    await act(async () => {
+      streamGate.resolve()
+      await streamGate.promise
+    })
+
+    expect(await screen.findByText('最终正文')).not.toBeNull()
+  })
+
+  it('keeps text accumulated before a tool call and continues appending after it', async () => {
+    const user = userEvent.setup()
+    const streamGate = deferred()
+    api.getAttachments.mockResolvedValue({ data: { items: [] } })
+    api.postChatStream.mockImplementation(async (_request, callbacks) => {
+      callbacks.onToken('# 步骤\n')
+      callbacks.onToken('- 第一点\n')
+      callbacks.onToolCall('search_learning_notes', { query: 'x' })
+      await streamGate.promise
+      callbacks.onToolResult('search_learning_notes', { ok: true })
+      callbacks.onToken('## 结论\n')
+      callbacks.onDone({
+        session_id: 'session-1',
+        reply: { answer: '## 最终答案\n\n来自 done.reply', next_task: '', exercise: '', checkpoints: [], sources: [] },
+      })
+    })
+
+    render(<App />)
+    await openSession(user)
+    await user.type(document.querySelector('.chat-input'), 'stream this')
+    await user.click(document.querySelector('.send-button'))
+
+    // 工具调用期间：工具状态显示，工具调用前累积的正文不被清空，标题仍然成立
+    expect(await screen.findByText(/正在调用 search_learning_notes/)).not.toBeNull()
+    expect(screen.getByRole('heading', { name: '步骤' })).not.toBeNull()
+    expect(screen.getByText('第一点')).not.toBeNull()
+
+    await act(async () => {
+      streamGate.resolve()
+      await streamGate.promise
+    })
+
+    // 完成后以 done.reply 为准，流式预览被替换
+    expect(await screen.findByRole('heading', { name: '最终答案' })).not.toBeNull()
+    expect(screen.getByText('来自 done.reply')).not.toBeNull()
+    expect(screen.queryByRole('heading', { name: '步骤' })).toBeNull()
+    expect(screen.queryByText(/正在调用 search_learning_notes/)).toBeNull()
+  })
+
+  it('treats a done event without reply as a protocol error instead of promoting partial text', async () => {
+    const user = userEvent.setup()
+    api.getAttachments.mockResolvedValue({ data: { items: [] } })
+    api.postChatStream.mockImplementation(async (_request, callbacks) => {
+      callbacks.onToken('partial preview')
+      callbacks.onDone({ session_id: 'session-1' })
+    })
+
+    render(<App />)
+    await openSession(user)
+    await user.type(document.querySelector('.chat-input'), 'stream this')
+    await user.click(document.querySelector('.send-button'))
+
+    expect(await screen.findByText(/缺少正式回复数据/)).not.toBeNull()
+    expect(screen.queryByText('partial preview')).toBeNull()
     await waitFor(() => expect(screen.getByRole('button', { name: '流式' }).disabled).toBe(false))
   })
 

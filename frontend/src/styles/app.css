@@ -730,8 +730,7 @@ button:disabled { cursor: not-allowed; opacity: 0.48; }
 }
 .user-message .message-time { color: rgba(255, 253, 248, 0.62); }
 .user-text,
-.answer-text,
-.structured-reply p {
+.reply-section p {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
@@ -748,6 +747,9 @@ button:disabled { cursor: not-allowed; opacity: 0.48; }
   letter-spacing: -0.01em;
 }
 /* Markdown 内容排版 */
+.answer-text {
+  overflow-wrap: anywhere;
+}
 .answer-text > :first-child { margin-top: 0; }
 .answer-text > :last-child { margin-bottom: 0; }
 .answer-text p { margin: 0 0 0.6em; }
@@ -766,6 +768,22 @@ button:disabled { cursor: not-allowed; opacity: 0.48; }
 }
 .answer-text li { margin: 0.2em 0; }
 .answer-text li > ul, .answer-text li > ol { margin-bottom: 0; }
+/* GFM 任务列表 */
+.answer-text ul.contains-task-list,
+.answer-text ol.contains-task-list {
+  list-style: none;
+  padding-left: 0.4em;
+}
+.answer-text li.task-list-item {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5em;
+}
+.answer-text li.task-list-item > input[type='checkbox'] {
+  flex: 0 0 auto;
+  margin: 0;
+  accent-color: var(--primary);
+}
 .answer-text code {
   padding: 0.15em 0.4em;
   border-radius: 5px;
@@ -778,6 +796,7 @@ button:disabled { cursor: not-allowed; opacity: 0.48; }
   padding: 12px 14px;
   border-radius: 10px;
   background: color-mix(in srgb, var(--solid) 55%, transparent);
+  white-space: pre;
   overflow-x: auto;
 }
 .answer-text pre code {
@@ -791,8 +810,12 @@ button:disabled { cursor: not-allowed; opacity: 0.48; }
   color: var(--dim);
 }
 .answer-text a { color: var(--accent); }
+.answer-text del, .answer-text s { opacity: 0.78; }
 .answer-text table {
+  display: block;
+  max-width: 100%;
   margin: 0 0 0.8em;
+  overflow-x: auto;
   border-collapse: collapse;
 }
 .answer-text th, .answer-text td {
@@ -886,6 +909,34 @@ button:disabled { cursor: not-allowed; opacity: 0.48; }
 }
 .typing-indicator span:nth-child(2) { animation-delay: 0.12s; }
 .typing-indicator span:nth-child(3) { animation-delay: 0.24s; }
+
+/* Streaming reply */
+.streaming-reply { display: grid; gap: 10px; }
+.streaming-tool-status {
+  justify-self: start;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  color: var(--sub);
+  font-size: 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--solid) 85%, transparent);
+}
+.streaming-tool-spinner {
+  width: 11px;
+  height: 11px;
+  border: 2px solid var(--pborder);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+.streaming-cursor {
+  margin-left: 2px;
+  color: var(--primary);
+  animation: pulse 1s ease-in-out infinite;
+}
 
 /* Composer */
 .composer-wrap {

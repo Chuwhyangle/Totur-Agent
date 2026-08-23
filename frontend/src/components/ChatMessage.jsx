@@ -1,4 +1,5 @@
 import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 
 import DebugDetails from './DebugDetails.jsx'
 import Icon from './Icon.jsx'
@@ -6,12 +7,12 @@ import SourceCards from './SourceCards.jsx'
 import { sourceCardId } from '../utils/sourceLinks.js'
 
 function MarkdownAnswer({ answer, sources }) {
-  // 把引用标记 [web_N]/[attachment_N]/[note_N] 转成 markdown 链接，让 ReactMarkdown 渲染成可点击的 a 标签
+  // 把引用标记 [web_N]/[attachment_N]/[note_N]/[jd_N] 转成 markdown 链接，让 ReactMarkdown 渲染成可点击的 a 标签
   const sourceIds = new Set(
     (Array.isArray(sources) ? sources : []).map((source) => String(source?.id ?? '')),
   )
   const md = String(answer).replace(
-    /(\[(web|attachment|note)_\d+\])/g,
+    /(\[(web|attachment|note|jd)_\d+\])/g,
     (raw) => {
       const citationId = raw.replace(/^\[|\]$/g, '')
       return sourceIds.has(citationId) ? `[${citationId}](#${sourceCardId(citationId)})` : raw
@@ -20,6 +21,7 @@ function MarkdownAnswer({ answer, sources }) {
 
   return (
     <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
       components={{
         a: ({ href, children }) => {
           const citation = href?.startsWith('#source-')
@@ -98,12 +100,18 @@ function ToolTraceSummary({ trace }) {
 
 function ChatMessage({ role, text, reply, debug, isStreaming, streamingTool }) {
   const isAssistant = role === 'assistant'
-  const answer = reply?.answer ?? text ?? '暂时没有拿到有效回答。'
-  const nextTask = reply?.next_task ?? '请稍后重试，或换一个更具体的问题。'
-  const exercise = reply?.exercise ?? '用一句话描述你刚才想问的问题。'
-  const checkpoints = Array.isArray(reply?.checkpoints) ? reply.checkpoints : []
+  const rawAnswer = reply?.answer ?? text ?? ''
+  const answer = rawAnswer !== '' ? rawAnswer : reply ? '暂时没有拿到有效回答。' : ''
+  // 旧版结构字段：只有存在实际内容时才显示，不生成默认假文案。
+  const nextTask = typeof reply?.next_task === 'string' ? reply.next_task.trim() : ''
+  const exercise = typeof reply?.exercise === 'string' ? reply.exercise.trim() : ''
+  const checkpoints = Array.isArray(reply?.checkpoints)
+    ? reply.checkpoints.filter((item) => typeof item === 'string' && item.trim())
+    : []
   const sources = Array.isArray(reply?.sources) ? reply.sources : []
   const toolTrace = debug?.responseBody?.tool_trace
+
+  const showLegacyCards = Boolean(nextTask || exercise)
 
   // Streaming state: show partial text with cursor
   const showStreaming = isStreaming && !reply
@@ -126,26 +134,32 @@ function ChatMessage({ role, text, reply, debug, isStreaming, streamingTool }) {
                 <span>正在调用 {streamingTool.tool}...</span>
               </div>
             ) : null}
-            <p className="answer-text streaming-text">
+            <div className="answer-text streaming-text">
               <MarkdownAnswer answer={answer} sources={sources} />
               <span className="streaming-cursor">▋</span>
-            </p>
+            </div>
           </div>
         ) : reply ? (
           <div className="structured-reply">
             <div className="answer-text">
               <MarkdownAnswer answer={answer} sources={sources} />
             </div>
-            <div className="reply-grid">
-              <section className="reply-section reply-next">
-                <span className="reply-icon"><Icon name="chevron" size={15} /></span>
-                <div><span className="reply-label">下一步</span><p>{nextTask}</p></div>
-              </section>
-              <section className="reply-section reply-exercise">
-                <span className="reply-icon"><Icon name="target" size={15} /></span>
-                <div><span className="reply-label">练习</span><p>{exercise}</p></div>
-              </section>
-            </div>
+            {showLegacyCards ? (
+              <div className="reply-grid">
+                {nextTask ? (
+                  <section className="reply-section reply-next">
+                    <span className="reply-icon"><Icon name="chevron" size={15} /></span>
+                    <div><span className="reply-label">下一步</span><p>{nextTask}</p></div>
+                  </section>
+                ) : null}
+                {exercise ? (
+                  <section className="reply-section reply-exercise">
+                    <span className="reply-icon"><Icon name="target" size={15} /></span>
+                    <div><span className="reply-label">练习</span><p>{exercise}</p></div>
+                  </section>
+                ) : null}
+              </div>
+            ) : null}
             {checkpoints.length > 0 ? (
               <section className="checkpoint-section">
                 <span className="reply-label">检查点</span>

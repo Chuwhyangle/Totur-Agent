@@ -121,3 +121,158 @@ describe('note citations and knowledge-note source cards', () => {
     expect(document.getElementById('source-attachment_1').querySelector('a')).toBeNull()
   })
 })
+
+describe('jd citations and jd source cards', () => {
+  const jdReply = {
+    answer: '岗位匹配 [jd_1]，伪造的 [jd_9] 不应可点击。',
+    next_task: '',
+    exercise: '',
+    checkpoints: [],
+    sources: [
+      {
+        id: 'jd_1',
+        title: '后端开发 JD',
+        url: '',
+        domain: 'jd',
+      },
+    ],
+  }
+
+  it('links only jd citations backed by reply.sources', () => {
+    render(<ChatMessage role="assistant" reply={jdReply} />)
+
+    expect(screen.getByRole('link', { name: '查看来源 jd_1' }).getAttribute('href')).toBe(
+      '#source-jd_1',
+    )
+    expect(screen.queryByRole('link', { name: '查看来源 jd_9' })).toBeNull()
+    expect(screen.getByText(/\[jd_9\]/)).not.toBeNull()
+  })
+
+  it('renders a card for a jd source without an external link', () => {
+    render(<SourceCards sources={jdReply.sources} />)
+
+    const jdCard = document.getElementById('source-jd_1')
+    expect(jdCard).not.toBeNull()
+    expect(jdCard.querySelector('a')).toBeNull()
+    expect(jdCard.textContent).toContain('后端开发 JD')
+  })
+})
+
+describe('GFM markdown rendering', () => {
+  const markdownReply = {
+    answer: [
+      '## 标题',
+      '',
+      '正文段落。',
+      '',
+      '| 列 A | 列 B |',
+      '| --- | --- |',
+      '| 1 | 2 |',
+      '',
+      '- [x] 已完成',
+      '- [ ] 未完成',
+      '',
+      '~~删除线~~',
+      '',
+      '```python',
+      'print("hello")',
+      '```',
+    ].join('\n'),
+    next_task: '',
+    exercise: '',
+    checkpoints: [],
+    sources: [],
+  }
+
+  it('renders tables, task lists, strikethrough and fenced code blocks', () => {
+    render(<ChatMessage role="assistant" reply={markdownReply} />)
+
+    expect(screen.getByRole('heading', { name: '标题' })).not.toBeNull()
+    const table = screen.getByRole('table')
+    expect(table).not.toBeNull()
+    expect(table.querySelectorAll('th')[0].textContent).toBe('列 A')
+    expect(table.textContent).toContain('2')
+    const checkboxes = screen.getAllByRole('checkbox')
+    expect(checkboxes).toHaveLength(2)
+    expect(checkboxes[0].checked).toBe(true)
+    expect(checkboxes[1].checked).toBe(false)
+    expect(screen.getByText('已完成')).not.toBeNull()
+    expect(screen.getByText('未完成')).not.toBeNull()
+    expect(screen.getByText('删除线').tagName).toBe('DEL')
+    expect(screen.getByText('print("hello")')).not.toBeNull()
+  })
+})
+
+describe('markdown container structure', () => {
+  it('never nests block markdown elements inside a paragraph', () => {
+    const streamingText = [
+      '# 标题',
+      '',
+      '- 列表项',
+      '',
+      '```js',
+      'const x = 1',
+      '```',
+    ].join('\n')
+    render(<ChatMessage role="assistant" isStreaming text={streamingText} />)
+
+    const answerText = document.querySelector('.answer-text')
+    expect(answerText).not.toBeNull()
+    expect(answerText.tagName).toBe('DIV')
+
+    const heading = screen.getByRole('heading', { name: '标题' })
+    expect(heading.closest('p')).toBeNull()
+    const listItem = screen.getByText('列表项')
+    expect(listItem.closest('p')).toBeNull()
+    const codeBlock = screen.getByText(/const x = 1/)
+    expect(codeBlock.closest('p')).toBeNull()
+  })
+})
+
+describe('legacy structured fields', () => {
+  it('does not render next/exercise/checkpoint cards when the fields are empty', () => {
+    render(<ChatMessage role="assistant" reply={{
+      answer: '只有正文。',
+      next_task: '',
+      exercise: '',
+      checkpoints: [],
+      sources: [],
+    }} />)
+
+    expect(screen.getByText('只有正文。')).not.toBeNull()
+    expect(screen.queryByText('下一步')).toBeNull()
+    expect(screen.queryByText('练习')).toBeNull()
+    expect(screen.queryByText('检查点')).toBeNull()
+  })
+
+  it('treats whitespace-only legacy fields as empty', () => {
+    render(<ChatMessage role="assistant" reply={{
+      answer: '正文',
+      next_task: '   ',
+      exercise: '  ',
+      checkpoints: ['', '  '],
+      sources: [],
+    }} />)
+
+    expect(screen.queryByText('下一步')).toBeNull()
+    expect(screen.queryByText('练习')).toBeNull()
+    expect(screen.queryByText('检查点')).toBeNull()
+  })
+
+  it('still renders legacy cards when they contain real content', () => {
+    render(<ChatMessage role="assistant" reply={{
+      answer: '正文',
+      next_task: '继续练习',
+      exercise: '写一个接口',
+      checkpoints: ['能解释路由'],
+      sources: [],
+    }} />)
+
+    expect(screen.getByText('下一步')).not.toBeNull()
+    expect(screen.getByText('继续练习')).not.toBeNull()
+    expect(screen.getByText('练习')).not.toBeNull()
+    expect(screen.getByText('写一个接口')).not.toBeNull()
+    expect(screen.getByText('检查点')).not.toBeNull()
+    expect(screen.getByText('能解释路由')).not.toBeNull()
+  })
+})

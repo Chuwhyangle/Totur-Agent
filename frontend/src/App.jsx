@@ -83,6 +83,15 @@ function createErrorReply(error) {
   }
 }
 
+function createProtocolErrorReply() {
+  return {
+    answer: '后端流式响应缺少正式回复数据（done 事件没有 reply 字段）。',
+    next_task: '检查 /chat/stream 的 done 事件结构，确认 reply 字段存在。',
+    exercise: '展开调试详情，观察收到的 done 数据。',
+    checkpoints: ['临时流式文本不会被包装成成功回复'],
+  }
+}
+
 function buildAttachmentScopeKey(userId, personaId, sessionId) {
   return `${userId.trim()}::${personaId ?? ''}::${sessionId ?? 'none'}`
 }
@@ -651,10 +660,20 @@ function App() {
         let accumulatedText = ''
         let finalData = null
 
+        // 流开始时就创建 assistant 流式消息区域：
+        // 即使工具调用先于第一个 token 到达，也能立即显示工具状态。
+        setStreamingMessage({
+          id: messageId,
+          role: 'assistant',
+          text: '',
+          isStreaming: true,
+        })
+
         await postChatStream(
           chatRequestBody,
           {
             onToken: (text) => {
+              // token 按到达顺序持续追加；工具调用只更新工具状态，不清空正文。
               accumulatedText += text
               setStreamingMessage({
                 id: messageId,
@@ -666,7 +685,7 @@ function App() {
             onToolCall: (tool, args) => {
               setStreamingTool({ tool, args, status: 'running' })
             },
-            onToolResult: (tool, result) => {
+            onToolResult: () => {
               setStreamingTool(null)
             },
             onDone: (data) => {
@@ -684,24 +703,30 @@ function App() {
 
         if (streamAbortController.signal.aborted) return
 
-        // Finalize the streaming message
-        const assistantMessage = {
-          id: messageId,
-          role: 'assistant',
-          reply: finalData?.reply ?? {
-            answer: accumulatedText,
-            next_task: '继续提问或探索其他话题。',
-            exercise: '用一句话总结你学到的内容。',
-            checkpoints: [],
-            sources: finalData?.sources ?? [],
-          },
-          debug: {
-            url: `${API_BASE_URL}/chat/stream`,
-            method: 'POST',
-            requestBody: chatRequestBody,
-            responseBody: { session_id: finalData?.session_id ?? activeSession.id },
+        // Finalize the streaming message.
+        // done.reply 是最终回复的唯一数据源；临时流式文本只用于预览。
+        const streamDebug = {
+          url: `${API_BASE_URL}/chat/stream`,
+          method: 'POST',
+          requestBody: chatRequestBody,
+          responseBody: {
+            session_id: finalData?.session_id ?? activeSession.id,
+            done: finalData ?? null,
           },
         }
+        const assistantMessage = finalData?.reply
+          ? {
+              id: messageId,
+              role: 'assistant',
+              reply: finalData.reply,
+              debug: streamDebug,
+            }
+          : {
+              id: messageId,
+              role: 'assistant',
+              reply: createProtocolErrorReply(),
+              debug: streamDebug,
+            }
         setMessages((currentMessages) => [...currentMessages, assistantMessage])
         setStreamingMessage(null)
         setStreamingTool(null)
