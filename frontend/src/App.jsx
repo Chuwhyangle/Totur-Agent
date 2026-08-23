@@ -63,33 +63,17 @@ const WEB_SEARCH_MODE_REQUEST_FIELDS = {
 
 function createErrorReply(error) {
   const errorCode = attachmentErrorCode(error)
-  if (errorCode) {
-    const answer = errorCode === 'attachment_no_relevant_evidence'
+  const answer = errorCode
+    ? errorCode === 'attachment_no_relevant_evidence'
       ? '在所选附件中没有检索到与当前问题足够相关的内容。你可以换一种问法，或取消附件后继续普通提问。'
       : attachmentErrorMessage(error)
-    return {
-      answer,
-      next_task: '检查附件状态，或调整当前选择后重试。',
-      exercise: '尝试换一种更具体的问法。',
-      checkpoints: ['附件仍只属于当前会话', '业务错误不会被误判为服务离线'],
-    }
-  }
-
-  return {
-    answer: '这次请求后端失败了，但页面没有崩溃。',
-    next_task: `先确认后端是否运行在 ${API_BASE_URL}。`,
-    exercise: '观察顶部 API 状态，并在服务恢复后重试。',
-    checkpoints: ['用户消息已经保留', '错误被显示在聊天区', '调试详情里可以查看失败信息'],
-  }
+    : `这次请求后端失败了，但页面没有崩溃。\n\n**排查建议：**\n\n- 先确认后端是否运行在 ${API_BASE_URL}\n- 观察顶部 API 状态，在服务恢复后重试\n- 展开调试详情查看失败信息`
+  return { answer, sources: [] }
 }
 
 function createProtocolErrorReply() {
-  return {
-    answer: '后端流式响应缺少正式回复数据（done 事件没有 reply 字段）。',
-    next_task: '检查 /chat/stream 的 done 事件结构，确认 reply 字段存在。',
-    exercise: '展开调试详情，观察收到的 done 数据。',
-    checkpoints: ['临时流式文本不会被包装成成功回复'],
-  }
+  const answer = '后端流式响应缺少正式回复数据（done 事件没有 reply 字段）。请检查 /chat/stream 的 done 事件结构，或展开调试详情观察收到的 done 数据。'
+  return { answer, sources: [] }
 }
 
 function buildAttachmentScopeKey(userId, personaId, sessionId) {

@@ -25,9 +25,6 @@ def _parse_events(body: str) -> list[tuple[str, dict]]:
 def test_stream_preserves_token_tool_and_done_event_order(monkeypatch):
     final_reply = {
         "answer": "hello world",
-        "next_task": "continue",
-        "exercise": "summarize",
-        "checkpoints": [],
         "sources": [],
     }
 

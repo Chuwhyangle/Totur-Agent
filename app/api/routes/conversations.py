@@ -1,12 +1,10 @@
 """对话历史查询接口。"""
 
-import json
-
 from fastapi import APIRouter, Query
 
 from app.repositories.conversation_repository import list_recent_conversations
-from app.schemas.chat import TutorReply
 from app.schemas.conversations import ConversationItem, ConversationListResponse
+from app.services.agent.response_parser import ResponseParser
 
 
 router = APIRouter(tags=["conversations"])
@@ -20,11 +18,11 @@ def get_conversations(
     """查询某个用户最近的对话历史。"""
 
     records = list_recent_conversations(user_id=user_id, limit=limit)
+    parser = ResponseParser()
     items: list[ConversationItem] = []
 
     for record in records:
-        reply_data = json.loads(record.reply_json)
-        reply = TutorReply.model_validate(reply_data)
+        reply = parser.parse_stored_reply(record.reply_json, record.reply_format)
 
         items.append(
             ConversationItem(

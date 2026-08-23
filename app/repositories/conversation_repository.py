@@ -17,16 +17,18 @@ def save_conversation(
     message: str,
     reply_json: str,
     session_id: int | None = None,
+    reply_format: str = "json_v1",
 ) -> int:
     """保存一条对话，并返回新记录 id。
 
     INSERT、默认会话创建、会话时间更新在同一个事务内，同生共死。
+    reply_format 记录回复格式版本：存量默认 json_v1，新写入传 markdown_v2。
     """
 
     insert_sql = f"""
     INSERT INTO {CONVERSATIONS_TABLE}
-        (session_id, user_id, message, reply_json, created_at)
-    VALUES (:session_id, :user_id, :message, :reply_json, :created_at)
+        (session_id, user_id, message, reply_json, reply_format, created_at)
+    VALUES (:session_id, :user_id, :message, :reply_json, :reply_format, :created_at)
     """
     created_at = datetime.now(timezone.utc).isoformat()
 
@@ -45,6 +47,7 @@ def save_conversation(
                 "user_id": user_id,
                 "message": message,
                 "reply_json": reply_json,
+                "reply_format": reply_format,
                 "created_at": created_at,
             },
         )
@@ -73,7 +76,7 @@ def list_recent_conversations(
         params = {"user_id": user_id, "session_id": session_id, "limit": limit}
 
     select_sql = f"""
-    SELECT id, session_id, user_id, message, reply_json, created_at
+    SELECT id, session_id, user_id, message, reply_json, reply_format, created_at
     FROM {CONVERSATIONS_TABLE}
     {where_sql}
     ORDER BY id DESC
@@ -91,6 +94,7 @@ def list_recent_conversations(
                 user_id=row["user_id"],
                 message=row["message"],
                 reply_json=row["reply_json"],
+                reply_format=row["reply_format"],
                 created_at=row["created_at"],
             )
             for row in rows

@@ -8,11 +8,8 @@
 
 /**
  * @typedef {Object} TutorReply
- * @property {string} answer
- * @property {string} next_task
- * @property {string} exercise
- * @property {string[]} checkpoints
- * @property {TutorSource[] | undefined} sources Legacy replies may omit this field.
+ * @property {string} answer Markdown 正文
+ * @property {TutorSource[] | undefined} sources 历史回复可能省略该字段
  */
 
 const configuredApiBaseUrl = import.meta.env.VITE_API_BASE_URL

@@ -6,9 +6,6 @@ import SourceCards from './SourceCards.jsx'
 
 const baseReply = {
   answer: '附件结论 [attachment_1]，网页补充 [web_1]，伪造引用 [attachment_999]。',
-  next_task: '继续',
-  exercise: '练习',
-  checkpoints: [],
   sources: [
     {
       id: 'attachment_1',
@@ -64,9 +61,6 @@ describe('attachment citations and source cards', () => {
 describe('note citations and knowledge-note source cards', () => {
   const noteReply = {
     answer: '本地笔记引用 [note_1]，伪造的 [note_999] 不应可点击。',
-    next_task: 'next',
-    exercise: 'exercise',
-    checkpoints: [],
     sources: [
       {
         id: 'note_1',
@@ -125,9 +119,6 @@ describe('note citations and knowledge-note source cards', () => {
 describe('jd citations and jd source cards', () => {
   const jdReply = {
     answer: '岗位匹配 [jd_1]，伪造的 [jd_9] 不应可点击。',
-    next_task: '',
-    exercise: '',
-    checkpoints: [],
     sources: [
       {
         id: 'jd_1',
@@ -178,9 +169,6 @@ describe('GFM markdown rendering', () => {
       'print("hello")',
       '```',
     ].join('\n'),
-    next_task: '',
-    exercise: '',
-    checkpoints: [],
     sources: [],
   }
 
@@ -229,50 +217,22 @@ describe('markdown container structure', () => {
   })
 })
 
-describe('legacy structured fields', () => {
-  it('does not render next/exercise/checkpoint cards when the fields are empty', () => {
+describe('reply contract', () => {
+  it('renders only answer and sources, never legacy structured fields', () => {
     render(<ChatMessage role="assistant" reply={{
       answer: '只有正文。',
-      next_task: '',
-      exercise: '',
-      checkpoints: [],
-      sources: [],
-    }} />)
-
-    expect(screen.getByText('只有正文。')).not.toBeNull()
-    expect(screen.queryByText('下一步')).toBeNull()
-    expect(screen.queryByText('练习')).toBeNull()
-    expect(screen.queryByText('检查点')).toBeNull()
-  })
-
-  it('treats whitespace-only legacy fields as empty', () => {
-    render(<ChatMessage role="assistant" reply={{
-      answer: '正文',
-      next_task: '   ',
-      exercise: '  ',
-      checkpoints: ['', '  '],
-      sources: [],
-    }} />)
-
-    expect(screen.queryByText('下一步')).toBeNull()
-    expect(screen.queryByText('练习')).toBeNull()
-    expect(screen.queryByText('检查点')).toBeNull()
-  })
-
-  it('still renders legacy cards when they contain real content', () => {
-    render(<ChatMessage role="assistant" reply={{
-      answer: '正文',
       next_task: '继续练习',
       exercise: '写一个接口',
       checkpoints: ['能解释路由'],
       sources: [],
     }} />)
 
-    expect(screen.getByText('下一步')).not.toBeNull()
-    expect(screen.getByText('继续练习')).not.toBeNull()
-    expect(screen.getByText('练习')).not.toBeNull()
-    expect(screen.getByText('写一个接口')).not.toBeNull()
-    expect(screen.getByText('检查点')).not.toBeNull()
-    expect(screen.getByText('能解释路由')).not.toBeNull()
+    // 新契约：即使旧字段有内容也只渲染 Markdown 正文与来源
+    expect(screen.getByText('只有正文。')).not.toBeNull()
+    expect(screen.queryByText('下一步')).toBeNull()
+    expect(screen.queryByText('继续练习')).toBeNull()
+    expect(screen.queryByText('练习')).toBeNull()
+    expect(screen.queryByText('检查点')).toBeNull()
+    expect(screen.queryByText('能解释路由')).toBeNull()
   })
 })

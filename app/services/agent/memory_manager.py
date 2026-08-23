@@ -1,7 +1,5 @@
 """Agent 会话记忆读取与写入。"""
 
-import json
-
 from app.repositories.conversation_repository import (
     list_recent_conversations,
     save_conversation,
@@ -9,6 +7,7 @@ from app.repositories.conversation_repository import (
 from app.repositories.summary_repository import get_summary
 from app.schemas.chat import TutorReply
 from app.services.agent.context import AgentContext
+from app.services.agent.response_parser import REPLY_FORMAT_MARKDOWN_V2
 from app.services.memory_settings import RECENT_HISTORY_LIMIT
 from app.services.summary_service import SummaryService
 
@@ -54,17 +53,16 @@ class MemoryManager:
     ) -> None:
         """保存本轮对话，并尝试触发会话摘要更新。"""
 
-        # 数据库存完整结构化回复，后续构建上下文时只提取 answer 进入 prompt。
-        reply_json = json.dumps(
-            reply.model_dump(),
-            ensure_ascii=False,
-        )
+        # markdown_v2：reply_json 直接存 Markdown 正文；
+        # json_v1 的旧记录仍存五字段 JSON 信封。读取时按 reply_format 显式分发。
+        reply_json = reply.answer
 
         save_conversation(
             user_id=user_id,
             message=message,
             reply_json=reply_json,
             session_id=session_id,
+            reply_format=REPLY_FORMAT_MARKDOWN_V2,
         )
         try:
             # 摘要是辅助记忆能力，失败时不影响本轮聊天结果。

@@ -197,6 +197,7 @@ def test_column_collations_follow_d7():
         ("public_job_descriptions", "row_sha256"),
         ("public_job_descriptions", "parent_sha256"),
         ("documents", "content_hash"),
+        ("conversations", "reply_format"),
     }
 
     for column in ai_ci_columns:

@@ -524,21 +524,15 @@ def test_health_returns_service_status():
     }
 
 
-def test_chat_returns_structured_reply(monkeypatch, tmp_path):
+def test_chat_returns_markdown_reply(monkeypatch, tmp_path):
     use_temp_database(monkeypatch, tmp_path)
 
-    raw_model_reply = """
-    {
-      "answer": "FastAPI routes connect a URL path and HTTP method to Python code.",
-      "next_task": "Create one small GET route.",
-      "exercise": "Write a /hello route that returns a short JSON message.",
-      "checkpoints": [
-        "The response has an answer",
-        "The response has a next task",
-        "The checkpoints are a list"
-      ]
-    }
-    """
+    raw_model_reply = (
+        "## FastAPI 路由\n\n"
+        "FastAPI routes connect a URL path and HTTP method to Python code.\n\n"
+        "- 路由 = URL + HTTP 方法到函数的绑定\n"
+        "- 每个路由函数就是一个接口"
+    )
 
     monkeypatch.setattr(
         chat_route.tutor_agent_service.react_orchestrator,
@@ -565,11 +559,10 @@ def test_chat_returns_structured_reply(monkeypatch, tmp_path):
         "used": False,
         "calls": [],
     }
-    assert isinstance(reply["answer"], str)
-    assert isinstance(reply["next_task"], str)
-    assert isinstance(reply["exercise"], str)
-    assert isinstance(reply["checkpoints"], list)
-    assert len(reply["checkpoints"]) == 3
+    # 新回复只包含 answer 与 sources，不再要求旧五字段
+    assert set(reply.keys()) == {"answer", "sources"}
+    assert reply["answer"] == raw_model_reply
+    assert reply["sources"] == []
 
 
 def test_chat_passes_user_selected_web_search_to_orchestrator(monkeypatch, tmp_path):
@@ -610,17 +603,9 @@ def test_chat_passes_user_selected_web_search_to_orchestrator(monkeypatch, tmp_p
 def test_chat_finalizes_web_sources_before_response_and_persistence(monkeypatch, tmp_path):
     use_temp_database(monkeypatch, tmp_path)
 
-    raw_model_reply = json.dumps(
-        {
-            "answer": (
-                "Verified [web_1], fabricated [web_99], raw "
-                "https://attacker.example/path"
-            ),
-            "next_task": "Read the verified source.",
-            "exercise": "Summarize the source.",
-            "checkpoints": ["Only server-owned evidence is cited."],
-            "source_ids": ["web_1", "web_99"],
-        }
+    raw_model_reply = (
+        "Verified [web_1], fabricated [web_99], raw "
+        "https://attacker.example/path"
     )
     tool_trace = ToolTrace(
         used=True,
@@ -659,9 +644,9 @@ def test_chat_finalizes_web_sources_before_response_and_persistence(monkeypatch,
     assert "[web_99]" not in body["reply"]["answer"]
     assert "https://attacker.example/path" not in body["reply"]["answer"]
 
-    saved_reply = json.loads(list_recent_conversations("web-user", limit=1)[0].reply_json)
-    assert saved_reply["sources"] == body["reply"]["sources"]
-    assert saved_reply["answer"] == body["reply"]["answer"]
+    saved_record = list_recent_conversations("web-user", limit=1)[0]
+    assert saved_record.reply_format == "markdown_v2"
+    assert saved_record.reply_json == body["reply"]["answer"]
 
 
 def test_chat_without_history_sends_only_current_user_message(monkeypatch, tmp_path):
@@ -710,14 +695,7 @@ def test_chat_without_history_sends_only_current_user_message(monkeypatch, tmp_p
 def test_chat_saves_current_conversation_for_history_lookup(monkeypatch, tmp_path):
     use_temp_database(monkeypatch, tmp_path)
 
-    raw_model_reply = """
-    {
-      "answer": "Saved answer",
-      "next_task": "Saved task",
-      "exercise": "Saved exercise",
-      "checkpoints": ["Saved checkpoint"]
-    }
-    """
+    raw_model_reply = "Saved answer"
 
     monkeypatch.setattr(
         chat_route.tutor_agent_service.react_orchestrator,
@@ -916,13 +894,16 @@ def test_chat_rejects_empty_user_id():
     assert response.status_code == 422
 
 
-def test_chat_falls_back_when_model_reply_is_not_json(monkeypatch, tmp_path):
+def test_chat_passes_markdown_reply_through_without_json_parsing(monkeypatch, tmp_path):
+    """模型输出就是最终正文：不做 JSON 解析，也不生成假兑底字段。"""
+
     use_temp_database(monkeypatch, tmp_path)
 
+    raw_model_reply = "## 直接回答\n\nThis is Markdown, and the API should show it as-is."
     monkeypatch.setattr(
         chat_route.tutor_agent_service.react_orchestrator,
         "_call_model",
-        lambda messages: "This is not JSON, but the API should still respond.",
+        lambda messages: raw_model_reply,
     )
 
     response = client.post(
@@ -937,11 +918,36 @@ def test_chat_falls_back_when_model_reply_is_not_json(monkeypatch, tmp_path):
     body = response.json()
     reply = body["reply"]
 
-    assert reply["answer"] == "This is not JSON, but the API should still respond."
-    assert isinstance(reply["next_task"], str)
-    assert isinstance(reply["exercise"], str)
-    assert isinstance(reply["checkpoints"], list)
-    assert len(reply["checkpoints"]) == 3
+    assert reply["answer"] == raw_model_reply
+    assert "next_task" not in reply
+    assert "exercise" not in reply
+    assert "checkpoints" not in reply
+
+
+def test_chat_keeps_json_code_block_in_markdown_answer(monkeypatch, tmp_path):
+    """Markdown 正文中的 JSON 代码块不能被误判为回复格式。"""
+
+    use_temp_database(monkeypatch, tmp_path)
+
+    raw_model_reply = (
+        "接口返回示例：\n\n```json\n{\"answer\": \"只是示例\"}\n```"
+    )
+    monkeypatch.setattr(
+        chat_route.tutor_agent_service.react_orchestrator,
+        "_call_model",
+        lambda messages: raw_model_reply,
+    )
+
+    response = client.post(
+        "/chat",
+        json={
+            "user_id": "default",
+            "message": "Show me an example.",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["reply"]["answer"] == raw_model_reply
 
 
 def test_chat_adds_history_user_and_assistant_messages(monkeypatch, tmp_path):
@@ -1100,14 +1106,7 @@ def test_chat_continues_when_summary_update_fails(monkeypatch, tmp_path):
     use_temp_database(monkeypatch, tmp_path)
 
     session = create_session("alice", "Summary failure")
-    raw_model_reply = """
-    {
-      "answer": "Chat still works",
-      "next_task": "Keep going",
-      "exercise": "Retry later",
-      "checkpoints": ["Chat response returned"]
-    }
-    """
+    raw_model_reply = "Chat still works"
 
     def fail_summary_update(session_id):
         raise RuntimeError("summary update failed")
@@ -1313,18 +1312,9 @@ def test_chat_executes_score_jd_skill_fit_tool_call_and_uses_second_model_reply(
     tmp_path,
 ):
     use_temp_database(monkeypatch, tmp_path)
-    final_model_reply = json.dumps(
-        {
-            "answer": "根据 JD，这个岗位重点考 Agent 工具调用和 RAG。我先问你：Function Calling 在 Agent 系统里解决了什么问题？",
-            "next_task": "请用 1 分钟回答这道题。",
-            "exercise": "回答时必须包含模型、工具、参数、工具结果四个关键词。",
-            "checkpoints": [
-                "能说明模型不直接执行函数",
-                "能说明后端负责执行工具",
-                "能说明工具结果会回填给模型",
-            ],
-        },
-        ensure_ascii=False,
+    final_model_reply = (
+        "根据 JD，这个岗位重点考 Agent 工具调用和 RAG。"
+        "我先问你：Function Calling 在 Agent 系统里解决了什么问题？"
     )
     first_call_messages = []
     second_call_messages = []
@@ -1418,19 +1408,7 @@ def test_chat_executes_score_jd_skill_fit_tool_call_and_uses_second_model_reply(
 
 def test_chat_traces_score_jd_skill_fit_preview(monkeypatch, tmp_path):
     use_temp_database(monkeypatch, tmp_path)
-    final_model_reply = json.dumps(
-        {
-            "answer": "你的 JD 符合度是 50%，优势是 Python，主要短板是 RAG。",
-            "next_task": "先补一个最小 RAG 闭环。",
-            "exercise": "解释 chunk、embedding、retrieval、generation 的关系。",
-            "checkpoints": [
-                "能说明当前优势",
-                "能说明最高优先级短板",
-                "能说明不确定项需要继续测试",
-            ],
-        },
-        ensure_ascii=False,
-    )
+    final_model_reply = "你的 JD 符合度是 50%，优势是 Python，主要短板是 RAG。"
     first_call_messages = []
     second_call_messages = []
     model_call_count = 0
@@ -1556,18 +1534,9 @@ def test_chat_accepts_two_tool_rounds_before_final_reply(monkeypatch, tmp_path):
     """验收 ReAct：/chat 可先查笔记，再评分，第三轮生成最终回复。"""
 
     use_temp_database(monkeypatch, tmp_path)
-    final_model_reply = json.dumps(
-        {
-            "answer": "我先查到了相关笔记，再结合你的技能做了匹配评分。当前优势是 FastAPI，主要短板是 RAG。",
-            "next_task": "先补一个最小 RAG 检索闭环。",
-            "exercise": "用三句话解释 query、retrieval、generation 的关系。",
-            "checkpoints": [
-                "能说明笔记依据",
-                "能说明技能优势",
-                "能说明最高优先级短板",
-            ],
-        },
-        ensure_ascii=False,
+    final_model_reply = (
+        "我先查到了相关笔记，再结合你的技能做了匹配评分。"
+        "当前优势是 FastAPI，主要短板是 RAG。"
     )
     model_call_count = 0
     second_round_messages = []
@@ -1715,19 +1684,7 @@ def test_manual_review_prints_llm_input_and_output(monkeypatch, tmp_path):
             ),
         )
 
-    raw_model_reply = json.dumps(
-        {
-            "answer": "这是模拟 LLM 针对第 15 轮问题生成的回答。",
-            "next_task": "核对 messages 里是否包含摘要、最近历史和当前问题。",
-            "exercise": "手动检查第 9-14 轮是否按旧到新排列。",
-            "checkpoints": [
-                "LLM 输入里有 system 规则",
-                "LLM 输入里有第 1-8 轮摘要",
-                "LLM 输入最后一条是第 15 轮当前问题",
-            ],
-        },
-        ensure_ascii=False,
-    )
+    raw_model_reply = "这是模拟 LLM 针对第 15 轮问题生成的回答。"
     captured_messages = []
 
     def fake_call_model(messages):

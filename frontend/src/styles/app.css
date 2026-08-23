@@ -729,8 +729,7 @@ button:disabled { cursor: not-allowed; opacity: 0.48; }
   font-variant-numeric: tabular-nums;
 }
 .user-message .message-time { color: rgba(255, 253, 248, 0.62); }
-.user-text,
-.reply-section p {
+.user-text {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
@@ -822,36 +821,6 @@ button:disabled { cursor: not-allowed; opacity: 0.48; }
   padding: 6px 10px;
   border: 1px solid var(--line);
 }
-.reply-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-}
-.reply-section {
-  display: flex;
-  gap: 10px;
-  padding: 13px;
-  border: 1px solid var(--line);
-  border-radius: 15px;
-  background: color-mix(in srgb, var(--solid) 82%, transparent);
-  box-shadow: 0 1px 0 rgba(255,255,255,.4) inset;
-  transition: border-color 0.2s var(--ease), transform 0.2s var(--ease);
-}
-.reply-section:hover {
-  border-color: var(--pborder);
-  transform: translateY(-1px);
-}
-.reply-icon {
-  flex: 0 0 28px;
-  width: 28px;
-  height: 28px;
-  display: grid;
-  place-items: center;
-  color: var(--primary);
-  border-radius: 9px;
-  background: var(--soft);
-}
-.reply-section > div { min-width: 0; }
 .reply-label {
   display: block;
   margin-bottom: 5px;
@@ -861,35 +830,6 @@ button:disabled { cursor: not-allowed; opacity: 0.48; }
   letter-spacing: 0.1em;
   text-transform: uppercase;
 }
-.reply-section p {
-  margin: 0;
-  color: var(--sub);
-  font-size: 12.5px;
-  line-height: 1.65;
-}
-.checkpoint-section {
-  margin-top: 10px;
-  padding: 12px 13px;
-  border: 1px solid var(--line);
-  border-radius: 15px;
-  background: color-mix(in srgb, var(--solid) 82%, transparent);
-}
-.checkpoint-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 7px 14px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-.checkpoint-list li {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--sub);
-  font-size: 11.5px;
-}
-.checkpoint-list .icon { color: var(--success); }
 .typing-row { align-items: center; }
 .typing-indicator {
   display: flex;
@@ -1649,7 +1589,6 @@ button:disabled { cursor: not-allowed; opacity: 0.48; }
     border-radius: 9px;
   }
   .message { max-width: calc(100% - 36px); }
-  .reply-grid { grid-template-columns: 1fr; }
   .answer-text { font-size: 14px; }
   .user-text { font-size: 13.5px; }
 }

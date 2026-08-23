@@ -59,12 +59,15 @@ class PromptBuilder:
             }
             messages.append(history_user_msg)
 
-            history_answer = self.response_parser.parse_history_answer(record.reply_json)
-            if history_answer:
+            history_reply = self.response_parser.parse_stored_reply(
+                record.reply_json,
+                record.reply_format,
+            )
+            if history_reply.answer.strip():
                 # 只放上一轮导师 answer，让历史上下文更简洁。
                 history_assistant_msg: ChatCompletionAssistantMessageParam = {
                     "role": "assistant",
-                    "content": history_answer,
+                    "content": history_reply.answer,
                 }
                 messages.append(history_assistant_msg)
 

@@ -1,7 +1,5 @@
 """生成和更新会话滚动摘要的服务。"""
 
-import json
-
 from openai import OpenAI
 from openai.types.chat import (
     ChatCompletionMessageParam,
@@ -20,6 +18,7 @@ from app.repositories.summary_repository import (
     upsert_summary,
 )
 from app.services.agent.model_registry import resolve_model
+from app.services.agent.response_parser import ResponseParser
 from app.services.memory_settings import RECENT_HISTORY_LIMIT, SUMMARY_TRIGGER_COUNT
 
 
@@ -30,11 +29,13 @@ class SummaryService:
         self,
         config: LLMConfig | None = None,
         client: OpenAI | None = None,
+        response_parser: ResponseParser | None = None,
     ) -> None:
         """保存模型配置；真正调用模型时再创建客户端。"""
 
         self.config = config
         self.client = client
+        self.response_parser = response_parser or ResponseParser()
 
     def update_summary_if_needed(self, session_id: int) -> bool:
         """如果旧消息足够多，就更新会话摘要；否则不做任何事。"""
@@ -110,8 +111,11 @@ class SummaryService:
 
         for record in records:
             lines.append(f"用户：{record.message}")
-            answer = self._parse_history_answer(record.reply_json)
-            if answer:
+            answer = self.response_parser.parse_stored_reply(
+                record.reply_json,
+                record.reply_format,
+            ).answer
+            if answer.strip():
                 lines.append(f"导师：{answer}")
 
         lines.extend(
@@ -121,20 +125,6 @@ class SummaryService:
             ]
         )
         return "\n".join(lines)
-
-    def _parse_history_answer(self, reply_json: str) -> str | None:
-        """从保存的结构化回复里提取导师 answer。"""
-
-        try:
-            reply_data = json.loads(reply_json)
-        except (json.JSONDecodeError, TypeError):
-            return None
-
-        answer = reply_data.get("answer")
-        if not isinstance(answer, str) or not answer.strip():
-            return None
-
-        return answer
 
     def _call_model(self, messages: list[ChatCompletionMessageParam]) -> str:
         """调用模型生成摘要正文。"""

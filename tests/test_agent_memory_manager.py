@@ -90,12 +90,7 @@ def test_save_turn_and_update_summary_saves_conversation_and_triggers_summary(
     session = create_session("alice", "记忆保存")
     summary_service = FakeSummaryService()
     manager = MemoryManager(summary_service)
-    reply = TutorReply(
-        answer="本轮回答",
-        next_task="下一步任务",
-        exercise="小练习",
-        checkpoints=["检查点"],
-    )
+    reply = TutorReply(answer="本轮回答")
 
     manager.save_turn_and_update_summary(
         user_id="alice",
@@ -109,10 +104,10 @@ def test_save_turn_and_update_summary_saves_conversation_and_triggers_summary(
         session_id=session.id,
         limit=1,
     )
-    saved_reply = json.loads(records[0].reply_json)
 
     assert records[0].message == "本轮问题"
-    assert saved_reply["answer"] == "本轮回答"
+    assert records[0].reply_format == "markdown_v2"
+    assert records[0].reply_json == "本轮回答"
     assert summary_service.updated_session_ids == [session.id]
 
 
@@ -123,12 +118,7 @@ def test_save_turn_and_update_summary_ignores_summary_failure(
     use_temp_database(monkeypatch, tmp_path)
     session = create_session("alice", "摘要失败")
     manager = MemoryManager(FakeSummaryService(should_fail=True))
-    reply = TutorReply(
-        answer="失败时仍然保存",
-        next_task="下一步任务",
-        exercise="小练习",
-        checkpoints=["检查点"],
-    )
+    reply = TutorReply(answer="失败时仍然保存")
 
     manager.save_turn_and_update_summary(
         user_id="alice",

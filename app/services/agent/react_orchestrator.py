@@ -200,6 +200,9 @@ class ReactOrchestrator:
             failure_count += int(not forced_trace.ok)
             first_model_round += 1
 
+        # 工具调用前已经输出的正文也要保留：跨轮可见正文按 "\n\n" 分隔拼接，
+        # 与流式路径的 token 拼接保持一致，避免标题与前文粘连。
+        visible_parts: list[str] = []
         for round_number in range(first_model_round, self.max_steps + 1):
             timings.bump("react_rounds")
             timings.set_meta("round_number", round_number)
@@ -212,9 +215,13 @@ class ReactOrchestrator:
                     tool_choice=active_tool_choice,
                 )
             tool_calls = self._message_tool_calls(model_message)
+            round_content = self._message_content(model_message)
 
             if not tool_calls:
-                raw_reply = self._message_content(model_message)
+                raw_reply = self._join_visible_parts(
+                    visible_parts,
+                    round_content,
+                )
                 if not raw_reply:
                     raise RuntimeError("模型没有返回内容")
 
@@ -223,6 +230,9 @@ class ReactOrchestrator:
                     calls=tool_call_traces,
                     ledger=run_state.ledger,
                 )
+
+            if round_content:
+                visible_parts.append(round_content)
 
             working_messages, step_traces = self._build_messages_with_tool_results(
                 messages=working_messages,
@@ -238,7 +248,10 @@ class ReactOrchestrator:
                 break
 
         timings.set_meta("round_number", None)
-        raw_reply = self._call_model(working_messages)
+        raw_reply = self._join_visible_parts(
+            visible_parts,
+            self._call_model(working_messages),
+        )
         if not raw_reply:
             raise RuntimeError("模型没有返回内容")
 
@@ -247,6 +260,16 @@ class ReactOrchestrator:
             calls=tool_call_traces,
             ledger=run_state.ledger,
         )
+
+    @staticmethod
+    def _join_visible_parts(
+        visible_parts: list[str],
+        final_part: str | None,
+    ) -> str:
+        """按工具轮次边界拼接可见正文，避免前后正文粘连。"""
+
+        parts = [part for part in [*visible_parts, final_part or ""] if part]
+        return "\n\n".join(parts)
 
     def run_stream(
         self,
@@ -340,10 +363,15 @@ class ReactOrchestrator:
             timings.bump("react_rounds")
             timings.set_meta("round_number", round_number)
             active_tool_choice = self._resolve_tool_choice(run_state, round_number)
+            # 工具调用前已有可见正文时，本轮正文前补两个换行：
+            # 分隔符既作为 token 发给前端，也计入最终落库的 answer。
+            content_prefix = "\n\n" if visible_parts else ""
             round_result = yield from self._stream_round(
                 working_messages,
                 tool_choice=active_tool_choice,
+                content_prefix=content_prefix,
             )
+            # _stream_round 已把分隔前缀计入 content 并作为 token 发出。
             if round_result.content:
                 visible_parts.append(round_result.content)
             tool_calls = round_result.tool_calls
@@ -398,9 +426,11 @@ class ReactOrchestrator:
 
         # Tool budget was exhausted. Ask for a final streamed answer without tools.
         timings.set_meta("round_number", None)
+        content_prefix = "\n\n" if visible_parts else ""
         final_round = yield from self._stream_round(
             working_messages,
             tool_choice="none",
+            content_prefix=content_prefix,
         )
         if final_round.content:
             visible_parts.append(final_round.content)
@@ -420,8 +450,13 @@ class ReactOrchestrator:
         messages: list[ChatCompletionMessageParam],
         *,
         tool_choice: str | dict | None = None,
+        content_prefix: str = "",
     ) -> Generator[StreamEvent, None, _RoundResult]:
-        """Make one streamed model call and accumulate its complete round result."""
+        """Make one streamed model call and accumulate its complete round result.
+
+        content_prefix 是上一轮工具调用留下的可见正文与本轮正文之间的分隔符：
+        只在本轮真正产出内容时作为 token 发出并计入 content。
+        """
 
         runtime = self._model_runtime()
         tools = self._active_tools()
@@ -474,6 +509,12 @@ class ReactOrchestrator:
                     content = self._object_value(delta, "content")
                     if content:
                         text = str(content)
+                        if content_prefix and not content_parts:
+                            content_parts.append(content_prefix)
+                            yield StreamEvent(
+                                type="token",
+                                data={"text": content_prefix},
+                            )
                         content_parts.append(text)
                         yield StreamEvent(type="token", data={"text": text})
 
@@ -539,6 +580,12 @@ class ReactOrchestrator:
                 completion.choices[0].message
             )
             if fallback_result.content:
+                if content_prefix and not content_parts:
+                    content_parts.append(content_prefix)
+                    yield StreamEvent(
+                        type="token",
+                        data={"text": content_prefix},
+                    )
                 yield StreamEvent(
                     type="token",
                     data={"text": fallback_result.content},

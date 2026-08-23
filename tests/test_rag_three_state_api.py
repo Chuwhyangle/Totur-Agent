@@ -22,16 +22,9 @@ def use_temp_database(monkeypatch, tmp_path):
 
 
 def model_reply(answer, source_ids=None):
-    return json.dumps(
-        {
-            "answer": answer,
-            "next_task": "next",
-            "exercise": "exercise",
-            "checkpoints": ["one", "two", "three"],
-            "source_ids": source_ids or [],
-        },
-        ensure_ascii=False,
-    )
+    """新契约：模型输出就是 Markdown 正文，不再有 source_ids 字段。"""
+
+    return answer
 
 
 def configure_chat_service(monkeypatch, raw_reply, ledger=None):
@@ -96,7 +89,7 @@ def test_force_rag_request_is_forwarded_to_orchestrator(
     session = create_session("alice")
     captured = configure_chat_service(
         monkeypatch,
-        model_reply("answer with note", ["note_1"]),
+        model_reply("answer with note [note_1]"),
         ledger={"note_1": note_source()},
     )
 
@@ -312,7 +305,7 @@ def test_stream_force_rag_passes_three_state_and_returns_note_sources(
         captured.update(kwargs)
         yield SimpleNamespace(type="token", data={"text": "基于 [note_1] 的回答。"})
         return (
-            model_reply("基于 [note_1] 的回答。", ["note_1"]),
+            "基于 [note_1] 的回答。",
             ToolTrace(used=True, ledger={"note_1": note_source()}),
         )
 

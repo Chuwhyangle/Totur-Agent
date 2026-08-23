@@ -43,6 +43,15 @@ _RAW_HTTP_URL_PATTERN = re.compile(r"https?://[^\s<>\"']+", re.IGNORECASE)
 _UNVERIFIED_LINK_REPLACEMENT = "[已移除未验证链接]"
 
 
+def _citation_ids_from_answer(answer: str) -> list[str]:
+    """按正文首次出现顺序提取 [web_N]/[attachment_N]/[note_N]/[jd_N] 引用 ID。"""
+
+    return [
+        f"{kind}_{number}"
+        for kind, number in _CITATION_PATTERN.findall(answer)
+    ]
+
+
 class ChatSessionNotFoundError(Exception):
     """聊天请求指定的 session_id 不存在，或不属于当前 user_id。"""
 
@@ -394,7 +403,12 @@ class TutorAgentService:
         tool_trace: ToolTrace,
         note_references_allowed: bool = True,
     ) -> TutorReply:
-        """Build public sources from this run ledger and sanitize citations."""
+        """从 Markdown 正文提取引用 ID，生成公开来源并清理非法引用。
+
+        不再读取模型返回的 source_ids：引用以正文中的
+        [web_N]/[attachment_N]/[note_N]/[jd_N] 标记为准，
+        只接受本轮 ledger 中真实存在的 ID，按正文首次出现顺序去重。
+        """
 
         ledger = tool_trace.ledger
 
@@ -403,11 +417,10 @@ class TutorAgentService:
                 return False
             return evidence_id in ledger
 
-        accepted_source_ids: list[str] = []
         sources: list[Source] = []
         seen_ids: set[str] = set()
 
-        for evidence_id in reply.source_ids:
+        for evidence_id in _citation_ids_from_answer(reply.answer):
             if evidence_id in seen_ids:
                 continue
 
@@ -416,7 +429,6 @@ class TutorAgentService:
 
             ledger_source = ledger[evidence_id]
             seen_ids.add(evidence_id)
-            accepted_source_ids.append(evidence_id)
             sources.append(
                 Source(
                     id=evidence_id,
@@ -443,7 +455,6 @@ class TutorAgentService:
             _UNVERIFIED_LINK_REPLACEMENT,
             reply.answer,
         )
-        reply.source_ids = accepted_source_ids
         reply.sources = sources
         return reply
 

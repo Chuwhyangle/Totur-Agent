@@ -1,7 +1,5 @@
 """多会话 API 路由。"""
 
-import json
-
 from fastapi import APIRouter, HTTPException, Query, status
 
 from app.db.models import ChatSessionRecord, ConversationRecord
@@ -11,7 +9,6 @@ from app.repositories.session_repository import (
     get_session,
     list_sessions,
 )
-from app.schemas.chat import TutorReply
 from app.schemas.conversations import ConversationItem
 from app.schemas.sessions import (
     CreateSessionRequest,
@@ -24,6 +21,7 @@ from app.services.agent.personas import (
     available_persona_ids,
     get_persona,
 )
+from app.services.agent.response_parser import ResponseParser
 
 
 router = APIRouter(tags=["sessions"])
@@ -123,10 +121,15 @@ def _session_item_from_record(record: ChatSessionRecord) -> SessionItem:
 
 
 def _conversation_item_from_record(record: ConversationRecord) -> ConversationItem:
-    """把数据库里的对话记录转换成历史消息响应对象。"""
+    """把数据库里的对话记录转换成历史消息响应对象。
 
-    reply_data = json.loads(record.reply_json)
-    reply = TutorReply.model_validate(reply_data)
+    按 reply_format 显式分发解析，旧 json_v1 与新 markdown_v2 均可读。
+    """
+
+    reply = ResponseParser().parse_stored_reply(
+        record.reply_json,
+        record.reply_format,
+    )
 
     return ConversationItem(
         id=record.id,

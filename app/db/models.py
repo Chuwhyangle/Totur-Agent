@@ -130,6 +130,7 @@ class ConversationRecord:
     message: str
     reply_json: str
     created_at: str
+    reply_format: str = "json_v1"
 
 
 @dataclass

@@ -102,16 +102,8 @@ function ChatMessage({ role, text, reply, debug, isStreaming, streamingTool }) {
   const isAssistant = role === 'assistant'
   const rawAnswer = reply?.answer ?? text ?? ''
   const answer = rawAnswer !== '' ? rawAnswer : reply ? '暂时没有拿到有效回答。' : ''
-  // 旧版结构字段：只有存在实际内容时才显示，不生成默认假文案。
-  const nextTask = typeof reply?.next_task === 'string' ? reply.next_task.trim() : ''
-  const exercise = typeof reply?.exercise === 'string' ? reply.exercise.trim() : ''
-  const checkpoints = Array.isArray(reply?.checkpoints)
-    ? reply.checkpoints.filter((item) => typeof item === 'string' && item.trim())
-    : []
   const sources = Array.isArray(reply?.sources) ? reply.sources : []
   const toolTrace = debug?.responseBody?.tool_trace
-
-  const showLegacyCards = Boolean(nextTask || exercise)
 
   // Streaming state: show partial text with cursor
   const showStreaming = isStreaming && !reply
@@ -144,30 +136,6 @@ function ChatMessage({ role, text, reply, debug, isStreaming, streamingTool }) {
             <div className="answer-text">
               <MarkdownAnswer answer={answer} sources={sources} />
             </div>
-            {showLegacyCards ? (
-              <div className="reply-grid">
-                {nextTask ? (
-                  <section className="reply-section reply-next">
-                    <span className="reply-icon"><Icon name="chevron" size={15} /></span>
-                    <div><span className="reply-label">下一步</span><p>{nextTask}</p></div>
-                  </section>
-                ) : null}
-                {exercise ? (
-                  <section className="reply-section reply-exercise">
-                    <span className="reply-icon"><Icon name="target" size={15} /></span>
-                    <div><span className="reply-label">练习</span><p>{exercise}</p></div>
-                  </section>
-                ) : null}
-              </div>
-            ) : null}
-            {checkpoints.length > 0 ? (
-              <section className="checkpoint-section">
-                <span className="reply-label">检查点</span>
-                <ul className="checkpoint-list">
-                  {checkpoints.map((checkpoint) => <li key={checkpoint}><Icon name="check" size={14} />{checkpoint}</li>)}
-                </ul>
-              </section>
-            ) : null}
             <SourceCards sources={sources} />
           </div>
         ) : <p className="user-text">{text}</p>}

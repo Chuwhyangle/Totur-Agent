@@ -123,7 +123,7 @@ def list_conversations_after(
     """按时间从旧到新读取某个会话中 id 大于 after_id 的对话。"""
 
     select_sql = f"""
-    SELECT id, session_id, user_id, message, reply_json, created_at
+    SELECT id, session_id, user_id, message, reply_json, reply_format, created_at
     FROM {CONVERSATIONS_TABLE}
     WHERE session_id = :session_id AND id > :after_id
     ORDER BY id ASC
@@ -160,5 +160,6 @@ def _conversation_from_row(row) -> ConversationRecord:
         user_id=row["user_id"],
         message=row["message"],
         reply_json=row["reply_json"],
+        reply_format=row["reply_format"],
         created_at=row["created_at"],
     )

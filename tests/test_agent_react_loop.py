@@ -10,14 +10,9 @@ from app.services import memory_settings
 from app.services.agent.react_orchestrator import ReactOrchestrator, StreamEvent
 
 
-FINAL_REPLY = """
-{
-  "answer": "已经完成分析。",
-  "next_task": "整理下一步。",
-  "exercise": "写一个小练习。",
-  "checkpoints": ["能解释目标", "能说明依据", "能执行下一步"]
-}
-"""
+FINAL_REPLY = """## 结论
+
+已经完成分析，工具结果已作为依据。"""
 
 
 class StubToolRegistry:
@@ -815,10 +810,16 @@ def test_streamed_reply_matches_generator_return_value():
     orchestrator = make_orchestrator()
     orchestrator._call_model_with_tools = lambda _messages: final_message("preflight reply")
 
-    def fake_stream_round(messages, *, tool_choice=None):
+    def fake_stream_round(messages, *, tool_choice=None, content_prefix=""):
+        if content_prefix:
+            yield StreamEvent(type="token", data={"text": content_prefix})
         yield StreamEvent(type="token", data={"text": "streamed "})
         yield StreamEvent(type="token", data={"text": "reply"})
-        return SimpleNamespace(content="streamed reply", reasoning="", tool_calls=[])
+        return SimpleNamespace(
+            content=f"{content_prefix}streamed reply",
+            reasoning="",
+            tool_calls=[],
+        )
 
     orchestrator._stream_round = fake_stream_round
 
@@ -866,3 +867,147 @@ def test_stream_final_reply_closes_upstream_stream_when_cancelled():
     stream.close()
 
     assert upstream_stream.closed is True
+
+
+def test_run_separates_pre_tool_text_from_final_markdown_with_blank_lines():
+    """非流式：工具调用前正文与最终 Markdown 标题之间必须有换行分隔。"""
+
+    registry = StubToolRegistry({"lookup": lookup_tool})
+    orchestrator = make_orchestrator(registry)
+    model_call_count = 0
+
+    def fake_call_model_with_tools(messages):
+        nonlocal model_call_count
+        model_call_count += 1
+        if model_call_count == 1:
+            return {
+                "content": "我先查一下",
+                "tool_calls": [tool_call("lookup", {"query": "agent"})],
+            }
+        return final_message("## 结论\n\n查到了，基于 [web_1]。")
+
+    orchestrator._call_model_with_tools = fake_call_model_with_tools
+
+    raw_reply, tool_trace = orchestrator.run(
+        [{"role": "user", "content": "查一下 agent。"}]
+    )
+
+    assert raw_reply == "我先查一下\n\n## 结论\n\n查到了，基于 [web_1]。"
+    assert tool_trace.used is True
+
+
+def test_run_keeps_content_from_multiple_tool_rounds_in_order():
+    """非流式：多个工具轮次之间与最终正文都按到达顺序拼接，不丢失。"""
+
+    registry = StubToolRegistry({"lookup": lookup_tool, "score": score_tool})
+    orchestrator = make_orchestrator(registry)
+    model_calls = []
+
+    def fake_call_model_with_tools(messages):
+        model_calls.append(messages)
+        if len(model_calls) == 1:
+            return {
+                "content": "第一步先查笔记。",
+                "tool_calls": [tool_call("lookup", {"query": "agent"})],
+            }
+        if len(model_calls) == 2:
+            return {
+                "content": "再算一下匹配度。",
+                "tool_calls": [tool_call("score", {"topic": "agent"}, "call_2")],
+            }
+        return final_message("## 最终结论\n\n分析完毕。")
+
+    orchestrator._call_model_with_tools = fake_call_model_with_tools
+
+    raw_reply, tool_trace = orchestrator.run(
+        [{"role": "user", "content": "查资料并评分。"}]
+    )
+
+    assert raw_reply == (
+        "第一步先查笔记。\n\n再算一下匹配度。\n\n## 最终结论\n\n分析完毕。"
+    )
+    assert [call.name for call in tool_trace.calls] == ["lookup", "score"]
+
+
+def test_run_stream_separator_tokens_match_final_reply_exactly():
+    """流式：分隔符作为 token 发出，token 拼接结果必须等于最终落库 answer。"""
+
+    registry = StubToolRegistry({"lookup": lookup_tool})
+    orchestrator = make_orchestrator(registry)
+    round_number = 0
+
+    def fake_stream_round(messages, *, tool_choice=None, content_prefix=""):
+        """第一轮输出工具前正文 + 工具调用；第二轮输出带前缀的最终正文。"""
+
+        nonlocal round_number
+        round_number += 1
+        if round_number == 1:
+            yield StreamEvent(type="token", data={"text": "我先查一下"})
+            return SimpleNamespace(
+                content="我先查一下",
+                reasoning="",
+                tool_calls=[tool_call("lookup", {"query": "agent"})],
+            )
+
+        if content_prefix:
+            yield StreamEvent(type="token", data={"text": content_prefix})
+        yield StreamEvent(type="token", data={"text": "## 结论"})
+        yield StreamEvent(type="token", data={"text": "\n\n查到了。"})
+        return SimpleNamespace(
+            content=f"{content_prefix}## 结论\n\n查到了。",
+            reasoning="",
+            tool_calls=[],
+        )
+
+    orchestrator._stream_round = fake_stream_round
+
+    stream = orchestrator.run_stream(
+        [{"role": "user", "content": "查一下 agent。"}]
+    )
+    token_text = []
+    while True:
+        try:
+            event = next(stream)
+            if event.type == "token":
+                token_text.append(event.data["text"])
+        except StopIteration as stop:
+            raw_reply, tool_trace = stop.value
+            break
+
+    assert "".join(token_text) == "我先查一下\n\n## 结论\n\n查到了。"
+    assert raw_reply == "".join(token_text)
+    assert tool_trace.used is True
+
+
+def test_stream_round_emits_content_prefix_once_before_first_token():
+    """_stream_round 只在真正产出内容时发出一次前缀 token。"""
+
+    class Chunks:
+        def __iter__(self):
+            return iter([
+                SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(content="第一"))]),
+                SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(content="部分"))]),
+            ])
+
+    orchestrator = make_orchestrator()
+    orchestrator.client = SimpleNamespace(
+        chat=SimpleNamespace(
+            completions=SimpleNamespace(create=lambda **_kwargs: Chunks()),
+        ),
+    )
+
+    stream = orchestrator._stream_round([], content_prefix="\n\n")
+    tokens = []
+    result = None
+    while True:
+        try:
+            event = next(stream)
+            if event.type == "token":
+                tokens.append(event.data["text"])
+        except StopIteration as stop:
+            result = stop.value
+            break
+
+    assert tokens == ["\n\n", "第一", "部分"]
+    assert result.content == "\n\n第一部分"
+    assert result.tool_calls == []

@@ -77,9 +77,6 @@ function mockAppBootstrap() {
       session_id: 'session-1',
       reply: {
         answer: 'done',
-        next_task: 'next',
-        exercise: 'exercise',
-        checkpoints: [],
         sources: [],
       },
     },
@@ -468,9 +465,6 @@ describe('App SSE sending', () => {
         session_id: 'session-1',
         reply: {
           answer: '最终回复',
-          next_task: '',
-          exercise: '',
-          checkpoints: [],
           sources: [],
         },
       })
@@ -499,7 +493,7 @@ describe('App SSE sending', () => {
       callbacks.onToken('最终正文')
       callbacks.onDone({
         session_id: 'session-1',
-        reply: { answer: '最终正文', next_task: '', exercise: '', checkpoints: [], sources: [] },
+        reply: { answer: '最终正文', sources: [] },
       })
     })
 
@@ -532,7 +526,7 @@ describe('App SSE sending', () => {
       callbacks.onToken('## 结论\n')
       callbacks.onDone({
         session_id: 'session-1',
-        reply: { answer: '## 最终答案\n\n来自 done.reply', next_task: '', exercise: '', checkpoints: [], sources: [] },
+        reply: { answer: '## 最终答案\n\n来自 done.reply', sources: [] },
       })
     })
 

@@ -67,14 +67,10 @@ class Source(BaseModel):
 
 
 class TutorReply(BaseModel):
-    """模型返回的结构化导师回复。"""
+    """导师回复：Markdown 正文 + 服务端校验后的来源列表。"""
 
     answer: str
-    next_task: str
-    exercise: str
-    checkpoints: list[str]
     sources: list[Source] = Field(default_factory=list)
-    source_ids: list[str] = Field(default_factory=list, exclude=True)
 
 
 class ToolResultPreview(BaseModel):
