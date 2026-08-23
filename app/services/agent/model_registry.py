@@ -29,6 +29,16 @@ class ModelSpec:
 
 
 MODEL_CATALOG: dict[str, ModelSpec] = {
+    "minimax-m2.7": ModelSpec(
+        model_id="minimax-m2.7",
+        display_name="MiniMax M2.7 · 通用",
+        description="OpenAI 兼容中转（generalcompute）上的通用模型",
+        provider="openai",
+        api_model="minimax-m2.7",
+        supports_tools=True,
+        supports_thinking=False,
+        concurrency_hint=500,
+    ),
     "ds-flash-fast": ModelSpec(
         model_id="ds-flash-fast",
         display_name="DeepSeek Flash · 快速",
