@@ -62,6 +62,7 @@ class AssetService:
         original_filename: str,
         media_type: str,
     ) -> tuple[WorkspaceAssetRecord, bool]:
+        normalized_media_type = media_type.strip().lower()
         workspace = self.workspace_service.require_active_owned_workspace(user_id=user_id, workspace_id=workspace_id)
         if asset_repository.count_active_assets(workspace.id) >= self.settings.max_files:
             raise AssetLimitError("Workspace asset limit reached")
@@ -72,14 +73,14 @@ class AssetService:
             workspace_id=workspace.id,
             asset_id=asset_id,
             original_filename=original_filename,
-            media_type=media_type,
+            media_type=normalized_media_type,
         )
         try:
             # Validate CSV/JSON/PDF content before creating a visible asset record.
             parse_asset(
                 self.storage.resolve(staged.staging_key),
                 asset_id=asset_id,
-                media_type=media_type,
+                media_type=normalized_media_type,
                 original_filename=original_filename,
                 settings=self.settings,
             )
@@ -88,7 +89,7 @@ class AssetService:
                 id=asset_id,
                 workspace_id=workspace.id,
                 original_filename=original_filename.strip(),
-                media_type=media_type.strip().lower(),
+                media_type=normalized_media_type,
                 size_bytes=staged.size_bytes,
                 storage_key=None,
                 parsed_storage_key=None,

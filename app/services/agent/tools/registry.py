@@ -13,9 +13,33 @@ from app.services.agent.tools.search_job_descriptions import search_job_descript
 from app.services.agent.tools.search_learning_notes import search_learning_notes
 from app.services.agent.tools.score_jd_skill_fit import score_jd_skill_fit
 from app.services.agent.tools.web_search import web_search
+from app.services.agent.tools.create_markdown_artifact import (
+    SCHEMA as CREATE_MARKDOWN_ARTIFACT_SCHEMA,
+    create_markdown_artifact,
+)
+from app.services.agent.tools.list_workspace_assets import (
+    SCHEMA as LIST_WORKSPACE_ASSETS_SCHEMA,
+    list_workspace_assets,
+)
+from app.services.agent.tools.read_workspace_asset import (
+    SCHEMA as READ_WORKSPACE_ASSET_SCHEMA,
+    read_workspace_asset,
+)
+from app.services.agent.tools.search_workspace_assets import (
+    SCHEMA as SEARCH_WORKSPACE_ASSETS_SCHEMA,
+    search_workspace_assets,
+)
 from app.services import rag_settings
 
 logger = logging.getLogger(__name__)
+
+WORKSPACE_TOOL_SCHEMAS = {
+    "list_workspace_assets": LIST_WORKSPACE_ASSETS_SCHEMA,
+    "read_workspace_asset": READ_WORKSPACE_ASSET_SCHEMA,
+    "search_workspace_assets": SEARCH_WORKSPACE_ASSETS_SCHEMA,
+    "create_markdown_artifact": CREATE_MARKDOWN_ARTIFACT_SCHEMA,
+}
+WORKSPACE_TOOL_NAMES = frozenset(WORKSPACE_TOOL_SCHEMAS)
 
 
 SEARCH_ATTACHMENTS_SCHEMA: dict[str, Any] = {
@@ -322,6 +346,10 @@ class ToolRegistry:
             "search_learning_notes": search_learning_notes,
             "score_jd_skill_fit": score_jd_skill_fit,
             "web_search": web_search,
+            "list_workspace_assets": list_workspace_assets,
+            "read_workspace_asset": read_workspace_asset,
+            "search_workspace_assets": search_workspace_assets,
+            "create_markdown_artifact": create_markdown_artifact,
         }
         self._mcp_client_adapter = mcp_client_adapter
         if self._mcp_client_adapter is None:
@@ -341,7 +369,7 @@ class ToolRegistry:
                 )
                 self._mcp_client_adapter = None
 
-    def get_tools_schema(self) -> list[dict[str, Any]]:
+    def get_tools_schema(self, execution_context=None) -> list[dict[str, Any]]:
         """Return OpenAI-compatible tool schemas."""
 
         learning_notes_schema = deepcopy(SEARCH_LEARNING_NOTES_SCHEMA)
@@ -364,6 +392,8 @@ class ToolRegistry:
                 schemas.extend(self._mcp_client_adapter.get_tools_schema())
             except Exception:
                 pass
+        if execution_context is not None and self.workspace_context_error(execution_context) is None:
+            schemas.extend(deepcopy(schema) for schema in WORKSPACE_TOOL_SCHEMAS.values())
         return schemas
 
     def has_tool(self, name: str) -> bool:
@@ -383,7 +413,38 @@ class ToolRegistry:
         except Exception:
             return False
 
-    def get_tool(self, name: str) -> Callable[..., dict[str, Any]] | None:
+    def is_workspace_tool(self, name: str) -> bool:
+        return name in WORKSPACE_TOOL_NAMES
+
+    def requires_execution_context(self, name: str) -> bool:
+        return self.is_workspace_tool(name)
+
+    def workspace_context_error(self, execution_context) -> str | None:
+        """Return a stable rejection code before a Workspace tool can run."""
+
+        if execution_context is None or execution_context.workspace_id is None:
+            return "workspace_context_required"
+        from app.services.workspaces.settings import is_workspaces_enabled
+        from app.services.workspaces.workspace_service import (
+            WorkspaceArchivedError,
+            WorkspaceNotFoundError,
+            WorkspaceService,
+        )
+
+        if not is_workspaces_enabled():
+            return "workspace_disabled"
+        try:
+            WorkspaceService().require_active_owned_workspace(
+                user_id=execution_context.user_id,
+                workspace_id=execution_context.workspace_id,
+            )
+        except WorkspaceArchivedError:
+            return "workspace_archived"
+        except WorkspaceNotFoundError:
+            return "workspace_context_required"
+        return None
+
+    def get_tool(self, name: str, execution_context=None) -> Callable[..., dict[str, Any]] | None:
         """Return a registered tool callable by name."""
 
         local_tool = self._tools.get(name)

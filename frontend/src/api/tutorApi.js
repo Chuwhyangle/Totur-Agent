@@ -23,6 +23,7 @@ const MODELS_URL = `${API_BASE_URL}/models`
 const PERSONAS_URL = `${API_BASE_URL}/personas`
 const SESSIONS_URL = `${API_BASE_URL}/sessions`
 const JOURNAL_URL = `${API_BASE_URL}/api/journal`
+const WORKSPACES_URL = `${API_BASE_URL}/workspaces`
 
 export class TutorApiError extends Error {
   constructor(message, { status = null, detail = null, responseBody = null, debug = null, cause = null } = {}) {
@@ -62,7 +63,7 @@ function createHttpError(message, response, responseBody, debug) {
 
 async function requestJson(url, options = {}, errorMessage = 'API request failed') {
   const startedAt = now()
-  const { debugRequestBody, ...fetchOptions } = options
+  const { debugRequestBody, responseType = 'json', ...fetchOptions } = options
   let response
 
   try {
@@ -79,7 +80,9 @@ async function requestJson(url, options = {}, errorMessage = 'API request failed
     throw new TutorApiError(errorMessage, { debug, cause })
   }
 
-  const responseBody = await readJsonSafely(response)
+  const responseBody = responseType === 'text'
+    ? await (response.text ? response.text() : readJsonSafely(response))
+    : await readJsonSafely(response)
   const debug = {
     url,
     method: fetchOptions.method ?? 'GET',
@@ -130,6 +133,15 @@ function buildAttachmentUrl(sessionId, attachmentId, userId) {
 function buildAttachmentRetryUrl(sessionId, attachmentId, userId) {
   const searchParams = new URLSearchParams({ user_id: userId })
   return `${SESSIONS_URL}/${sessionId}/attachments/${encodeURIComponent(attachmentId)}/retry?${searchParams.toString()}`
+}
+
+function buildWorkspaceQuery(userId, limit) {
+  return new URLSearchParams({ user_id: userId, limit: String(limit) })
+}
+
+function buildWorkspaceResourceUrl(workspaceId, resource, userId, limit) {
+  const searchParams = buildWorkspaceQuery(userId, limit)
+  return `${WORKSPACES_URL}/${encodeURIComponent(workspaceId)}/${resource}?${searchParams.toString()}`
 }
 
 export async function getHealth(options = {}) {
@@ -270,6 +282,109 @@ export function createSession(requestBody, options = {}) {
     debugRequestBody: requestBody,
     signal: options.signal,
   }, 'Create session failed')
+}
+
+export function createWorkspace(requestBody, options = {}) {
+  return requestJson(WORKSPACES_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(requestBody),
+    debugRequestBody: requestBody,
+    signal: options.signal,
+  }, 'Create Workspace failed')
+}
+
+export function getWorkspaces(userId, limit = 50, options = {}) {
+  const searchParams = buildWorkspaceQuery(userId, limit)
+  return requestJson(`${WORKSPACES_URL}?${searchParams.toString()}`, { signal: options.signal }, 'Workspace list request failed')
+}
+
+export function getWorkspace(workspaceId, userId, options = {}) {
+  const searchParams = new URLSearchParams({ user_id: userId })
+  return requestJson(`${WORKSPACES_URL}/${encodeURIComponent(workspaceId)}?${searchParams.toString()}`, { signal: options.signal }, 'Workspace request failed')
+}
+
+function updateWorkspace(workspaceId, action, userId, options = {}) {
+  const searchParams = new URLSearchParams({ user_id: userId })
+  return requestJson(`${WORKSPACES_URL}/${encodeURIComponent(workspaceId)}/${action}?${searchParams.toString()}`, {
+    method: 'POST',
+    signal: options.signal,
+  }, `Workspace ${action} failed`)
+}
+
+export function archiveWorkspace(workspaceId, userId, options = {}) {
+  return updateWorkspace(workspaceId, 'archive', userId, options)
+}
+
+export function restoreWorkspace(workspaceId, userId, options = {}) {
+  return updateWorkspace(workspaceId, 'restore', userId, options)
+}
+
+export function uploadWorkspaceAsset(workspaceId, userId, file, options = {}) {
+  const formData = new FormData()
+  formData.append('user_id', userId)
+  formData.append('file', file)
+  return requestJson(`${WORKSPACES_URL}/${encodeURIComponent(workspaceId)}/assets?user_id=${encodeURIComponent(userId)}`, {
+    method: 'POST',
+    body: formData,
+    signal: options.signal,
+  }, 'Workspace Asset upload failed')
+}
+
+export function getWorkspaceAssets(workspaceId, userId, options = {}) {
+  const url = buildWorkspaceResourceUrl(workspaceId, 'assets', userId, options.limit ?? 100)
+  return requestJson(url, { signal: options.signal }, 'Workspace Asset list request failed')
+}
+
+export function retryWorkspaceAsset(workspaceId, assetId, userId, options = {}) {
+  const searchParams = new URLSearchParams({ user_id: userId })
+  return requestJson(`${WORKSPACES_URL}/${encodeURIComponent(workspaceId)}/assets/${encodeURIComponent(assetId)}/retry?${searchParams.toString()}`, {
+    method: 'POST',
+    signal: options.signal,
+  }, 'Workspace Asset retry failed')
+}
+
+export function deleteWorkspaceAsset(workspaceId, assetId, userId, options = {}) {
+  const searchParams = new URLSearchParams({ user_id: userId })
+  return requestJson(`${WORKSPACES_URL}/${encodeURIComponent(workspaceId)}/assets/${encodeURIComponent(assetId)}?${searchParams.toString()}`, {
+    method: 'DELETE',
+    signal: options.signal,
+  }, 'Workspace Asset delete failed')
+}
+
+export function getWorkspaceAssetDownloadUrl(workspaceId, assetId, userId) {
+  const searchParams = new URLSearchParams({ user_id: userId })
+  return `${WORKSPACES_URL}/${encodeURIComponent(workspaceId)}/assets/${encodeURIComponent(assetId)}/download?${searchParams.toString()}`
+}
+
+export function getWorkspaceTasks(workspaceId, userId, options = {}) {
+  return requestJson(buildWorkspaceResourceUrl(workspaceId, 'tasks', userId, options.limit ?? 50), { signal: options.signal }, 'Workspace Task list request failed')
+}
+
+export function getWorkspaceTask(workspaceId, taskId, userId, options = {}) {
+  const searchParams = new URLSearchParams({ user_id: userId })
+  return requestJson(`${WORKSPACES_URL}/${encodeURIComponent(workspaceId)}/tasks/${encodeURIComponent(taskId)}?${searchParams.toString()}`, { signal: options.signal }, 'Workspace Task request failed')
+}
+
+export function getWorkspaceArtifacts(workspaceId, userId, options = {}) {
+  const searchParams = buildWorkspaceQuery(userId, options.limit ?? 50)
+  if (options.includeVersions) searchParams.set('include_versions', 'true')
+  return requestJson(`${WORKSPACES_URL}/${encodeURIComponent(workspaceId)}/artifacts?${searchParams.toString()}`, { signal: options.signal }, 'Workspace Artifact list request failed')
+}
+
+export function getWorkspaceArtifact(workspaceId, artifactId, userId, options = {}) {
+  const searchParams = new URLSearchParams({ user_id: userId })
+  return requestJson(`${WORKSPACES_URL}/${encodeURIComponent(workspaceId)}/artifacts/${encodeURIComponent(artifactId)}?${searchParams.toString()}`, { signal: options.signal }, 'Workspace Artifact request failed')
+}
+
+export function getWorkspaceArtifactContent(workspaceId, artifactId, userId, options = {}) {
+  const searchParams = new URLSearchParams({ user_id: userId })
+  return requestJson(`${WORKSPACES_URL}/${encodeURIComponent(workspaceId)}/artifacts/${encodeURIComponent(artifactId)}/content?${searchParams.toString()}`, { signal: options.signal, responseType: 'text' }, 'Workspace Artifact content request failed')
+}
+
+export function getWorkspaceArtifactDownloadUrl(workspaceId, artifactId, userId) {
+  const searchParams = new URLSearchParams({ user_id: userId })
+  return `${WORKSPACES_URL}/${encodeURIComponent(workspaceId)}/artifacts/${encodeURIComponent(artifactId)}/download?${searchParams.toString()}`
 }
 
 export function createInterviewJD(requestBody, options = {}) {

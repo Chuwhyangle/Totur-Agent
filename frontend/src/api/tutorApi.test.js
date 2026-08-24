@@ -5,6 +5,15 @@ import {
   TutorApiError,
   deleteAttachment,
   getAttachments,
+  getWorkspaceArtifactContent,
+  getWorkspaceAssetDownloadUrl,
+  getWorkspaceAssets,
+  getWorkspaceTasks,
+  getWorkspaces,
+  createWorkspace,
+  uploadWorkspaceAsset,
+  retryWorkspaceAsset,
+  deleteWorkspaceAsset,
   postChat,
   postChatStream,
   retryAttachment,
@@ -116,6 +125,50 @@ describe('tutorApi attachment API', () => {
     const [, options] = fetch.mock.calls[0]
     expect(options.headers).toEqual({ 'Content-Type': 'application/json' })
     expect(JSON.parse(options.body)).toEqual(requestBody)
+  })
+})
+
+describe('tutorApi Workspace API', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('uses Workspace lifecycle and list URLs with the user query', async () => {
+    fetch.mockResolvedValue(jsonResponse({ items: [] }))
+    await getWorkspaces('user one')
+    expect(fetch.mock.calls[0][0]).toBe(`${API_BASE_URL}/workspaces?user_id=user+one&limit=50`)
+
+    fetch.mockResolvedValue(jsonResponse({ id: 'w1' }, 201))
+    await createWorkspace({ user_id: 'user one', name: 'Project' })
+    expect(fetch.mock.calls[1][0]).toBe(`${API_BASE_URL}/workspaces`)
+    expect(JSON.parse(fetch.mock.calls[1][1].body)).toEqual({ user_id: 'user one', name: 'Project' })
+  })
+
+  it('supports Asset, Task, and Markdown content endpoints', async () => {
+    fetch.mockResolvedValueOnce(jsonResponse({ asset: { id: 'a1' } }, 202))
+      .mockResolvedValueOnce(jsonResponse({ items: [] }))
+      .mockResolvedValueOnce(jsonResponse({ id: 'a1', status: 'PROCESSING' }, 202))
+      .mockResolvedValueOnce(jsonResponse({ id: 'a1', status: 'DELETED' }))
+      .mockResolvedValueOnce(jsonResponse({ items: [] }))
+      .mockResolvedValueOnce(jsonResponse({ items: [] }))
+      .mockResolvedValueOnce({ ok: true, status: 200, text: vi.fn().mockResolvedValue('# report') })
+
+    await uploadWorkspaceAsset('w/1', 'user one', new File(['notes'], 'notes.md', { type: 'text/markdown' }))
+    await getWorkspaceAssets('w/1', 'user one')
+    await retryWorkspaceAsset('w/1', 'a/1', 'user one')
+    await deleteWorkspaceAsset('w/1', 'a/1', 'user one')
+    await getWorkspaceTasks('w/1', 'user one')
+    await getWorkspaceArtifactContent('w/1', 'art/1', 'user one')
+
+    expect(fetch.mock.calls[0][0]).toContain('/workspaces/w%2F1/assets?user_id=user%20one')
+    expect(fetch.mock.calls[2][1].method).toBe('POST')
+    expect(fetch.mock.calls[3][1].method).toBe('DELETE')
+    expect(fetch.mock.calls[5][0]).toContain('/workspaces/w%2F1/artifacts/art%2F1/content')
+    expect(getWorkspaceAssetDownloadUrl('w/1', 'a/1', 'user one')).toContain('/workspaces/w%2F1/assets/a%2F1/download')
   })
 })
 

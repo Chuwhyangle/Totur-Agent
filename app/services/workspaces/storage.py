@@ -32,6 +32,10 @@ class UnsupportedWorkspaceAssetType(WorkspaceStorageError):
     """The filename, MIME type, or leading bytes are not supported."""
 
 
+class InvalidWorkspaceAssetContent(WorkspaceStorageError):
+    """The upload type is supported but its bytes are invalid."""
+
+
 class WorkspaceAssetTooLarge(WorkspaceStorageError):
     """The upload exceeded the configured byte limit."""
 
@@ -204,19 +208,19 @@ class WorkspaceStorage:
     def _validate_content(extension: str, leading: bytes, path: Path, media_type: str) -> None:
         if extension == ".pdf":
             if not leading.startswith(b"%PDF-"):
-                raise UnsupportedWorkspaceAssetType("Invalid PDF content")
+                raise InvalidWorkspaceAssetContent("Invalid PDF content")
             try:
                 import pymupdf
 
                 document = pymupdf.open(path)
                 document.close()
             except Exception as exc:
-                raise UnsupportedWorkspaceAssetType("Invalid PDF content") from exc
+                raise InvalidWorkspaceAssetContent("Invalid PDF content") from exc
         else:
             try:
                 path.read_text(encoding="utf-8")
             except (UnicodeDecodeError, OSError) as exc:
-                raise UnsupportedWorkspaceAssetType("Text asset must be UTF-8") from exc
+                raise InvalidWorkspaceAssetContent("Text asset must be UTF-8") from exc
 
     def _prepare_parent(self, path: Path) -> None:
         self._reject_symlink_components(path.parent)

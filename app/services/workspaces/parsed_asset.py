@@ -12,6 +12,16 @@ class ParsedAsset:
     parser_version: str
     segments: tuple[dict[str, object], ...]
 
+    def __post_init__(self) -> None:
+        """Normalize IDs once after a parser has produced all segments."""
+
+        normalized = []
+        for index, raw_segment in enumerate(self.segments, start=1):
+            segment = dict(raw_segment)
+            segment["segment_id"] = f"s{index:06d}"
+            normalized.append(segment)
+        object.__setattr__(self, "segments", tuple(normalized))
+
     def to_dict(self) -> dict[str, object]:
         text_chars = sum(len(str(segment["text"])) for segment in self.segments)
         return {

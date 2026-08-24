@@ -9,6 +9,7 @@ from typing import Any
 from app.db import trace_db
 from app.services import timings
 from app.services.agent.tools.registry import ToolRegistry
+from app.services.agent.tools.workspace_common import WorkspaceToolError
 from app.services.tool_metrics import observe_tool_call
 
 RAG_TOOL_NAME = "search_learning_notes"
@@ -34,10 +35,32 @@ class ToolExecutor:
             name: dict(kwargs) for name, kwargs in default_tool_kwargs.items()
         }
 
-    def execute(self, name: str, arguments: dict[str, Any] | str) -> dict[str, Any]:
+    def execute(
+        self,
+        name: str,
+        arguments: dict[str, Any] | str,
+        execution_context=None,
+        tool_call_id: str | None = None,
+    ) -> dict[str, Any]:
         """Execute one tool call and always return a structured result."""
 
-        tool = self.registry.get_tool(name)
+        requires_context = self._requires_execution_context(name)
+        context_error = self._workspace_context_error(name, execution_context)
+        if context_error is not None:
+            self._record_tool_call(
+                name,
+                arguments,
+                ok=False,
+                error_code=context_error,
+                cost_ms=0,
+            )
+            return {
+                "ok": False,
+                "error": context_error,
+                "message": f"Workspace tool rejected: {context_error}",
+            }
+
+        tool = self._get_tool(name, execution_context)
         if tool is None:
             self._record_tool_call(
                 name,
@@ -70,6 +93,18 @@ class ToolExecutor:
         merged_arguments = dict(self.default_tool_kwargs.get(name, {}))
         merged_arguments.update(parsed_arguments)
 
+        recorder = getattr(execution_context, "task_recorder", None) if requires_context else None
+        step_id = None
+        owns_step = False
+        if recorder is not None:
+            step = recorder.start_step(
+                tool_call_id=tool_call_id or f"tool_call_{name}",
+                tool_name=name,
+                input_summary=json.dumps(parsed_arguments, ensure_ascii=False)[:1000],
+            )
+            step_id = step.id
+            owns_step = getattr(step.status, "value", step.status) == "RUNNING"
+
         bucket = "retrieval" if name == RAG_TOOL_NAME else "tool_other"
         started_at = time.perf_counter()
         ok = False
@@ -83,9 +118,25 @@ class ToolExecutor:
                     ok = _result_ok(result)
                 else:
                     with observe_tool_call(name, "internal") as metric:
-                        result = tool(**merged_arguments)
+                        if requires_context:
+                            result = tool(
+                                **merged_arguments,
+                                execution_context=execution_context,
+                                tool_call_id=tool_call_id or f"tool_call_{name}",
+                            )
+                        else:
+                            result = tool(**merged_arguments)
                         ok = _result_ok(result)
                         metric.set_ok(ok)
+                if recorder is not None and step_id is not None and owns_step:
+                    if ok:
+                        recorder.finish_step(step_id, _result_summary(result))
+                    else:
+                        recorder.fail_step(
+                            step_id,
+                            error_code=(result.get("error") if isinstance(result, dict) else "tool_failed"),
+                            output_summary=_result_summary(result),
+                        )
         except TypeError as exc:
             error_code = "invalid_arguments"
             result = {
@@ -93,6 +144,13 @@ class ToolExecutor:
                 "error": "invalid_arguments",
                 "message": f"invalid tool arguments: {exc}",
             }
+            if recorder is not None and step_id is not None and owns_step:
+                recorder.fail_step(step_id, error_code=error_code, output_summary=result["message"])
+        except WorkspaceToolError as exc:
+            error_code = exc.error_code
+            result = {"ok": False, "error": error_code, "message": str(exc)}
+            if recorder is not None and step_id is not None and owns_step:
+                recorder.fail_step(step_id, error_code=error_code, output_summary=str(exc))
         except Exception as exc:  # pragma: no cover - defensive boundary.
             error_code = "tool_execution_failed"
             result = {
@@ -100,6 +158,8 @@ class ToolExecutor:
                 "error": "tool_execution_failed",
                 "message": f"tool execution failed: {exc}",
             }
+            if recorder is not None and step_id is not None and owns_step:
+                recorder.fail_step(step_id, error_code=error_code, output_summary=str(exc))
         finally:
             self._record_tool_call(
                 name,
@@ -110,6 +170,25 @@ class ToolExecutor:
             )
 
         return result
+
+    def _get_tool(self, name: str, execution_context):
+        getter = getattr(self.registry, "get_tool")
+        try:
+            return getter(name, execution_context=execution_context)
+        except TypeError:
+            return getter(name)
+
+    def _requires_execution_context(self, name: str) -> bool:
+        checker = getattr(self.registry, "requires_execution_context", None)
+        return bool(checker(name)) if callable(checker) else False
+
+    def _workspace_context_error(self, name: str, execution_context) -> str | None:
+        if not self._requires_execution_context(name):
+            return None
+        checker = getattr(self.registry, "workspace_context_error", None)
+        if callable(checker):
+            return checker(execution_context)
+        return "workspace_context_required" if execution_context is None else None
 
     def _record_tool_call(
         self,
@@ -181,3 +260,13 @@ class ToolExecutor:
 def _result_ok(result: Any) -> bool:
     """工具返回 dict 时看 ok 字段；非 dict（MCP 等）视为成功。"""
     return bool(result.get("ok")) if isinstance(result, dict) else True
+
+
+def _result_summary(result: Any) -> str:
+    if isinstance(result, dict):
+        if result.get("error"):
+            return str(result["error"])[:1000]
+        if result.get("summary"):
+            return json.dumps(result["summary"], ensure_ascii=False)[:1000]
+        return "ok"
+    return "ok"

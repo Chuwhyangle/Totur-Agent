@@ -134,6 +134,12 @@ class TaskService:
             raise TaskStateError("Task could not be failed")
         return task_repository.get_task(task_id) or task
 
+    def add_warning(self, *, user_id: str, workspace_id: str, task_id: str) -> WorkspaceTaskRecord:
+        task = self.get_owned_task(user_id=user_id, workspace_id=workspace_id, task_id=task_id)
+        if task.status is WorkspaceTaskStatus.RUNNING:
+            task_repository.increment_warning_count(task_id)
+        return task_repository.get_task(task_id) or task
+
     def list_steps(self, task_id: str) -> list[WorkspaceTaskStepRecord]:
         return task_repository.list_task_steps(task_id)
 

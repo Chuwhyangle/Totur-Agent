@@ -1,6 +1,6 @@
 """Workspace Asset upload, lifecycle, and download API."""
 
-from fastapi import APIRouter, BackgroundTasks, File, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, File, HTTPException, Query, Response, UploadFile, status
 from fastapi.responses import FileResponse
 
 from app.db.models import WorkspaceAssetRecord
@@ -19,6 +19,7 @@ from app.services.workspaces.storage import (
     InvalidWorkspaceFilename,
     UnsupportedWorkspaceAssetType,
     WorkspaceAssetTooLarge,
+    InvalidWorkspaceAssetContent,
     WorkspaceStorageError,
 )
 from app.services.workspaces.workspace_service import WorkspaceArchivedError, WorkspaceNotFoundError
@@ -29,7 +30,7 @@ asset_service = AssetService()
 
 
 @router.post("/workspaces/{workspace_id}/assets", response_model=WorkspaceAssetUploadResponse, status_code=status.HTTP_202_ACCEPTED)
-def upload_asset(workspace_id: str, background_tasks: BackgroundTasks, user_id: str = Query(..., min_length=1), file: UploadFile = File(...)) -> WorkspaceAssetUploadResponse:
+def upload_asset(workspace_id: str, response: Response, background_tasks: BackgroundTasks, user_id: str = Query(..., min_length=1), file: UploadFile = File(...)) -> WorkspaceAssetUploadResponse:
     try:
         record, duplicate = asset_service.upload(
             user_id=user_id,
@@ -40,12 +41,16 @@ def upload_asset(workspace_id: str, background_tasks: BackgroundTasks, user_id: 
         )
         if not duplicate:
             background_tasks.add_task(process_workspace_asset, record.id)
+        else:
+            response.status_code = status.HTTP_200_OK
         return WorkspaceAssetUploadResponse(asset=_item(record), duplicate=duplicate)
     except (WorkspaceNotFoundError, AssetNotFoundError) as exc:
         raise _not_found() from exc
     except WorkspaceArchivedError as exc:
         raise _error(409, "workspace_archived", workspace_id) from exc
-    except (InvalidWorkspaceFilename, UnsupportedWorkspaceAssetType, ValueError, UnicodeError) as exc:
+    except UnsupportedWorkspaceAssetType as exc:
+        raise _error(415, "unsupported_asset_type", str(exc)) from exc
+    except (InvalidWorkspaceFilename, InvalidWorkspaceAssetContent, ValueError, UnicodeError) as exc:
         raise _error(422, "invalid_asset_content", str(exc)) from exc
     except WorkspaceAssetTooLarge as exc:
         raise _error(413, "asset_too_large", str(exc)) from exc

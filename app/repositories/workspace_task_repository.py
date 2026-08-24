@@ -102,6 +102,14 @@ def fail_task(task_id: str, *, error_code: str, conn: Connection | None = None) 
     return _finish_task(task_id, "FAILED", error_code, conn=conn)
 
 
+def increment_warning_count(task_id: str, *, conn: Connection | None = None) -> bool:
+    result = _execute(
+        f"UPDATE {TASKS_TABLE} SET warning_count = warning_count + 1, updated_at = :updated_at WHERE id = :id AND status = 'RUNNING'",
+        {"id": task_id, "updated_at": _now()}, conn=conn, write=True,
+    )
+    return result.rowcount == 1
+
+
 def list_task_steps(task_id: str, *, conn: Connection | None = None) -> list[WorkspaceTaskStepRecord]:
     rows = _fetch_all(f"SELECT {_STEP_COLUMNS} FROM {TASK_STEPS_TABLE} WHERE task_id = :task_id ORDER BY sequence_no", {"task_id": task_id}, conn=conn)
     return [_step_from_row(row) for row in rows]

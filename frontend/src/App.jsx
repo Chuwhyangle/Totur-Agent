@@ -3,7 +3,9 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   createInterviewJD,
   createSession,
+  createWorkspace,
   deleteAttachment,
+  deleteWorkspaceAsset,
   getAttachments,
   getHealth,
   getInterviewJDs,
@@ -11,10 +13,21 @@ import {
   getPersonas,
   getSessionConversations,
   getSessions,
+  getWorkspaceArtifactContent,
+  getWorkspaceArtifactDownloadUrl,
+  getWorkspaceArtifacts,
+  getWorkspaceAssetDownloadUrl,
+  getWorkspaceAssets,
+  getWorkspaceTasks,
+  getWorkspaces,
   postChat,
   postChatStream,
   retryAttachment,
+  retryWorkspaceAsset,
   uploadAttachment,
+  uploadWorkspaceAsset,
+  archiveWorkspace,
+  restoreWorkspace,
   API_BASE_URL,
 } from './api/tutorApi.js'
 import ApiStatus from './components/ApiStatus.jsx'
@@ -27,6 +40,7 @@ import ModelSelector from './components/ModelSelector.jsx'
 import PersonaSelector from './components/PersonaSelector.jsx'
 import SessionSidebar from './components/SessionSidebar.jsx'
 import UserIdInput from './components/UserIdInput.jsx'
+import WorkspacePanel from './components/workspaces/WorkspacePanel.jsx'
 import { useAttachmentPolling } from './hooks/useAttachmentPolling.js'
 import {
   addSelectedAttachmentId,
@@ -127,6 +141,23 @@ function App() {
   const [attachmentActionStates, setAttachmentActionStates] = useState({})
   const [attachmentActionErrors, setAttachmentActionErrors] = useState({})
   const [isUploadingAttachment, setIsUploadingAttachment] = useState(false)
+  const [workspaceFeatureStatus, setWorkspaceFeatureStatus] = useState('idle')
+  const [workspaces, setWorkspaces] = useState([])
+  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState(null)
+  const [workspacePanelOpen, setWorkspacePanelOpen] = useState(false)
+  const [workspaceAssets, setWorkspaceAssets] = useState([])
+  const [workspaceAssetsStatus, setWorkspaceAssetsStatus] = useState('idle')
+  const [workspaceAssetsError, setWorkspaceAssetsError] = useState('')
+  const [workspaceAssetActionStates, setWorkspaceAssetActionStates] = useState({})
+  const [workspaceTasks, setWorkspaceTasks] = useState([])
+  const [workspaceTasksStatus, setWorkspaceTasksStatus] = useState('idle')
+  const [workspaceTasksError, setWorkspaceTasksError] = useState('')
+  const [workspaceArtifacts, setWorkspaceArtifacts] = useState([])
+  const [workspaceArtifactsStatus, setWorkspaceArtifactsStatus] = useState('idle')
+  const [workspaceArtifactsError, setWorkspaceArtifactsError] = useState('')
+  const [selectedArtifact, setSelectedArtifact] = useState(null)
+  const [artifactContent, setArtifactContent] = useState('')
+  const [artifactContentLoading, setArtifactContentLoading] = useState(false)
   const threadRef = useRef(null)
   const attachmentScopeKeyRef = useRef('')
   const attachmentListRequestIdRef = useRef(0)
@@ -134,15 +165,19 @@ function App() {
   const sessionMessageRequestIdRef = useRef(0)
   const sessionCreateRequestIdRef = useRef(0)
   const streamAbortControllerRef = useRef(null)
+  const workspaceRequestIdRef = useRef(0)
 
+  const activeSession = sessions.find((session) => session.id === activeSessionId)
   const attachmentSendBlockReason = getAttachmentSendBlockReason(
     attachments,
     selectedAttachmentIds,
   )
+  const activeSessionWorkspace = workspaces.find((workspace) => workspace.id === activeSession?.workspace_id)
   const canSend = draftMessage.trim().length > 0
     && userId.trim().length > 0
     && !isSending
     && !attachmentSendBlockReason
+    && activeSessionWorkspace?.status !== 'ARCHIVED'
 
   function updateApiStatusAfterError(error) {
     setApiStatus(shouldMarkApiOffline(error) ? 'offline' : 'online')
@@ -224,6 +259,7 @@ function App() {
     setActiveSessionId(null)
     setActiveSessionStatus('idle')
     setMessages([])
+    setSelectedWorkspaceId(null)
   }
 
   function handleUserIdChange(nextUserId) {
@@ -237,6 +273,12 @@ function App() {
     setActiveSessionStatus('idle')
     setInterviewJDs([])
     setInterviewJDsStatus('idle')
+    workspaceRequestIdRef.current += 1
+    setWorkspaces([])
+    setSelectedWorkspaceId(null)
+    setWorkspaceAssets([])
+    setWorkspaceTasks([])
+    setWorkspaceArtifacts([])
   }
 
   function buildMessagesFromHistoryItems(items) {
@@ -276,6 +318,166 @@ function App() {
       return []
     }
   }, [userId])
+
+  const loadWorkspaces = useCallback(async ({ silent = false } = {}) => {
+    const trimmedUserId = userId.trim()
+    if (!trimmedUserId) {
+      setWorkspaces([])
+      setWorkspaceFeatureStatus('idle')
+      return []
+    }
+    if (!silent) setWorkspaceFeatureStatus('loading')
+    try {
+      const { data } = await getWorkspaces(trimmedUserId)
+      const nextWorkspaces = Array.isArray(data?.items) ? data.items : []
+      setWorkspaces(nextWorkspaces)
+      setWorkspaceFeatureStatus('available')
+      setSelectedWorkspaceId((currentId) => currentId && nextWorkspaces.some((item) => item.id === currentId) ? currentId : null)
+      return nextWorkspaces
+    } catch {
+      setWorkspaces([])
+      setSelectedWorkspaceId(null)
+      setWorkspaceFeatureStatus('error')
+      return []
+    }
+  }, [userId])
+
+  const loadWorkspaceAssets = useCallback(async ({ signal, workspaceId = selectedWorkspaceId } = {}) => {
+    const trimmedUserId = userId.trim()
+    if (!trimmedUserId || !workspaceId) return []
+    const requestId = workspaceRequestIdRef.current
+    if (workspaceAssets.length === 0) setWorkspaceAssetsStatus('loading')
+    try {
+      const { data } = await getWorkspaceAssets(workspaceId, trimmedUserId, { signal })
+      if (requestId !== workspaceRequestIdRef.current) return []
+      const items = Array.isArray(data?.items) ? data.items : []
+      setWorkspaceAssets(items)
+      setWorkspaceAssetsStatus('success')
+      setWorkspaceAssetsError('')
+      return items
+    } catch (error) {
+      if (error?.isAbortError || requestId !== workspaceRequestIdRef.current) return []
+      setWorkspaceAssetsStatus('error')
+      setWorkspaceAssetsError(error?.detail?.message ?? error?.message ?? 'Workspace Asset 读取失败。')
+      return []
+    }
+  }, [selectedWorkspaceId, userId, workspaceAssets.length])
+
+  async function loadWorkspaceData(workspaceId = selectedWorkspaceId) {
+    const trimmedUserId = userId.trim()
+    if (!trimmedUserId || !workspaceId) return
+    const requestId = workspaceRequestIdRef.current
+    setWorkspaceTasksStatus('loading')
+    setWorkspaceArtifactsStatus('loading')
+    try {
+      const [taskResult, artifactResult] = await Promise.all([
+        getWorkspaceTasks(workspaceId, trimmedUserId),
+        getWorkspaceArtifacts(workspaceId, trimmedUserId),
+      ])
+      if (requestId !== workspaceRequestIdRef.current) return
+      setWorkspaceTasks(Array.isArray(taskResult.data?.items) ? taskResult.data.items : [])
+      setWorkspaceArtifacts(Array.isArray(artifactResult.data?.items) ? artifactResult.data.items : [])
+      setWorkspaceTasksStatus('success')
+      setWorkspaceArtifactsStatus('success')
+      setWorkspaceTasksError('')
+      setWorkspaceArtifactsError('')
+    } catch (error) {
+      if (requestId !== workspaceRequestIdRef.current) return
+      setWorkspaceTasksStatus('error')
+      setWorkspaceArtifactsStatus('error')
+      const message = error?.detail?.message ?? error?.message ?? 'Workspace 记录读取失败。'
+      setWorkspaceTasksError(message)
+      setWorkspaceArtifactsError(message)
+    }
+  }
+
+  async function selectWorkspace(workspaceId) {
+    workspaceRequestIdRef.current += 1
+    setSelectedWorkspaceId(workspaceId)
+    setSelectedArtifact(null)
+    setArtifactContent('')
+    setWorkspaceAssets([])
+    setWorkspaceAssetsStatus('loading')
+    setWorkspaceTasks([])
+    setWorkspaceArtifacts([])
+    void loadWorkspaceAssets({ workspaceId })
+    void loadWorkspaceData(workspaceId)
+  }
+
+  async function handleCreateWorkspace({ name, description }) {
+    try {
+      const { data } = await createWorkspace({ user_id: userId.trim(), name, description })
+      setWorkspaces((current) => [data, ...current])
+      setWorkspaceFeatureStatus('available')
+      await selectWorkspace(data.id)
+    } catch {
+      setWorkspaceFeatureStatus('error')
+    }
+  }
+
+  async function handleWorkspaceLifecycle(workspaceId, action) {
+    if (!userId.trim()) return
+    try {
+      const request = action === 'archive' ? archiveWorkspace : restoreWorkspace
+      const { data } = await request(workspaceId, userId.trim())
+      setWorkspaces((current) => current.map((item) => item.id === data.id ? data : item))
+    } catch {
+      setWorkspaceFeatureStatus('error')
+    }
+  }
+
+  async function handleUploadWorkspaceAsset(file) {
+    const workspace = workspaces.find((item) => item.id === selectedWorkspaceId)
+    if (!workspace || workspace.status === 'ARCHIVED') return
+    try {
+      const { data } = await uploadWorkspaceAsset(selectedWorkspaceId, userId.trim(), file)
+      const nextAsset = data?.asset ?? data
+      setWorkspaceAssets((current) => [nextAsset, ...current.filter((item) => item.id !== nextAsset.id)])
+      setWorkspaceAssetsStatus('success')
+      void loadWorkspaceAssets({ workspaceId: selectedWorkspaceId })
+    } catch (error) {
+      setWorkspaceAssetsError(error?.detail?.message ?? error?.message ?? 'Workspace Asset 上传失败。')
+      setWorkspaceAssetsStatus('error')
+    }
+  }
+
+  async function handleWorkspaceAssetAction(asset, action) {
+    if (!selectedWorkspaceId || !userId.trim()) return
+    setWorkspaceAssetActionStates((current) => ({ ...current, [asset.id]: action }))
+    try {
+      if (action === 'download') {
+        window.open(getWorkspaceAssetDownloadUrl(selectedWorkspaceId, asset.id, userId.trim()), '_blank', 'noopener,noreferrer')
+      } else {
+        const request = action === 'retry' ? retryWorkspaceAsset : deleteWorkspaceAsset
+        const { data } = await request(selectedWorkspaceId, asset.id, userId.trim())
+        if (action === 'delete') setWorkspaceAssets((current) => current.filter((item) => item.id !== asset.id))
+        else setWorkspaceAssets((current) => current.map((item) => item.id === asset.id ? data : item))
+      }
+    } catch (error) {
+      setWorkspaceAssetsError(error?.detail?.message ?? error?.message ?? `Asset ${action} 失败。`)
+    } finally {
+      setWorkspaceAssetActionStates((current) => ({ ...current, [asset.id]: '' }))
+    }
+  }
+
+  async function handleSelectArtifact(artifact) {
+    if (!selectedWorkspaceId || !userId.trim()) return
+    setSelectedArtifact(artifact)
+    setArtifactContentLoading(true)
+    try {
+      const { data } = await getWorkspaceArtifactContent(selectedWorkspaceId, artifact.id, userId.trim())
+      setArtifactContent(typeof data === 'string' ? data : '')
+    } catch {
+      setArtifactContent('无法读取 Artifact 内容。')
+    } finally {
+      setArtifactContentLoading(false)
+    }
+  }
+
+  function handleDownloadArtifact(artifact) {
+    if (!selectedWorkspaceId) return
+    window.open(getWorkspaceArtifactDownloadUrl(selectedWorkspaceId, artifact.id, userId.trim()), '_blank', 'noopener,noreferrer')
+  }
 
   const loadInterviewJDs = useCallback(async ({ silent = false } = {}) => {
     const trimmedUserId = userId.trim()
@@ -328,6 +530,20 @@ function App() {
     setSelectedPersonaId(session.persona_id ?? DEFAULT_PERSONA_ID)
     setActiveSessionStatus('loading')
     setMessages([])
+    workspaceRequestIdRef.current += 1
+    if (session.workspace_id) {
+      setSelectedWorkspaceId(session.workspace_id)
+      setWorkspaceAssets([])
+      setWorkspaceTasks([])
+      setWorkspaceArtifacts([])
+      void loadWorkspaceAssets({ workspaceId: session.workspace_id })
+      void loadWorkspaceData(session.workspace_id)
+    } else {
+      setSelectedWorkspaceId(null)
+      setWorkspaceAssets([])
+      setWorkspaceTasks([])
+      setWorkspaceArtifacts([])
+    }
 
     try {
       const { data } = await getSessionConversations(session.id)
@@ -344,7 +560,7 @@ function App() {
     }
   }
 
-  async function handleCreateSession() {
+  async function handleCreateSession(workspaceId = null) {
     const trimmedUserId = userId.trim()
     if (!trimmedUserId || isCreatingSession) return null
 
@@ -356,6 +572,7 @@ function App() {
       const { data } = await createSession({
         user_id: trimmedUserId,
         persona_id: selectedPersonaId,
+        ...(workspaceId ? { workspace_id: workspaceId } : {}),
       })
       if (requestId !== sessionCreateRequestIdRef.current) return null
 
@@ -367,6 +584,15 @@ function App() {
       setActiveSessionId(data.id)
       setActiveSessionStatus('success')
       setMessages([])
+      setSelectedWorkspaceId(data.workspace_id ?? null)
+      if (data.workspace_id) {
+        workspaceRequestIdRef.current += 1
+        setWorkspaceAssets([])
+        setWorkspaceTasks([])
+        setWorkspaceArtifacts([])
+        void loadWorkspaceAssets({ workspaceId: data.workspace_id })
+        void loadWorkspaceData(data.workspace_id)
+      }
       setApiStatus('online')
       return data
     } catch (error) {
@@ -448,6 +674,13 @@ function App() {
     enabled: Boolean(activeSessionId && hasPendingAttachments),
     poll: refreshAttachments,
     scopeKey: attachmentScopeKeyRef.current,
+  })
+  const hasPendingWorkspaceAssets = workspaceAssets.some((asset) => ['STAGING', 'PROCESSING'].includes(asset.status))
+  useAttachmentPolling({
+    enabled: Boolean(selectedWorkspaceId && hasPendingWorkspaceAssets),
+    poll: loadWorkspaceAssets,
+    intervalMs: 1800,
+    scopeKey: selectedWorkspaceId ?? '',
   })
 
   async function handleUploadAttachment(file) {
@@ -718,6 +951,7 @@ function App() {
         setActiveSessionStatus('success')
         setApiStatus('online')
         void loadSessions({ silent: true })
+        if (activeSession.workspace_id) void loadWorkspaceData(activeSession.workspace_id)
       } else {
         // Non-streaming mode (fallback)
         const { data, debug } = await postChat(chatRequestBody)
@@ -734,6 +968,7 @@ function App() {
         setActiveSessionStatus('success')
         setApiStatus('online')
         void loadSessions({ silent: true })
+        if (activeSession.workspace_id) void loadWorkspaceData(activeSession.workspace_id)
       }
     } catch (error) {
       if (chatScopeKey !== attachmentScopeKeyRef.current || error?.isAbortError) return
@@ -779,8 +1014,9 @@ function App() {
     void loadPersonas()
     void loadModels()
     void loadSessions()
+    void loadWorkspaces()
     void loadInterviewJDs()
-  }, [checkApiHealth, loadPersonas, loadModels, loadSessions, loadInterviewJDs])
+  }, [checkApiHealth, loadPersonas, loadModels, loadSessions, loadWorkspaces, loadInterviewJDs])
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme
@@ -811,7 +1047,6 @@ function App() {
     setIsSending(false)
   }
 
-  const activeSession = sessions.find((session) => session.id === activeSessionId)
   const quickPrompts = [
     { title: '制定学习计划', text: '根据我的目标，为我制定一份循序渐进的学习计划。', icon: 'target' },
     { title: '拆解一个概念', text: '请用清晰、可记忆的方式解释一个我正在学习的概念。', icon: 'sparkles' },
@@ -852,6 +1087,11 @@ function App() {
           <button className="header-action-button" type="button" onClick={() => setIsTargetPanelOpen(true)}>
             <Icon name="target" size={17} /><span>学习目标</span>
           </button>
+          {workspaceFeatureStatus !== 'error' ? (
+            <button className="header-action-button" type="button" onClick={() => setWorkspacePanelOpen(true)}>
+              <Icon name="panel" size={17} /><span>{activeSessionWorkspace?.name || 'Workspace'}</span>
+            </button>
+          ) : null}
           <button className="theme-button" type="button" onClick={() => setTheme((current) => current === 'dark' ? 'light' : 'dark')} aria-label="切换明暗主题">
             <Icon name={theme === 'dark' ? 'sun' : 'moon'} size={18} />
           </button>
@@ -942,6 +1182,40 @@ function App() {
         onSave={handleSaveInterviewJD}
         isOpen={isTargetPanelOpen}
         onClose={() => setIsTargetPanelOpen(false)}
+      />
+      <WorkspacePanel
+        open={workspacePanelOpen}
+        featureStatus={workspaceFeatureStatus}
+        userId={userId}
+        workspaces={workspaces}
+        selectedWorkspaceId={selectedWorkspaceId}
+        selectedWorkspace={workspaces.find((workspace) => workspace.id === selectedWorkspaceId)}
+        assets={workspaceAssets}
+        assetsStatus={workspaceAssetsStatus}
+        assetsError={workspaceAssetsError}
+        assetActionStates={workspaceAssetActionStates}
+        tasks={workspaceTasks}
+        tasksStatus={workspaceTasksStatus}
+        tasksError={workspaceTasksError}
+        artifacts={workspaceArtifacts}
+        artifactsStatus={workspaceArtifactsStatus}
+        artifactsError={workspaceArtifactsError}
+        selectedArtifact={selectedArtifact}
+        artifactContent={artifactContent}
+        artifactContentLoading={artifactContentLoading}
+        onClose={() => setWorkspacePanelOpen(false)}
+        onSelectWorkspace={selectWorkspace}
+        onCreateWorkspace={handleCreateWorkspace}
+        onArchiveWorkspace={(workspaceId) => handleWorkspaceLifecycle(workspaceId, 'archive')}
+        onRestoreWorkspace={(workspaceId) => handleWorkspaceLifecycle(workspaceId, 'restore')}
+        onCreateSession={(workspaceId) => { setWorkspacePanelOpen(false); void handleCreateSession(workspaceId) }}
+        onUploadAsset={handleUploadWorkspaceAsset}
+        onRetryAsset={(asset) => handleWorkspaceAssetAction(asset, 'retry')}
+        onDeleteAsset={(asset) => handleWorkspaceAssetAction(asset, 'delete')}
+        onDownloadAsset={(asset) => handleWorkspaceAssetAction(asset, 'download')}
+        onSelectArtifact={handleSelectArtifact}
+        onCloseArtifact={() => { setSelectedArtifact(null); setArtifactContent('') }}
+        onDownloadArtifact={handleDownloadArtifact}
       />
     </main>
   )

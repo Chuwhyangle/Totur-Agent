@@ -26,6 +26,7 @@ from app.services.agent.react_orchestrator import ReactOrchestrator, StreamEvent
 from app.services.agent.response_parser import ResponseParser
 from app.services.agent.tools.executor import ToolExecutor
 from app.services.agent.tools.registry import ToolRegistry
+from app.services.agent.workspace import AgentExecutionContext, WorkspaceTaskRecorder
 from app.services.documents.attachment_retrieval_service import (
     AttachmentRetrievalFailedError,
     AttachmentRetrievalService,
@@ -146,6 +147,7 @@ class TutorAgentService:
         status = "OK"
         session_id = None
         persona_id = None
+        execution_context: AgentExecutionContext | None = None
 
         trace_db.start_trace(
             trace_id=trace_id,
@@ -165,6 +167,12 @@ class TutorAgentService:
             )
             session_id = session.id
             persona_id = session.persona_id
+            execution_context = self._create_execution_context(
+                user_id=user_id,
+                session=session,
+                trace_id=trace_id,
+                current_goal=message,
+            )
             persona = get_persona(session.persona_id)
 
             # 先准备模型上下文；具体怎么读历史和摘要交给 MemoryManager。
@@ -206,6 +214,7 @@ class TutorAgentService:
                 force_rag=request.force_rag,
                 attachment_ids=request.attachment_ids,
                 model_spec=model_spec,
+                execution_context=execution_context,
             )
             # The model can only select source IDs; public Source objects always come
             # from the server-side Web/attachment ledgers (attachments now flow
@@ -224,6 +233,7 @@ class TutorAgentService:
                 message=message,
                 reply=reply,
             )
+            self._complete_execution_context(execution_context)
 
             return ChatResponse(
                 user_id=user_id,
@@ -235,6 +245,7 @@ class TutorAgentService:
             )
         except Exception:
             status = "ERROR"
+            self._fail_execution_context(execution_context, "PROCESS_INTERRUPTED")
             raise
         finally:
             total_ms = int((time.perf_counter() - started_at) * 1000)
@@ -280,6 +291,7 @@ class TutorAgentService:
         persona_id = None
         user_id = request.user_id
         message = request.message
+        execution_context: AgentExecutionContext | None = None
 
         trace_db.start_trace(
             trace_id=trace_id,
@@ -297,6 +309,12 @@ class TutorAgentService:
             )
             session_id = session.id
             persona_id = session.persona_id
+            execution_context = self._create_execution_context(
+                user_id=user_id,
+                session=session,
+                trace_id=trace_id,
+                current_goal=message,
+            )
             persona = get_persona(session.persona_id)
 
             context = self.memory_manager.load_context(
@@ -337,6 +355,7 @@ class TutorAgentService:
                 force_rag=request.force_rag,
                 attachment_ids=request.attachment_ids,
                 model_spec=model_spec,
+                execution_context=execution_context,
             )
             while True:
                 try:
@@ -372,6 +391,7 @@ class TutorAgentService:
                 message=message,
                 reply=reply,
             )
+            self._complete_execution_context(execution_context)
 
             status = "OK"
             yield {
@@ -414,6 +434,8 @@ class TutorAgentService:
             status = "ERROR"
             yield {"event": "error", "data": {"message": str(exc)}}
         finally:
+            if status != "OK":
+                self._fail_execution_context(execution_context, "PROCESS_INTERRUPTED")
             trace_db.finish_trace(
                 trace_id=trace_id,
                 user_id=user_id,
@@ -435,6 +457,50 @@ class TutorAgentService:
                 prompt_tokens=timings.count("prompt_tokens"),
                 completion_tokens=timings.count("completion_tokens"),
             )
+
+    def _create_execution_context(
+        self,
+        *,
+        user_id: str,
+        session,
+        trace_id: str,
+        current_goal: str,
+    ) -> AgentExecutionContext:
+        recorder = None
+        if session.workspace_id is not None:
+            recorder = WorkspaceTaskRecorder(
+                user_id=user_id,
+                session_id=session.id,
+                workspace_id=session.workspace_id,
+                trace_id=trace_id,
+                current_goal=current_goal,
+            )
+        return AgentExecutionContext(
+            user_id=user_id,
+            session_id=session.id,
+            workspace_id=session.workspace_id,
+            trace_id=trace_id,
+            current_goal=current_goal.strip()[:500],
+            task_recorder=recorder,
+        )
+
+    @staticmethod
+    def _complete_execution_context(execution_context: AgentExecutionContext | None) -> None:
+        if execution_context is not None and execution_context.task_recorder is not None:
+            execution_context.task_recorder.complete_task()
+
+    @staticmethod
+    def _fail_execution_context(
+        execution_context: AgentExecutionContext | None,
+        error_code: str,
+    ) -> None:
+        if execution_context is None or execution_context.task_recorder is None:
+            return
+        try:
+            execution_context.task_recorder.fail_task(error_code)
+        except Exception:
+            # Preserve the original chat/streaming error.
+            pass
 
     def _finalize_reply_sources(
         self,

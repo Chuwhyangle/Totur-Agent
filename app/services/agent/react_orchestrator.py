@@ -125,6 +125,10 @@ class ReactOrchestrator:
             f"react_orchestrator_model_spec_{id(self)}",
             default=None,
         )
+        self._execution_context_var: ContextVar[Any | None] = ContextVar(
+            f"react_orchestrator_execution_context_{id(self)}",
+            default=None,
+        )
 
     def run(
         self,
@@ -135,10 +139,12 @@ class ReactOrchestrator:
         force_rag: bool = False,
         attachment_ids: list[str] | None = None,
         model_spec: ModelSpec | None = None,
+        execution_context=None,
     ) -> tuple[str, ToolTrace]:
         """Execute one request with an isolated model selection."""
 
         token = self._model_spec_var.set(model_spec)
+        context_token = self._execution_context_var.set(execution_context)
         try:
             return self._run(
                 messages,
@@ -147,9 +153,11 @@ class ReactOrchestrator:
                 rag_enabled=rag_enabled,
                 force_rag=force_rag,
                 attachment_ids=attachment_ids,
+                execution_context=execution_context,
             )
         finally:
             self._model_spec_var.reset(token)
+            self._execution_context_var.reset(context_token)
 
     def _run(
         self,
@@ -159,6 +167,7 @@ class ReactOrchestrator:
         rag_enabled: bool = True,
         force_rag: bool = False,
         attachment_ids: list[str] | None = None,
+        execution_context=None,
     ) -> tuple[str, ToolTrace]:
         """执行最多 max_steps 步的 ReAct 工具循环。"""
 
@@ -181,6 +190,7 @@ class ReactOrchestrator:
             working_messages, forced_trace = self._execute_forced_learning_notes(
                 working_messages,
                 run_state,
+                execution_context=execution_context,
             )
             timings.set_meta("forced", False)
             tool_call_traces.append(forced_trace)
@@ -194,6 +204,7 @@ class ReactOrchestrator:
                 working_messages,
                 run_state,
                 round_number=first_model_round,
+                execution_context=execution_context,
             )
             timings.set_meta("forced", False)
             tool_call_traces.append(forced_trace)
@@ -240,6 +251,7 @@ class ReactOrchestrator:
                 tool_calls=tool_calls,
                 round_number=round_number,
                 run_state=run_state,
+                execution_context=execution_context,
             )
             tool_call_traces.extend(step_traces)
             failure_count += sum(1 for trace in step_traces if not trace.ok)
@@ -280,10 +292,12 @@ class ReactOrchestrator:
         force_rag: bool = False,
         attachment_ids: list[str] | None = None,
         model_spec: ModelSpec | None = None,
+        execution_context=None,
     ) -> Generator[StreamEvent, None, tuple[str, ToolTrace]]:
         """Execute one streaming request with an isolated model selection."""
 
         token = self._model_spec_var.set(model_spec)
+        context_token = self._execution_context_var.set(execution_context)
         try:
             return (
                 yield from self._run_stream(
@@ -293,10 +307,12 @@ class ReactOrchestrator:
                     rag_enabled=rag_enabled,
                     force_rag=force_rag,
                     attachment_ids=attachment_ids,
+                    execution_context=execution_context,
                 )
             )
         finally:
             self._model_spec_var.reset(token)
+            self._execution_context_var.reset(context_token)
 
     def _run_stream(
         self,
@@ -306,6 +322,7 @@ class ReactOrchestrator:
         rag_enabled: bool = True,
         force_rag: bool = False,
         attachment_ids: list[str] | None = None,
+        execution_context=None,
     ) -> Generator[StreamEvent, None, tuple[str, ToolTrace]]:
         """Execute the ReAct loop, yielding StreamEvents for progress.
 
@@ -336,6 +353,7 @@ class ReactOrchestrator:
             working_messages, forced_trace = self._execute_forced_learning_notes(
                 working_messages,
                 run_state,
+                execution_context=execution_context,
             )
             timings.set_meta("forced", False)
             tool_call_traces.append(forced_trace)
@@ -351,6 +369,7 @@ class ReactOrchestrator:
                 working_messages,
                 run_state,
                 round_number=first_model_round,
+                execution_context=execution_context,
             )
             timings.set_meta("forced", False)
             tool_call_traces.append(forced_trace)
@@ -407,6 +426,7 @@ class ReactOrchestrator:
                 tool_calls=tool_calls,
                 round_number=round_number,
                 run_state=run_state,
+                execution_context=execution_context,
             )
             tool_call_traces.extend(step_traces)
             failure_count += sum(1 for trace in step_traces if not trace.ok)
@@ -648,18 +668,21 @@ class ReactOrchestrator:
         run_state: _RunState,
         *,
         round_number: int = 1,
+        execution_context=None,
     ) -> tuple[list[ChatCompletionMessageParam], ToolCallTrace]:
         """Execute one user-requested Web Search before normal model routing."""
 
         arguments = {"query": self._latest_user_message(messages)}
         serialized_arguments = json.dumps(arguments, ensure_ascii=False)
         run_state.web_search_calls += 1
+        tool_call_id = "forced_web_search_1"
         tool_result = self.tool_executor.execute(
             WEB_SEARCH_TOOL_NAME,
             serialized_arguments,
+            execution_context=execution_context,
+            tool_call_id=tool_call_id,
         )
         tool_result = self._prepare_web_search_result(tool_result, run_state)
-        tool_call_id = "forced_web_search_1"
         working_messages: list[ChatCompletionMessageParam] = [
             *messages,
             {
@@ -693,6 +716,8 @@ class ReactOrchestrator:
         self,
         messages: list[ChatCompletionMessageParam],
         run_state: _RunState,
+        *,
+        execution_context=None,
     ) -> tuple[list[ChatCompletionMessageParam], ToolCallTrace]:
         """Execute one user-requested learning-note retrieval before model routing."""
 
@@ -701,6 +726,8 @@ class ReactOrchestrator:
         tool_result = self.tool_executor.execute(
             RAG_TOOL_NAME,
             serialized_arguments,
+            execution_context=execution_context,
+            tool_call_id="forced_learning_notes_1",
         )
         tool_result = self._prepare_learning_notes_result(tool_result, run_state)
         tool_call_id = "forced_learning_notes_1"
@@ -782,7 +809,14 @@ class ReactOrchestrator:
         if spec is not None and not spec.supports_tools:
             return []
 
-        tools = self.tool_registry.get_tools_schema()
+        execution_context = self._execution_context_var.get()
+        try:
+            tools = self.tool_registry.get_tools_schema(
+                execution_context=execution_context,
+            )
+        except TypeError:
+            # Keep lightweight test registries and old integrations compatible.
+            tools = self.tool_registry.get_tools_schema()
         if not getattr(self, "_active_rag_enabled", True):
             tools = [
                 tool
@@ -843,6 +877,7 @@ class ReactOrchestrator:
         tool_calls: list[Any],
         round_number: int,
         run_state: _RunState,
+        execution_context=None,
     ) -> tuple[list[ChatCompletionMessageParam], list[ToolCallTrace]]:
         """把模型 tool call 和工具执行结果追加到下一步模型输入里。"""
 
@@ -893,6 +928,8 @@ class ReactOrchestrator:
                     tool_result = self.tool_executor.execute(
                         tool_name,
                         tool_arguments,
+                        execution_context=execution_context,
+                        tool_call_id=self._tool_call_id(tool_call, index),
                     )
                     tool_result = self._prepare_web_search_result(
                         tool_result,
@@ -902,6 +939,8 @@ class ReactOrchestrator:
                 tool_result = self.tool_executor.execute(
                     tool_name,
                     tool_arguments,
+                    execution_context=execution_context,
+                    tool_call_id=self._tool_call_id(tool_call, index),
                 )
                 if tool_name == RAG_TOOL_NAME:
                     tool_result = self._prepare_learning_notes_result(
