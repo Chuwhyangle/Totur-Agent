@@ -23,7 +23,10 @@ from app.services.tutor_agent_service import (
     SessionPersonaMismatchError,
     TutorAgentService,
 )
-from app.services.workspaces.workspace_service import WorkspaceArchivedError
+from app.services.workspaces.workspace_service import (
+    WorkspaceArchivedError,
+    WorkspaceDisabledError,
+)
 
 router = APIRouter(tags=["chat"])
 
@@ -63,8 +66,43 @@ def chat_stream(request: ChatRequest) -> StreamingResponse:
 
     try:
         resolve_model(request.model_id)
+        tutor_agent_service.validate_chat_request(request)
     except InvalidModelError as error:
         raise _invalid_model_http_exception(error) from error
+    except InvalidPersonaError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={
+                "error": "invalid_persona_id",
+                "persona_id": error.persona_id,
+                "available_personas": available_persona_ids(),
+            },
+        ) from error
+    except SessionPersonaMismatchError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={
+                "error": "session_persona_mismatch",
+                "session_id": error.session_id,
+                "session_persona_id": error.session_persona_id,
+                "request_persona_id": error.request_persona_id,
+            },
+        ) from error
+    except ChatSessionNotFoundError as error:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Session not found",
+        ) from error
+    except WorkspaceDisabledError as error:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"error": "workspace_disabled", "workspace_id": error.workspace_id},
+        ) from error
+    except WorkspaceArchivedError as error:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"error": "workspace_archived", "workspace_id": error.workspace_id},
+        ) from error
 
     def event_generator():
         terminal_event_sent = False
@@ -81,6 +119,26 @@ def chat_stream(request: ChatRequest) -> StreamingResponse:
                     "error",
                     {"message": "Stream ended before completion"},
                 )
+        except WorkspaceDisabledError as exc:
+            yield _format_sse_event(
+                "error",
+                {
+                    "error": "workspace_disabled",
+                    "message": "Workspace 功能已关闭。",
+                    "retryable": False,
+                    "workspace_id": exc.workspace_id,
+                },
+            )
+        except WorkspaceArchivedError as exc:
+            yield _format_sse_event(
+                "error",
+                {
+                    "error": "workspace_archived",
+                    "message": "该 Workspace 已归档。",
+                    "retryable": False,
+                    "workspace_id": exc.workspace_id,
+                },
+            )
         except Exception as exc:
             yield _format_sse_event("error", {"message": str(exc)})
 
@@ -121,6 +179,11 @@ def chat(request: ChatRequest) -> ChatResponse:
                 "session_persona_id": error.session_persona_id,
                 "request_persona_id": error.request_persona_id,
             },
+        ) from error
+    except WorkspaceDisabledError as error:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"error": "workspace_disabled", "workspace_id": error.workspace_id},
         ) from error
     except WorkspaceArchivedError as error:
         raise HTTPException(

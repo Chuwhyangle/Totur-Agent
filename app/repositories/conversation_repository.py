@@ -1,8 +1,9 @@
 """对话历史数据库操作。"""
 
+from collections.abc import Callable
 from datetime import datetime, timezone
 
-from sqlalchemy import text
+from sqlalchemy import Connection, text
 
 from app.db.engine import get_engine
 from app.db.models import ConversationRecord, CONVERSATIONS_TABLE
@@ -18,6 +19,7 @@ def save_conversation(
     reply_json: str,
     session_id: int | None = None,
     reply_format: str = "json_v1",
+    before_insert: Callable[[Connection], None] | None = None,
 ) -> int:
     """保存一条对话，并返回新记录 id。
 
@@ -39,6 +41,9 @@ def save_conversation(
             conversation_session_id = get_or_create_default_session(
                 user_id, conn=connection
             ).id
+
+        if before_insert is not None:
+            before_insert(connection)
 
         cursor = connection.execute(
             text(insert_sql),

@@ -36,7 +36,11 @@ from app.services.rag_seed_context import retrieve_seed_knowledge_context
 from app.services.rag_settings import ENABLE_RAG_SEED_CONTEXT
 from app.services.summary_service import SummaryService
 from app.services import timings
-from app.services.workspaces.workspace_service import WorkspaceService
+from app.services.workspaces.workspace_service import (
+    WorkspaceArchivedError,
+    WorkspaceDisabledError,
+    WorkspaceService,
+)
 
 
 _CITATION_PATTERN = re.compile(r"\[(web|attachment|note|jd)_(\d+)\]")
@@ -120,6 +124,17 @@ class TutorAgentService:
         self.attachment_retrieval_service = attachment_retrieval_service
         self.attachment_context_max_chars = attachment_context_max_chars
         self.workspace_service = WorkspaceService()
+
+    def validate_chat_request(self, request: ChatRequest) -> None:
+        """Validate an existing Session before a streaming response starts."""
+
+        if request.session_id is None:
+            return
+        self._resolve_session(
+            user_id=request.user_id,
+            session_id=request.session_id,
+            request_persona_id=request.persona_id,
+        )
 
     def chat(self, request: ChatRequest) -> ChatResponse:
         """处理一次聊天请求。"""
@@ -373,6 +388,28 @@ class TutorAgentService:
             if status != "OK":
                 status = "CANCELLED"
             raise
+        except WorkspaceDisabledError as exc:
+            status = "ERROR"
+            yield {
+                "event": "error",
+                "data": {
+                    "error": "workspace_disabled",
+                    "message": "Workspace 功能已关闭。",
+                    "retryable": False,
+                    "workspace_id": exc.workspace_id,
+                },
+            }
+        except WorkspaceArchivedError as exc:
+            status = "ERROR"
+            yield {
+                "event": "error",
+                "data": {
+                    "error": "workspace_archived",
+                    "message": "该 Workspace 已归档。",
+                    "retryable": False,
+                    "workspace_id": exc.workspace_id,
+                },
+            }
         except Exception as exc:
             status = "ERROR"
             yield {"event": "error", "data": {"message": str(exc)}}
@@ -519,6 +556,7 @@ class TutorAgentService:
                 else DEFAULT_PERSONA_ID,
             )
             if session.workspace_id is not None:
+                self.workspace_service.ensure_enabled(session.workspace_id)
                 self.workspace_service.ensure_active_workspace(session.workspace_id)
             return session
 
@@ -537,6 +575,7 @@ class TutorAgentService:
             )
 
         if session.workspace_id is not None:
+            self.workspace_service.ensure_enabled(session.workspace_id)
             self.workspace_service.ensure_active_workspace(session.workspace_id)
 
         return session
