@@ -35,6 +35,7 @@ def create_session(
     title: str | None = None,
     persona_id: str = DEFAULT_PERSONA_ID,
     subject: str | None = None,
+    workspace_id: str | None = None,
     *,
     conn: Connection | None = None,
 ) -> ChatSessionRecord:
@@ -48,8 +49,11 @@ def create_session(
     session_title = title.strip() if title and title.strip() else DEFAULT_SESSION_TITLE
     insert_sql = f"""
     INSERT INTO {CHAT_SESSIONS_TABLE}
-        (user_id, title, persona_id, created_at, updated_at, subject)
-    VALUES (:user_id, :title, :persona_id, :created_at, :updated_at, :subject)
+        (user_id, title, persona_id, created_at, updated_at, subject, workspace_id)
+    VALUES (
+        :user_id, :title, :persona_id, :created_at, :updated_at,
+        :subject, :workspace_id
+    )
     """
     params = {
         "user_id": user_id,
@@ -58,6 +62,7 @@ def create_session(
         "created_at": now,
         "updated_at": now,
         "subject": subject,
+        "workspace_id": workspace_id,
     }
 
     def _execute(cursor_connection: Connection) -> int:
@@ -81,6 +86,7 @@ def create_session(
         created_at=now,
         updated_at=now,
         subject=subject,
+        workspace_id=workspace_id,
     )
 
 
@@ -97,7 +103,8 @@ def get_or_create_default_session(
     """
 
     select_sql = f"""
-    SELECT id, user_id, title, persona_id, created_at, updated_at, subject
+    SELECT id, user_id, title, persona_id, created_at, updated_at,
+           subject, workspace_id
     FROM {CHAT_SESSIONS_TABLE}
     WHERE user_id = :user_id AND title = :title AND persona_id = :persona_id
     ORDER BY id ASC
@@ -147,7 +154,8 @@ def get_session(session_id: int) -> ChatSessionRecord | None:
     """根据 session_id 查询一个会话。"""
 
     select_sql = f"""
-    SELECT id, user_id, title, persona_id, created_at, updated_at, subject
+    SELECT id, user_id, title, persona_id, created_at, updated_at,
+           subject, workspace_id
     FROM {CHAT_SESSIONS_TABLE}
     WHERE id = :id
     """
@@ -168,7 +176,8 @@ def list_sessions(user_id: str, limit: int = 50) -> list[ChatSessionRecord]:
     """查询某个用户最近的会话列表，最新的排在前面。"""
 
     select_sql = f"""
-    SELECT id, user_id, title, persona_id, created_at, updated_at, subject
+    SELECT id, user_id, title, persona_id, created_at, updated_at,
+           subject, workspace_id
     FROM {CHAT_SESSIONS_TABLE}
     WHERE user_id = :user_id
     ORDER BY updated_at DESC, id DESC
@@ -237,4 +246,5 @@ def _session_from_row(row) -> ChatSessionRecord:
         created_at=row["created_at"],
         updated_at=row["updated_at"],
         subject=row["subject"],
+        workspace_id=row["workspace_id"],
     )

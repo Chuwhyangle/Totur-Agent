@@ -23,6 +23,7 @@ from app.services.tutor_agent_service import (
     SessionPersonaMismatchError,
     TutorAgentService,
 )
+from app.services.workspaces.workspace_service import WorkspaceArchivedError
 
 router = APIRouter(tags=["chat"])
 
@@ -120,6 +121,11 @@ def chat(request: ChatRequest) -> ChatResponse:
                 "session_persona_id": error.session_persona_id,
                 "request_persona_id": error.request_persona_id,
             },
+        ) from error
+    except WorkspaceArchivedError as error:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"error": "workspace_archived", "workspace_id": error.workspace_id},
         ) from error
     except AttachmentNotFoundError as error:
         raise HTTPException(

@@ -72,8 +72,8 @@ def test_mysql_server_timezone_and_sql_mode_are_utc():
     assert "STRICT_TRANS_TABLES" in sql_mode
 
 
-def test_business_schema_has_seven_tables():
-    """B3 验收：tutor_agent 库建出 7 张业务表。"""
+def test_business_schema_has_workspace_foundation_tables():
+    """B3 验收：基础业务表和 Workspace 契约表全部存在。"""
 
     connection = _connect()
     try:
@@ -95,6 +95,13 @@ def test_business_schema_has_seven_tables():
         "public_job_descriptions",
         "documents",
         "journal_entries",
+        "workspaces",
+        "workspace_assets",
+        "tasks",
+        "task_steps",
+        "task_asset_refs",
+        "artifacts",
+        "artifact_sources",
     }
 
 
@@ -163,6 +170,14 @@ def test_column_collations_follow_d7():
         ("journal_entries", "title"),
         ("journal_entries", "content"),
         ("journal_entries", "tags"),
+        ("workspaces", "name"),
+        ("workspaces", "description"),
+        ("workspace_assets", "original_filename"),
+        ("workspace_assets", "error_message"),
+        ("tasks", "goal"),
+        ("task_steps", "input_summary"),
+        ("task_steps", "output_summary"),
+        ("artifacts", "title"),
     }
     # 标识符与路径列
     bin_columns = {
@@ -189,6 +204,27 @@ def test_column_collations_follow_d7():
         ("documents", "parser_version"),
         ("documents", "error_code"),
         ("journal_entries", "persona_id"),
+        ("workspaces", "user_id"),
+        ("workspaces", "status"),
+        ("workspace_assets", "media_type"),
+        ("workspace_assets", "storage_key"),
+        ("workspace_assets", "parsed_storage_key"),
+        ("workspace_assets", "status"),
+        ("workspace_assets", "parser_name"),
+        ("workspace_assets", "parser_version"),
+        ("workspace_assets", "error_code"),
+        ("tasks", "status"),
+        ("tasks", "error_code"),
+        ("task_steps", "tool_call_id"),
+        ("task_steps", "step_type"),
+        ("task_steps", "tool_name"),
+        ("task_steps", "status"),
+        ("task_steps", "error_code"),
+        ("artifacts", "media_type"),
+        ("artifacts", "storage_key"),
+        ("artifacts", "creation_key"),
+        ("artifacts", "status"),
+        ("artifacts", "error_code"),
     }
     # 纯 hex 与 UUID（D7）
     ascii_bin_columns = {
@@ -198,6 +234,26 @@ def test_column_collations_follow_d7():
         ("public_job_descriptions", "parent_sha256"),
         ("documents", "content_hash"),
         ("conversations", "reply_format"),
+        ("chat_sessions", "workspace_id"),
+        ("workspaces", "id"),
+        ("workspace_assets", "id"),
+        ("workspace_assets", "workspace_id"),
+        ("workspace_assets", "content_hash"),
+        ("workspace_assets", "dedupe_key"),
+        ("tasks", "id"),
+        ("tasks", "workspace_id"),
+        ("tasks", "trace_id"),
+        ("task_steps", "task_id"),
+        ("task_asset_refs", "task_id"),
+        ("task_asset_refs", "asset_id"),
+        ("artifacts", "id"),
+        ("artifacts", "workspace_id"),
+        ("artifacts", "task_id"),
+        ("artifacts", "artifact_series_id"),
+        ("artifacts", "supersedes_artifact_id"),
+        ("artifacts", "content_hash"),
+        ("artifact_sources", "artifact_id"),
+        ("artifact_sources", "asset_id"),
     }
 
     for column in ai_ci_columns:

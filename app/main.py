@@ -25,6 +25,7 @@ from app.clients.reranker_client import close_reranker_client
 from app.clients.web_search_client import close_web_search_client
 from app.config import ServerConfig
 from app.mcp.settings import get_mcp_http_path, is_mcp_http_enabled
+from app.services.workspaces.settings import is_workspaces_enabled
 from app.services.documents.attachment_recovery_service import (
     get_attachment_recovery_service,
 )
@@ -199,6 +200,11 @@ app.include_router(sessions_router)
 app.include_router(interview_jds_router)
 # Journal endpoints: daily learning diary entries.
 app.include_router(journal_router)
+
+if is_workspaces_enabled():
+    from app.api.routes.workspaces import router as workspaces_router
+
+    app.include_router(workspaces_router)
 
 if is_mcp_http_enabled():
     from app.mcp.server import MCPMountPathMiddleware, get_mcp_http_app

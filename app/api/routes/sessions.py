@@ -2,6 +2,7 @@
 
 from fastapi import APIRouter, HTTPException, Query, status
 
+from app.db.engine import get_engine
 from app.db.models import ChatSessionRecord, ConversationRecord
 from app.repositories.conversation_repository import list_recent_conversations
 from app.repositories.session_repository import (
@@ -22,9 +23,15 @@ from app.services.agent.personas import (
     get_persona,
 )
 from app.services.agent.response_parser import ResponseParser
+from app.services.workspaces.workspace_service import (
+    WorkspaceArchivedError,
+    WorkspaceNotFoundError,
+    WorkspaceService,
+)
 
 
 router = APIRouter(tags=["sessions"])
+workspace_service = WorkspaceService()
 
 
 @router.post(
@@ -47,13 +54,40 @@ def create_chat_session(request: CreateSessionRequest) -> SessionItem:
             },
         ) from error
 
-    # 当前阶段只创建会话，不会顺手创建聊天消息。
-    session = create_session(
-        user_id=request.user_id,
-        title=request.title,
-        persona_id=persona.persona_id,
-        subject=request.subject,
-    )
+    # Workspace 绑定校验和 Session INSERT 必须共享同一事务。
+    try:
+        if request.workspace_id is None:
+            session = create_session(
+                user_id=request.user_id,
+                title=request.title,
+                persona_id=persona.persona_id,
+                subject=request.subject,
+            )
+        else:
+            with get_engine().begin() as connection:
+                workspace_service.require_active_owned_workspace(
+                    user_id=request.user_id,
+                    workspace_id=request.workspace_id,
+                    conn=connection,
+                )
+                session = create_session(
+                    user_id=request.user_id,
+                    title=request.title,
+                    persona_id=persona.persona_id,
+                    subject=request.subject,
+                    workspace_id=request.workspace_id,
+                    conn=connection,
+                )
+    except WorkspaceNotFoundError as error:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Workspace not found",
+        ) from error
+    except WorkspaceArchivedError as error:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"error": "workspace_archived", "workspace_id": error.workspace_id},
+        ) from error
 
     return _session_item_from_record(session)
 
@@ -102,6 +136,7 @@ def get_session_conversations(
         user_id=session.user_id,
         title=session.title,
         persona_id=session.persona_id,
+        workspace_id=session.workspace_id,
         items=[_conversation_item_from_record(record) for record in records],
     )
 
@@ -117,6 +152,7 @@ def _session_item_from_record(record: ChatSessionRecord) -> SessionItem:
         created_at=record.created_at,
         updated_at=record.updated_at,
         subject=record.subject,
+        workspace_id=record.workspace_id,
     )
 
 
