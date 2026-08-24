@@ -117,6 +117,13 @@ def test_chat_stream_model_exception_finishes_as_error(monkeypatch):
     events = list(service.chat_stream(REQUEST))
 
     assert [event["event"] for event in events] == ["token", "error"]
+    assert events[1]["data"] == {
+        "error": "stream_internal_error",
+        "stage": "stream",
+        "message": "流式响应处理失败，请重试。",
+        "debug_message": "RuntimeError: stream failed",
+        "retryable": True,
+    }
     assert calls[1][1]["status"] == "ERROR"
 
 

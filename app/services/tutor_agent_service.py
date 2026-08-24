@@ -367,8 +367,18 @@ class TutorAgentService:
                     raw_reply, tool_trace = stop.value
                     break
                 except Exception as exc:
+                    logger.exception("stream_internal_error")
                     status = "ERROR"
-                    yield {"event": "error", "data": {"message": str(exc)}}
+                    yield {
+                        "event": "error",
+                        "data": {
+                            "error": "stream_internal_error",
+                            "stage": "stream",
+                            "message": "流式响应处理失败，请重试。",
+                            "debug_message": f"{type(exc).__name__}: {exc}",
+                            "retryable": True,
+                        },
+                    }
                     return
 
                 if event.type == "token":
@@ -460,8 +470,18 @@ class TutorAgentService:
                 },
             }
         except Exception as exc:
+            logger.exception("stream_internal_error")
             status = "ERROR"
-            yield {"event": "error", "data": {"message": str(exc)}}
+            yield {
+                "event": "error",
+                "data": {
+                    "error": "stream_internal_error",
+                    "stage": "stream",
+                    "message": "流式响应处理失败，请重试。",
+                    "debug_message": f"{type(exc).__name__}: {exc}",
+                    "retryable": True,
+                },
+            }
         finally:
             if status != "OK":
                 self._fail_execution_context(execution_context, "PROCESS_INTERRUPTED")

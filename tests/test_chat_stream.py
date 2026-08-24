@@ -1,11 +1,14 @@
 """SSE chat route contract tests."""
 
 import json
+from contextvars import copy_context
+from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 
 from app.api.routes import chat as chat_route
 from app.main import app
+from app.services.agent.react_orchestrator import ReactOrchestrator, StreamEvent
 
 
 client = TestClient(app)
@@ -65,7 +68,16 @@ def test_stream_converts_generator_exception_to_well_formed_error_event(monkeypa
     assert response.status_code == 200
     assert _parse_events(response.text) == [
         ("token", {"text": "partial"}),
-        ("error", {"message": "model stream failed"}),
+        (
+            "error",
+            {
+                "error": "stream_internal_error",
+                "stage": "stream",
+                "message": "流式响应处理失败，请重试。",
+                "debug_message": "RuntimeError: model stream failed",
+                "retryable": True,
+            },
+        ),
     ]
 
 
@@ -93,3 +105,56 @@ def test_stream_handles_generator_that_ends_after_one_token(monkeypatch):
         ("token", {"text": "only"}),
         ("error", {"message": "Stream ended before completion"}),
     ]
+
+
+def test_stream_context_switch_finishes_with_one_done_event(monkeypatch):
+    orchestrator = ReactOrchestrator(
+        config=SimpleNamespace(model="test-model"),
+        client=SimpleNamespace(),
+    )
+    model_spec = SimpleNamespace(model_id="model-a")
+
+    def fake_stream_round(messages, **kwargs):
+        yield StreamEvent(type="token", data={"text": "hello"})
+        yield StreamEvent(type="token", data={"text": " world"})
+        return SimpleNamespace(
+            content="hello world",
+            reasoning="",
+            tool_calls=[],
+        )
+
+    orchestrator._stream_round = fake_stream_round
+
+    def fake_stream(_request):
+        stream = orchestrator.run_stream(
+            [],
+            model_spec=model_spec,
+            execution_context=object(),
+        )
+        context_a = copy_context()
+        context_b = copy_context()
+        first_event = context_a.run(next, stream)
+        yield {"event": first_event.type, "data": first_event.data}
+        while True:
+            try:
+                event = context_b.run(next, stream)
+            except StopIteration as stop:
+                raw_reply, _tool_trace = stop.value
+                yield {
+                    "event": "done",
+                    "data": {
+                        "full_response": raw_reply,
+                        "reply": {"answer": raw_reply, "sources": []},
+                    },
+                }
+                return
+            yield {"event": event.type, "data": event.data}
+
+    monkeypatch.setattr(chat_route.tutor_agent_service, "chat_stream", fake_stream)
+
+    response = client.post("/chat/stream", json=REQUEST)
+
+    assert response.status_code == 200
+    events = _parse_events(response.text)
+    assert [event_type for event_type, _ in events] == ["token", "token", "done"]
+    assert events[-1][1]["reply"]["answer"] == "hello world"

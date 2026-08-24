@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import hashlib
+import inspect
 import json
 import time
 from collections.abc import Generator
-from contextvars import ContextVar
 from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
@@ -121,14 +121,6 @@ class ReactOrchestrator:
         self.max_steps = max_steps
         self.max_failures = max_failures
         self.max_observation_chars = max_observation_chars
-        self._model_spec_var: ContextVar[ModelSpec | None] = ContextVar(
-            f"react_orchestrator_model_spec_{id(self)}",
-            default=None,
-        )
-        self._execution_context_var: ContextVar[Any | None] = ContextVar(
-            f"react_orchestrator_execution_context_{id(self)}",
-            default=None,
-        )
 
     def run(
         self,
@@ -143,21 +135,16 @@ class ReactOrchestrator:
     ) -> tuple[str, ToolTrace]:
         """Execute one request with an isolated model selection."""
 
-        token = self._model_spec_var.set(model_spec)
-        context_token = self._execution_context_var.set(execution_context)
-        try:
-            return self._run(
-                messages,
-                force_web_search=force_web_search,
-                web_search_enabled=web_search_enabled,
-                rag_enabled=rag_enabled,
-                force_rag=force_rag,
-                attachment_ids=attachment_ids,
-                execution_context=execution_context,
-            )
-        finally:
-            self._model_spec_var.reset(token)
-            self._execution_context_var.reset(context_token)
+        return self._run(
+            messages,
+            force_web_search=force_web_search,
+            web_search_enabled=web_search_enabled,
+            rag_enabled=rag_enabled,
+            force_rag=force_rag,
+            attachment_ids=attachment_ids,
+            model_spec=model_spec,
+            execution_context=execution_context,
+        )
 
     def _run(
         self,
@@ -167,6 +154,7 @@ class ReactOrchestrator:
         rag_enabled: bool = True,
         force_rag: bool = False,
         attachment_ids: list[str] | None = None,
+        model_spec: ModelSpec | None = None,
         execution_context=None,
     ) -> tuple[str, ToolTrace]:
         """执行最多 max_steps 步的 ReAct 工具循环。"""
@@ -180,9 +168,6 @@ class ReactOrchestrator:
         )
         failure_count = 0
         first_model_round = 1
-        self._active_rag_enabled = rag_enabled
-        self._active_web_search_enabled = web_search_enabled
-        self._active_attachment_ids = list(attachment_ids or [])
 
         if force_rag:
             timings.set_meta("forced", True)
@@ -218,13 +203,14 @@ class ReactOrchestrator:
             timings.bump("react_rounds")
             timings.set_meta("round_number", round_number)
             active_tool_choice = self._resolve_tool_choice(run_state, round_number)
-            if active_tool_choice == "auto":
-                model_message = self._call_model_with_tools(working_messages)
-            else:
-                model_message = self._call_model_with_tools(
-                    working_messages,
-                    tool_choice=active_tool_choice,
-                )
+            model_message = self._call_model_with_request_state(
+                working_messages,
+                tool_choice=active_tool_choice,
+                model_spec=model_spec,
+                execution_context=execution_context,
+                rag_enabled=rag_enabled,
+                web_search_enabled=web_search_enabled,
+            )
             tool_calls = self._message_tool_calls(model_message)
             round_content = self._message_content(model_message)
 
@@ -262,7 +248,10 @@ class ReactOrchestrator:
         timings.set_meta("round_number", None)
         raw_reply = self._join_visible_parts(
             visible_parts,
-            self._call_model(working_messages),
+            self._call_model_for_request(
+                working_messages,
+                model_spec=model_spec,
+            ),
         )
         if not raw_reply:
             raise RuntimeError("模型没有返回内容")
@@ -296,23 +285,18 @@ class ReactOrchestrator:
     ) -> Generator[StreamEvent, None, tuple[str, ToolTrace]]:
         """Execute one streaming request with an isolated model selection."""
 
-        token = self._model_spec_var.set(model_spec)
-        context_token = self._execution_context_var.set(execution_context)
-        try:
-            return (
-                yield from self._run_stream(
-                    messages,
-                    force_web_search=force_web_search,
-                    web_search_enabled=web_search_enabled,
-                    rag_enabled=rag_enabled,
-                    force_rag=force_rag,
-                    attachment_ids=attachment_ids,
-                    execution_context=execution_context,
-                )
+        return (
+            yield from self._run_stream(
+                messages,
+                force_web_search=force_web_search,
+                web_search_enabled=web_search_enabled,
+                rag_enabled=rag_enabled,
+                force_rag=force_rag,
+                attachment_ids=attachment_ids,
+                model_spec=model_spec,
+                execution_context=execution_context,
             )
-        finally:
-            self._model_spec_var.reset(token)
-            self._execution_context_var.reset(context_token)
+        )
 
     def _run_stream(
         self,
@@ -322,6 +306,7 @@ class ReactOrchestrator:
         rag_enabled: bool = True,
         force_rag: bool = False,
         attachment_ids: list[str] | None = None,
+        model_spec: ModelSpec | None = None,
         execution_context=None,
     ) -> Generator[StreamEvent, None, tuple[str, ToolTrace]]:
         """Execute the ReAct loop, yielding StreamEvents for progress.
@@ -342,9 +327,6 @@ class ReactOrchestrator:
         )
         failure_count = 0
         first_model_round = 1
-        self._active_rag_enabled = rag_enabled
-        self._active_web_search_enabled = web_search_enabled
-        self._active_attachment_ids = list(attachment_ids or [])
 
         if force_rag:
             yield StreamEvent(type="tool_call", data={"tool": RAG_TOOL_NAME, "args": {"query": "..."}, "status": "running"})
@@ -389,6 +371,10 @@ class ReactOrchestrator:
                 working_messages,
                 tool_choice=active_tool_choice,
                 content_prefix=content_prefix,
+                model_spec=model_spec,
+                execution_context=execution_context,
+                rag_enabled=rag_enabled,
+                web_search_enabled=web_search_enabled,
             )
             # _stream_round 已把分隔前缀计入 content 并作为 token 发出。
             if round_result.content:
@@ -451,6 +437,10 @@ class ReactOrchestrator:
             working_messages,
             tool_choice="none",
             content_prefix=content_prefix,
+            model_spec=model_spec,
+            execution_context=execution_context,
+            rag_enabled=rag_enabled,
+            web_search_enabled=web_search_enabled,
         )
         if final_round.content:
             visible_parts.append(final_round.content)
@@ -471,6 +461,10 @@ class ReactOrchestrator:
         *,
         tool_choice: str | dict | None = None,
         content_prefix: str = "",
+        model_spec: ModelSpec | None = None,
+        execution_context=None,
+        rag_enabled: bool = True,
+        web_search_enabled: bool = True,
     ) -> Generator[StreamEvent, None, _RoundResult]:
         """Make one streamed model call and accumulate its complete round result.
 
@@ -478,8 +472,13 @@ class ReactOrchestrator:
         只在本轮真正产出内容时作为 token 发出并计入 content。
         """
 
-        runtime = self._model_runtime()
-        tools = self._active_tools()
+        runtime = self._model_runtime(model_spec)
+        tools = self._active_tools(
+            model_spec=model_spec,
+            execution_context=execution_context,
+            rag_enabled=rag_enabled,
+            web_search_enabled=web_search_enabled,
+        )
         active_tool_choice = tool_choice or "auto"
         request_params = dict(runtime.request_params)
         request_params.update(
@@ -578,6 +577,7 @@ class ReactOrchestrator:
             finish_reason=finish_reason,
             call_type="with_tools",
             cost_ms=stream_cost_ms,
+            trace_model=runtime.trace_model,
         )
 
         if stream_error is not None:
@@ -595,6 +595,7 @@ class ReactOrchestrator:
                 completion=completion,
                 call_type="with_tools",
                 cost_ms=int((time.perf_counter() - fallback_started_at) * 1000),
+                trace_model=runtime.trace_model,
             )
             fallback_result = self._round_result_from_message(
                 completion.choices[0].message
@@ -774,10 +775,10 @@ class ReactOrchestrator:
 
         return ""
 
-    def _model_runtime(self) -> _ModelRuntime:
+    def _model_runtime(self, model_spec: ModelSpec | None = None) -> _ModelRuntime:
         """Resolve the active request model without leaking it across requests."""
 
-        spec = self._model_spec_var.get()
+        spec = model_spec
         if spec is None and self.config is None and self.client is None:
             spec = resolve_model()
 
@@ -802,14 +803,20 @@ class ReactOrchestrator:
             request_params={},
         )
 
-    def _active_tools(self) -> list[dict[str, Any]]:
-        """Return tools allowed for the active model and request switches."""
+    def _active_tools(
+        self,
+        *,
+        model_spec: ModelSpec | None = None,
+        execution_context=None,
+        rag_enabled: bool = True,
+        web_search_enabled: bool = True,
+    ) -> list[dict[str, Any]]:
+        """Return tools allowed by the explicit model and request switches."""
 
-        spec = self._model_spec_var.get()
+        spec = model_spec
         if spec is not None and not spec.supports_tools:
             return []
 
-        execution_context = self._execution_context_var.get()
         try:
             tools = self.tool_registry.get_tools_schema(
                 execution_context=execution_context,
@@ -817,13 +824,13 @@ class ReactOrchestrator:
         except TypeError:
             # Keep lightweight test registries and old integrations compatible.
             tools = self.tool_registry.get_tools_schema()
-        if not getattr(self, "_active_rag_enabled", True):
+        if not rag_enabled:
             tools = [
                 tool
                 for tool in tools
                 if _tool_schema_name(tool) != RAG_TOOL_NAME
             ]
-        if not getattr(self, "_active_web_search_enabled", True):
+        if not web_search_enabled:
             tools = [
                 tool
                 for tool in tools
@@ -831,10 +838,57 @@ class ReactOrchestrator:
             ]
         return tools
 
+    def _call_model_with_request_state(
+        self,
+        messages: list[ChatCompletionMessageParam],
+        *,
+        tool_choice: str | dict | None,
+        model_spec: ModelSpec | None,
+        execution_context,
+        rag_enabled: bool,
+        web_search_enabled: bool,
+    ):
+        """Call a model round with explicit state while keeping test hooks compatible."""
+
+        method = self._call_model_with_tools
+        parameters = inspect.signature(method).parameters
+        accepts_state = (
+            "model_spec" in parameters
+            or any(parameter.kind is inspect.Parameter.VAR_KEYWORD for parameter in parameters.values())
+        )
+        if not accepts_state:
+            return method(messages)
+        return method(
+            messages,
+            tool_choice=tool_choice,
+            model_spec=model_spec,
+            execution_context=execution_context,
+            rag_enabled=rag_enabled,
+            web_search_enabled=web_search_enabled,
+        )
+
+    def _call_model_for_request(
+        self,
+        messages: list[ChatCompletionMessageParam],
+        *,
+        model_spec: ModelSpec | None,
+    ) -> str:
+        """Call a final model round with explicit state while keeping test hooks compatible."""
+
+        method = self._call_model
+        if getattr(method, "__func__", None) is not ReactOrchestrator._call_model:
+            return method(messages)
+        return method(messages, model_spec=model_spec)
+
     def _call_model_with_tools(
         self,
         messages: list[ChatCompletionMessageParam],
         tool_choice: str | dict | None = None,
+        *,
+        model_spec: ModelSpec | None = None,
+        execution_context=None,
+        rag_enabled: bool = True,
+        web_search_enabled: bool = True,
     ):
         """调用模型并提供工具 schema，让模型选择是否请求工具。"""
 
@@ -845,12 +899,17 @@ class ReactOrchestrator:
                 "tool_calls": [],
             }
 
-        runtime = self._model_runtime()
+        runtime = self._model_runtime(model_spec)
         timings.bump("llm_calls")
         if timings.get_meta("model") is None:
             timings.set_meta("model", runtime.trace_model)
 
-        tools = self._active_tools()
+        tools = self._active_tools(
+            model_spec=model_spec,
+            execution_context=execution_context,
+            rag_enabled=rag_enabled,
+            web_search_enabled=web_search_enabled,
+        )
 
         active_tool_choice = tool_choice or "auto"
         call_started_at = time.perf_counter()
@@ -866,6 +925,7 @@ class ReactOrchestrator:
             completion=completion,
             call_type="with_tools",
             cost_ms=int((time.perf_counter() - call_started_at) * 1000),
+            trace_model=runtime.trace_model,
         )
 
         return completion.choices[0].message
@@ -1655,10 +1715,15 @@ class ReactOrchestrator:
 
         return getattr(tool_call, "function", None)
 
-    def _call_model(self, messages: list[ChatCompletionMessageParam]) -> str:
+    def _call_model(
+        self,
+        messages: list[ChatCompletionMessageParam],
+        *,
+        model_spec: ModelSpec | None = None,
+    ) -> str:
         """把 messages 发送给模型，并返回原始文本回复。"""
 
-        runtime = self._model_runtime()
+        runtime = self._model_runtime(model_spec)
         timings.bump("llm_calls")
         if timings.get_meta("model") is None:
             timings.set_meta("model", runtime.trace_model)
@@ -1674,6 +1739,7 @@ class ReactOrchestrator:
             completion=completion,
             call_type="final",
             cost_ms=int((time.perf_counter() - call_started_at) * 1000),
+            trace_model=runtime.trace_model,
         )
         raw_reply = completion.choices[0].message.content
 
@@ -1690,6 +1756,7 @@ class ReactOrchestrator:
         completion=None,
         usage=None,
         finish_reason: str | None = None,
+        trace_model: str,
     ) -> None:
         """提取 usage / finish_reason 写入 llm_calls，并累加请求级 token 汇总。
 
@@ -1719,7 +1786,7 @@ class ReactOrchestrator:
             trace_id=timings.get_trace_id(),
             round_number=timings.get_meta("round_number"),
             call_type=call_type,
-            model=self._model_runtime().trace_model,
+            model=trace_model,
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
             total_tokens=total_tokens,

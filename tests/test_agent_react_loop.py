@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import json
+from contextvars import copy_context
 from types import SimpleNamespace
 from typing import Any
+
+import pytest
 
 from app.services import memory_settings
 from app.services.agent.react_orchestrator import ReactOrchestrator, StreamEvent
@@ -810,7 +813,16 @@ def test_streamed_reply_matches_generator_return_value():
     orchestrator = make_orchestrator()
     orchestrator._call_model_with_tools = lambda _messages: final_message("preflight reply")
 
-    def fake_stream_round(messages, *, tool_choice=None, content_prefix=""):
+    def fake_stream_round(
+        messages,
+        *,
+        tool_choice=None,
+        content_prefix="",
+        model_spec=None,
+        execution_context=None,
+        rag_enabled=True,
+        web_search_enabled=True,
+    ):
         if content_prefix:
             yield StreamEvent(type="token", data={"text": content_prefix})
         yield StreamEvent(type="token", data={"text": "streamed "})
@@ -837,6 +849,112 @@ def test_streamed_reply_matches_generator_return_value():
     assert "".join(token_text) == "streamed reply"
     assert raw_reply == "streamed reply"
     assert tool_trace.used is False
+
+
+def test_stream_can_finish_in_another_context_without_contextvar_reset_error():
+    """流式生成器跨 Context 恢复时仍应完成并保留请求状态。"""
+
+    orchestrator = make_orchestrator()
+    model_spec = SimpleNamespace(model_id="model-a")
+    execution_context = object()
+    observed = []
+
+    def fake_stream_round(messages, **kwargs):
+        observed.append(kwargs)
+        yield StreamEvent(type="token", data={"text": "跨 "})
+        yield StreamEvent(type="token", data={"text": "Context"})
+        return SimpleNamespace(
+            content="跨 Context",
+            reasoning="",
+            tool_calls=[],
+        )
+
+    orchestrator._stream_round = fake_stream_round
+    stream = orchestrator.run_stream(
+        [{"role": "user", "content": "跨 Context"}],
+        model_spec=model_spec,
+        execution_context=execution_context,
+        rag_enabled=False,
+        web_search_enabled=True,
+    )
+    context_a = copy_context()
+    context_b = copy_context()
+
+    events = [context_a.run(next, stream)]
+    while True:
+        try:
+            events.append(context_b.run(next, stream))
+        except StopIteration as stop:
+            raw_reply, tool_trace = stop.value
+            break
+
+    assert [event.data["text"] for event in events] == ["跨 ", "Context"]
+    assert raw_reply == "跨 Context"
+    assert tool_trace.used is False
+    assert observed == [{
+        "tool_choice": "auto",
+        "content_prefix": "",
+        "model_spec": model_spec,
+        "execution_context": execution_context,
+        "rag_enabled": False,
+        "web_search_enabled": True,
+    }]
+
+
+def test_interleaved_streams_keep_model_and_request_switches_isolated():
+    """同一共享 orchestrator 上交错执行的请求不能串模型或开关。"""
+
+    orchestrator = make_orchestrator()
+    model_a = SimpleNamespace(model_id="model-a")
+    model_b = SimpleNamespace(model_id="model-b")
+    context_a = object()
+    context_b = object()
+    observed = []
+
+    def fake_stream_round(messages, **kwargs):
+        model = kwargs["model_spec"]
+        execution_context = kwargs["execution_context"]
+        observed.append((model.model_id, execution_context, kwargs["rag_enabled"], kwargs["web_search_enabled"]))
+        yield StreamEvent(type="token", data={"text": f"{model.model_id} "})
+        yield StreamEvent(type="token", data={"text": "reply"})
+        return SimpleNamespace(
+            content=f"{model.model_id} reply",
+            reasoning="",
+            tool_calls=[],
+        )
+
+    orchestrator._stream_round = fake_stream_round
+    stream_a = orchestrator.run_stream(
+        [{"role": "user", "content": "A"}],
+        model_spec=model_a,
+        execution_context=context_a,
+        rag_enabled=True,
+        web_search_enabled=False,
+    )
+    stream_b = orchestrator.run_stream(
+        [{"role": "user", "content": "B"}],
+        model_spec=model_b,
+        execution_context=context_b,
+        rag_enabled=False,
+        web_search_enabled=True,
+    )
+
+    assert next(stream_a).data["text"] == "model-a "
+    assert next(stream_b).data["text"] == "model-b "
+    assert next(stream_a).data["text"] == "reply"
+    assert next(stream_b).data["text"] == "reply"
+
+    with pytest.raises(StopIteration) as stopped_a:
+        next(stream_a)
+    with pytest.raises(StopIteration) as stopped_b:
+        next(stream_b)
+
+    assert stopped_a.value.value[0] == "model-a reply"
+    assert stopped_b.value.value[0] == "model-b reply"
+    assert observed == [
+        ("model-a", context_a, True, False),
+        ("model-b", context_b, False, True),
+    ]
 
 def test_stream_final_reply_closes_upstream_stream_when_cancelled():
     """Closing the response generator must release the provider stream."""
@@ -936,7 +1054,16 @@ def test_run_stream_separator_tokens_match_final_reply_exactly():
     orchestrator = make_orchestrator(registry)
     round_number = 0
 
-    def fake_stream_round(messages, *, tool_choice=None, content_prefix=""):
+    def fake_stream_round(
+        messages,
+        *,
+        tool_choice=None,
+        content_prefix="",
+        model_spec=None,
+        execution_context=None,
+        rag_enabled=True,
+        web_search_enabled=True,
+    ):
         """第一轮输出工具前正文 + 工具调用；第二轮输出带前缀的最终正文。"""
 
         nonlocal round_number
