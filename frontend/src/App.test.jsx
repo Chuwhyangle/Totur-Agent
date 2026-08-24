@@ -675,6 +675,38 @@ describe('App SSE sending', () => {
     expect(screen.getByText('API 在线')).not.toBeNull()
   })
 
+  it('keeps internal stream errors out of the visible reply', async () => {
+    const user = userEvent.setup()
+    api.getAttachments.mockResolvedValue({ data: { items: [] } })
+    api.postChatStream.mockRejectedValue({
+      message: '流式响应处理失败，请重试。',
+      status: 200,
+      detail: {
+        error: 'stream_internal_error',
+        stage: 'stream',
+        message: '流式响应处理失败，请重试。',
+        debug_message: 'ValueError: Token was created in a different Context',
+      },
+      responseBody: {
+        error: 'stream_internal_error',
+        message: '流式响应处理失败，请重试。',
+        debug_message: 'ValueError: Token was created in a different Context',
+      },
+    })
+
+    render(<App />)
+    await openSession(user)
+    await user.type(document.querySelector('.chat-input'), 'internal failure')
+    await user.click(document.querySelector('.send-button'))
+
+    expect(await screen.findByText('流式响应处理失败，请重试。')).not.toBeNull()
+    const debugDetails = document.querySelector('.debug-details')
+    expect(debugDetails.open).toBe(false)
+    await user.click(screen.getByText('调试详情'))
+    expect(screen.getByText(/Token was created in a different Context/)).not.toBeNull()
+    expect(screen.getByText('API 在线')).not.toBeNull()
+  })
+
   it('keeps the API status unchanged after a chat HTTP error', async () => {
     const user = userEvent.setup()
     localStorage.setItem('tutor-streaming', 'false')
