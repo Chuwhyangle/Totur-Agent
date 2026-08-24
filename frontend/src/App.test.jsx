@@ -633,7 +633,78 @@ describe('App SSE sending', () => {
     await user.click(document.querySelector('.send-button'))
 
     await waitFor(() => expect(document.querySelector('.streaming-toggle').disabled).toBe(false))
-    expect(screen.queryByText('partial answer')).toBeNull()
+    expect(screen.getByText('partial answer')).not.toBeNull()
+    expect(screen.getByText('stream failed')).not.toBeNull()
+    expect(screen.queryByText('这次请求后端失败了，但页面没有崩溃')).toBeNull()
+    expect(screen.getByText('API 在线')).not.toBeNull()
+  })
+
+  it('shows the real stream error and preserves complete debug details', async () => {
+    const user = userEvent.setup()
+    api.getAttachments.mockResolvedValue({ data: { items: [] } })
+    api.postChatStream.mockImplementation(async (_request, callbacks) => {
+      callbacks.onToken('partial answer')
+      throw {
+        message: 'Chat stream failed',
+        status: 200,
+        detail: {
+          error: 'conversation_persistence_failed',
+          message: '回答已生成，但对话保存失败。',
+          debug_message: 'RuntimeError: database is locked',
+        },
+        responseBody: {
+          error: 'conversation_persistence_failed',
+          message: '回答已生成，但对话保存失败。',
+        },
+        debug: { error: '回答已生成，但对话保存失败。' },
+      }
+    })
+
+    render(<App />)
+    await openSession(user)
+    await user.type(document.querySelector('.chat-input'), 'save this')
+    await user.click(document.querySelector('.send-button'))
+
+    expect(await screen.findByText('回答已生成，但对话保存失败。')).not.toBeNull()
+    expect(screen.getByText('partial answer')).not.toBeNull()
+    expect(screen.queryByText(/排查建议/)).toBeNull()
+    await user.click(screen.getByText('调试详情'))
+    expect(screen.getByText(/"status": 200/)).not.toBeNull()
+    expect(screen.getByText(/"conversation_persistence_failed"/)).not.toBeNull()
+    expect(screen.getByText(/"responseBody"/)).not.toBeNull()
+    expect(screen.getByText('API 在线')).not.toBeNull()
+  })
+
+  it('keeps the API status unchanged after a chat HTTP error', async () => {
+    const user = userEvent.setup()
+    localStorage.setItem('tutor-streaming', 'false')
+    api.getAttachments.mockResolvedValue({ data: { items: [] } })
+    api.postChat.mockRejectedValue({
+      message: 'Chat request failed: 422',
+      status: 422,
+      detail: { message: '请求参数无效' },
+      responseBody: { detail: { message: '请求参数无效' } },
+    })
+
+    render(<App />)
+    await openSession(user)
+    await user.type(document.querySelector('.chat-input'), 'invalid request')
+    await user.click(document.querySelector('.send-button'))
+
+    expect(await screen.findByText('请求参数无效')).not.toBeNull()
+    expect(screen.getByText('API 在线')).not.toBeNull()
+  })
+
+  it('refreshes API status only through the health check', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+
+    await waitFor(() => expect(api.getHealth).toHaveBeenCalledTimes(1))
+    api.getHealth.mockRejectedValueOnce(new Error('health unavailable'))
+    await user.click(screen.getByRole('button', { name: '刷新 API 状态' }))
+
+    expect(await screen.findByText('API 离线')).not.toBeNull()
+    expect(api.getHealth).toHaveBeenCalledTimes(2)
   })
 
   it('aborts an active stream and removes transient output when stopped', async () => {

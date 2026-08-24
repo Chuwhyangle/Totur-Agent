@@ -119,6 +119,10 @@ describe('tutorApi attachment API', () => {
       })
   })
 
+  it('does not infer a network error without a real fetch cause', () => {
+    expect(new TutorApiError('business failure').isNetworkError).toBe(false)
+  })
+
   it('sends attachment_ids in the chat JSON body', async () => {
     fetch.mockResolvedValue(jsonResponse({ reply: { answer: 'ok' } }))
     const requestBody = {
@@ -287,30 +291,97 @@ describe('tutorApi SSE API', () => {
     ]))
     const callbacks = { onToken: vi.fn(), onError: vi.fn() }
 
-    await expect(postChatStream({ user_id: 'user-1', message: 'hello' }, callbacks))
-      .rejects.toMatchObject({
-        name: 'TutorApiError',
-        message: 'Chat stream ended unexpectedly',
-        isNetworkError: false,
-      })
+    let caught
+    try {
+      await postChatStream({ user_id: 'user-1', message: 'hello' }, callbacks)
+    } catch (error) {
+      caught = error
+    }
+
+    expect(caught).toMatchObject({
+      name: 'TutorApiError',
+      message: 'Chat stream ended unexpectedly',
+      status: 200,
+      isNetworkError: false,
+      debug: {
+        url: `${API_BASE_URL}/chat/stream`,
+        method: 'POST',
+        status: 200,
+        error: 'Chat stream ended unexpectedly',
+      },
+    })
 
     expect(callbacks.onToken).toHaveBeenCalledWith('partial')
     expect(callbacks.onError).toHaveBeenCalledWith('Chat stream ended unexpectedly')
   })
   it('dispatches a well-formed SSE error event', async () => {
     fetch.mockResolvedValue(streamResponse([
-      'event: error\ndata: {"message":"generation failed"}\n\n',
+      'event: error\ndata: {"error":"generation_failed","message":"generation failed"}\n\n',
     ]))
     const onError = vi.fn()
 
-    await expect(postChatStream({ user_id: 'user-1', message: 'hello' }, { onError }))
+    let caught
+    try {
+      await postChatStream({ user_id: 'user-1', message: 'hello' }, { onError })
+    } catch (error) {
+      caught = error
+    }
+
+    expect(caught).toMatchObject({
+      name: 'TutorApiError',
+      message: 'Chat stream failed',
+      status: 200,
+      detail: { error: 'generation_failed', message: 'generation failed' },
+      responseBody: { error: 'generation_failed', message: 'generation failed' },
+      isNetworkError: false,
+      debug: {
+        url: `${API_BASE_URL}/chat/stream`,
+        method: 'POST',
+        status: 200,
+        error: 'generation failed',
+        responseBody: { error: 'generation_failed', message: 'generation failed' },
+      },
+    })
+    expect(onError).toHaveBeenCalledWith('generation failed')
+  })
+
+  it('rethrows stream reader failures with status and cause details', async () => {
+    const cause = new TypeError('connection reset')
+    fetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      body: { getReader: () => ({ read: vi.fn().mockRejectedValue(cause) }) },
+    })
+
+    await expect(postChatStream({ user_id: 'user-1', message: 'hello' }, { onError: vi.fn() }))
       .rejects.toMatchObject({
         name: 'TutorApiError',
-        message: 'Chat stream failed',
+        message: 'connection reset',
+        status: 200,
         isNetworkError: false,
+        debug: expect.objectContaining({
+          status: 200,
+          error: 'connection reset',
+        }),
+        cause,
       })
+  })
 
-    expect(onError).toHaveBeenCalledWith('generation failed')
+  it('keeps the real fetch failure message for stream requests', async () => {
+    const cause = new TypeError('Failed to fetch')
+    fetch.mockRejectedValue(cause)
+
+    await expect(postChatStream(
+      { user_id: 'user-1', message: 'hello' },
+      { onError: vi.fn() },
+    )).rejects.toMatchObject({
+      message: 'Failed to fetch',
+      isNetworkError: true,
+      debug: expect.objectContaining({
+        requestBody: { user_id: 'user-1', message: 'hello' },
+        error: 'Failed to fetch',
+      }),
+    })
   })
 })
 

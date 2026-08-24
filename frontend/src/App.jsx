@@ -51,7 +51,6 @@ import {
   getSendableAttachmentIds,
   isAttachmentPending,
   reconcileSelectedAttachmentIds,
-  shouldMarkApiOffline,
   validatePdfFile,
 } from './utils/attachments.js'
 
@@ -75,14 +74,43 @@ const WEB_SEARCH_MODE_REQUEST_FIELDS = {
   force: { web_search_enabled: true, force_web_search: true },
 }
 
+function getErrorDisplayMessage(error) {
+  if (typeof error?.detail?.message === 'string') {
+    return error.detail.message
+  }
+
+  if (typeof error?.detail === 'string') {
+    return error.detail
+  }
+
+  if (typeof error?.responseBody?.detail?.message === 'string') {
+    return error.responseBody.detail.message
+  }
+
+  if (typeof error?.responseBody?.detail === 'string') {
+    return error.responseBody.detail
+  }
+
+  if (typeof error?.responseBody?.message === 'string') {
+    return error.responseBody.message
+  }
+
+  if (typeof error?.message === 'string' && error.message.trim()) {
+    return error.message
+  }
+
+  if (typeof error?.detail?.error === 'string') {
+    return `请求失败：${error.detail.error}`
+  }
+
+  return '请求失败，请稍后重试。'
+}
+
 function createErrorReply(error) {
-  const errorCode = attachmentErrorCode(error)
-  const answer = errorCode
-    ? errorCode === 'attachment_no_relevant_evidence'
-      ? '在所选附件中没有检索到与当前问题足够相关的内容。你可以换一种问法，或取消附件后继续普通提问。'
-      : attachmentErrorMessage(error)
-    : `这次请求后端失败了，但页面没有崩溃。\n\n**排查建议：**\n\n- 先确认后端是否运行在 ${API_BASE_URL}\n- 观察顶部 API 状态，在服务恢复后重试\n- 展开调试详情查看失败信息`
-  return { answer, sources: [] }
+  return {
+    answer: getErrorDisplayMessage(error),
+    sources: [],
+  }
 }
 
 function createProtocolErrorReply() {
@@ -180,10 +208,6 @@ function App() {
     && !attachmentSendBlockReason
     && activeSessionWorkspace?.status !== 'ARCHIVED'
 
-  function updateApiStatusAfterError(error) {
-    setApiStatus(shouldMarkApiOffline(error) ? 'offline' : 'online')
-  }
-
   function activateAttachmentScope(
     nextSessionId,
     nextUserId,
@@ -214,7 +238,6 @@ function App() {
       const nextPersonas = Array.isArray(data) ? data : []
       setPersonas(nextPersonas)
       setPersonasStatus('success')
-      setApiStatus('online')
       setSelectedPersonaId((currentPersonaId) => {
         const stillAvailable = nextPersonas.some(
           (persona) => persona.persona_id === currentPersonaId,
@@ -224,10 +247,9 @@ function App() {
           : nextPersonas[0]?.persona_id ?? DEFAULT_PERSONA_ID
       })
       return nextPersonas
-    } catch (error) {
+    } catch {
       setPersonas([])
       setPersonasStatus('error')
-      updateApiStatusAfterError(error)
       return []
     }
   }, [])
@@ -239,16 +261,14 @@ function App() {
       const nextModels = Array.isArray(data) ? data : []
       setModels(nextModels)
       setModelsStatus('success')
-      setApiStatus('online')
       setSelectedModelId((currentModelId) => {
         const stillAvailable = nextModels.some((model) => model.model_id === currentModelId)
         return stillAvailable ? currentModelId : (nextModels[0]?.model_id ?? null)
       })
       return nextModels
-    } catch (error) {
+    } catch {
       setModels([])
       setModelsStatus('error')
-      updateApiStatusAfterError(error)
       return []
     }
   }, [])
@@ -310,12 +330,10 @@ function App() {
       const nextSessions = Array.isArray(data?.items) ? data.items : []
       setSessions(nextSessions)
       setSessionsStatus('success')
-      setApiStatus('online')
       return nextSessions
-    } catch (error) {
+    } catch {
       setSessions([])
       setSessionsStatus('error')
-      updateApiStatusAfterError(error)
       return []
     }
   }, [userId])
@@ -494,12 +512,10 @@ function App() {
       const nextJDs = Array.isArray(data?.items) ? data.items : []
       setInterviewJDs(nextJDs)
       setInterviewJDsStatus('success')
-      setApiStatus('online')
       return nextJDs
-    } catch (error) {
+    } catch {
       setInterviewJDs([])
       setInterviewJDsStatus('error')
-      updateApiStatusAfterError(error)
       return []
     }
   }, [userId])
@@ -512,11 +528,9 @@ function App() {
       const { data } = await createInterviewJD(requestBody)
       setInterviewJDs((currentJDs) => [data, ...currentJDs])
       setInterviewJDsStatus('success')
-      setApiStatus('online')
       return data
-    } catch (error) {
+    } catch {
       setInterviewJDsStatus('error')
-      updateApiStatusAfterError(error)
       return null
     } finally {
       setIsSavingInterviewJD(false)
@@ -552,12 +566,10 @@ function App() {
       const items = Array.isArray(data?.items) ? data.items : []
       setMessages(buildMessagesFromHistoryItems(items))
       setActiveSessionStatus('success')
-      setApiStatus('online')
     } catch (error) {
       if (requestId !== sessionMessageRequestIdRef.current || error?.isAbortError) return
       setMessages([])
       setActiveSessionStatus('error')
-      updateApiStatusAfterError(error)
     }
   }
 
@@ -594,12 +606,10 @@ function App() {
         void loadWorkspaceAssets({ workspaceId: data.workspace_id })
         void loadWorkspaceData(data.workspace_id)
       }
-      setApiStatus('online')
       return data
     } catch (error) {
       if (requestId !== sessionCreateRequestIdRef.current || error?.isAbortError) return null
       setSessionsStatus('error')
-      updateApiStatusAfterError(error)
       return null
     } finally {
       if (requestId === sessionCreateRequestIdRef.current) setIsCreatingSession(false)
@@ -641,7 +651,6 @@ function App() {
       })
       setAttachmentStatus('success')
       setAttachmentError('')
-      setApiStatus('online')
       return listedItems
     } catch (error) {
       if (
@@ -651,7 +660,6 @@ function App() {
       ) return []
       setAttachmentStatus('error')
       setAttachmentError(attachmentErrorMessage(error, '附件列表读取失败，请稍后重试。'))
-      updateApiStatusAfterError(error)
       return []
     }
   }, [activeSessionId, selectedPersonaId, userId])
@@ -723,11 +731,9 @@ function App() {
       setSelectedAttachmentIds((currentIds) => addSelectedAttachmentId(currentIds, data.id))
       setAttachmentStatus('success')
       setAttachmentError('')
-      setApiStatus('online')
     } catch (error) {
       if (error?.isAbortError || operationScopeKey !== attachmentScopeKeyRef.current) return
       setAttachmentError(attachmentErrorMessage(error, 'PDF 上传失败，请稍后重试。'))
-      updateApiStatusAfterError(error)
     } finally {
       setIsUploadingAttachment(false)
     }
@@ -766,14 +772,12 @@ function App() {
       ))
       setAttachmentStatus('success')
       setAttachmentError('')
-      setApiStatus('online')
     } catch (error) {
       if (scopeKey !== attachmentScopeKeyRef.current || error?.isAbortError) return
       setAttachmentActionErrors((current) => ({
         ...current,
         [attachmentId]: attachmentErrorMessage(error, '附件重试失败，请稍后再试。'),
       }))
-      updateApiStatusAfterError(error)
     } finally {
       if (scopeKey === attachmentScopeKeyRef.current) {
         setAttachmentActionStates((current) => ({ ...current, [attachmentId]: '' }))
@@ -803,14 +807,12 @@ function App() {
       ))
       setAttachmentStatus('success')
       setAttachmentError('')
-      setApiStatus('online')
     } catch (error) {
       if (scopeKey !== attachmentScopeKeyRef.current || error?.isAbortError) return
       setAttachmentActionErrors((current) => ({
         ...current,
         [attachmentId]: attachmentErrorMessage(error, '附件删除失败，请稍后再试。'),
       }))
-      updateApiStatusAfterError(error)
     } finally {
       if (scopeKey === attachmentScopeKeyRef.current) {
         setAttachmentActionStates((current) => ({ ...current, [attachmentId]: '' }))
@@ -858,6 +860,8 @@ function App() {
 
     setStreamingTool(null)
 
+    let accumulatedText = ''
+
     try {
       const activeSession = await ensureActiveSession()
       if (!activeSession) throw new Error('没有可用的会话')
@@ -875,7 +879,6 @@ function App() {
       if (streamingEnabled) {
         // Streaming mode
         const messageId = `message-assistant-${Date.now()}`
-        let accumulatedText = ''
         let finalData = null
 
         // 流开始时就创建 assistant 流式消息区域：
@@ -950,7 +953,6 @@ function App() {
         setStreamingTool(null)
         setActiveSessionId(finalData?.session_id ?? activeSession.id)
         setActiveSessionStatus('success')
-        setApiStatus('online')
         void loadSessions({ silent: true })
         if (activeSession.workspace_id) void loadWorkspaceData(activeSession.workspace_id)
       } else {
@@ -967,7 +969,6 @@ function App() {
         setMessages((currentMessages) => [...currentMessages, assistantMessage])
         setActiveSessionId(data?.session_id ?? activeSession.id)
         setActiveSessionStatus('success')
-        setApiStatus('online')
         void loadSessions({ silent: true })
         if (activeSession.workspace_id) void loadWorkspaceData(activeSession.workspace_id)
       }
@@ -978,17 +979,34 @@ function App() {
         id: `message-error-${Date.now()}`,
         role: 'assistant',
         reply: createErrorReply(error),
-        debug: error.debug ?? {
+        debug: {
           url: `${API_BASE_URL}/${streamingEnabled ? 'chat/stream' : 'chat'}`,
           method: 'POST',
           requestBody: baseRequestBody,
+          ...error.debug,
+          status: error.status ?? error.debug?.status ?? null,
           error: error.message,
+          detail: error.detail,
+          responseBody:
+            error.responseBody
+            ?? error.debug?.responseBody
+            ?? null,
         },
       }
-      setMessages((currentMessages) => [...currentMessages, errorMessage])
+      const partialMessage = streamingEnabled && accumulatedText
+        ? {
+            id: `message-partial-${Date.now()}`,
+            role: 'assistant',
+            reply: { answer: accumulatedText, sources: [] },
+          }
+        : null
+      setMessages((currentMessages) => [
+        ...currentMessages,
+        ...(partialMessage ? [partialMessage] : []),
+        errorMessage,
+      ])
       setStreamingMessage(null)
       setStreamingTool(null)
-      updateApiStatusAfterError(error)
       if (ATTACHMENT_ERRORS_REQUIRING_REFRESH.has(attachmentErrorCode(error))) {
         await refreshAttachments()
       }
@@ -1080,7 +1098,7 @@ function App() {
         </div>
         <div className="header-center">
           <span className="active-session-title">{activeSession?.title || '未命名会话'}</span>
-          <ApiStatus status={apiStatus} />
+          <ApiStatus status={apiStatus} onRefresh={checkApiHealth} />
         </div>
         <div className="header-controls">
           <ModelSelector models={models} selectedModelId={selectedModelId} status={modelsStatus} onModelChange={handleModelChange} />
