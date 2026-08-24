@@ -43,6 +43,7 @@ function SessionSidebar({
   status,
   isCreating,
   isSidebarCollapsed = false,
+  isMobileOpen = false,
   onToggleCollapsed,
   onCreateSession,
   onRefreshSessions,
@@ -62,9 +63,13 @@ function SessionSidebar({
   }, [sessions, selectedWorkspaceId, sessionScope])
   const groupedSessions = useMemo(() => groupSessionsByRecency(workspaceSessions), [workspaceSessions])
   const workspaceNames = useMemo(() => new Map(workspaces.map((workspace) => [workspace.id, workspace.name])), [workspaces])
+  const workspacesWithCounts = useMemo(() => workspaces.map((workspace) => ({
+    ...workspace,
+    session_count: workspace.session_count ?? sessions.filter((session) => session.workspace_id === workspace.id).length,
+  })), [sessions, workspaces])
 
   return (
-    <aside className={`session-sidebar${isSidebarCollapsed ? ' is-collapsed' : ''}`} aria-label="会话列表">
+    <aside className={`session-sidebar${isSidebarCollapsed ? ' is-collapsed' : ''}${isMobileOpen ? ' is-mobile-open' : ''}`} aria-label="会话列表">
       <div className="sidebar-brand-row">
         <div className="brand-block">
           <span className="brand-mark"><Icon name="sparkles" size={18} strokeWidth={1.6} /></span>
@@ -81,7 +86,7 @@ function SessionSidebar({
       </button>
 
       <WorkspaceRail
-        workspaces={workspaces}
+        workspaces={workspacesWithCounts}
         selectedWorkspaceId={selectedWorkspaceId}
         onSelect={onSelectWorkspace}
         onCreate={onCreateWorkspace}

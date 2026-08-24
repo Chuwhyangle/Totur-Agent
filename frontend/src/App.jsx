@@ -1193,6 +1193,7 @@ function App() {
           status={sessionsStatus}
           isCreating={isCreatingSession}
           isSidebarCollapsed={isSidebarCollapsed}
+          isMobileOpen={isMobileSidebarOpen}
           onToggleCollapsed={() => setIsSidebarCollapsed((value) => !value)}
           onCreateSession={handleCreateSession}
           onRefreshSessions={loadSessions}
