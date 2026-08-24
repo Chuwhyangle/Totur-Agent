@@ -38,6 +38,7 @@ def get_workspace(
     workspace_id: str,
     *,
     conn: Connection | None = None,
+    for_update: bool = False,
 ) -> WorkspaceRecord | None:
     """Fetch one Workspace by id."""
 
@@ -49,7 +50,13 @@ def get_workspace(
     """
 
     def _execute(connection: Connection):
-        return connection.execute(text(sql), {"id": workspace_id}).mappings().fetchone()
+        select_sql = sql
+        if for_update and connection.dialect.name == "mysql":
+            select_sql = f"{sql} FOR UPDATE"
+        return connection.execute(
+            text(select_sql),
+            {"id": workspace_id},
+        ).mappings().fetchone()
 
     if conn is not None:
         row = _execute(conn)

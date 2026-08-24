@@ -25,6 +25,7 @@ from app.services.agent.personas import (
 from app.services.agent.response_parser import ResponseParser
 from app.services.workspaces.workspace_service import (
     WorkspaceArchivedError,
+    WorkspaceDisabledError,
     WorkspaceNotFoundError,
     WorkspaceService,
 )
@@ -64,6 +65,7 @@ def create_chat_session(request: CreateSessionRequest) -> SessionItem:
                 subject=request.subject,
             )
         else:
+            workspace_service.ensure_enabled(request.workspace_id)
             with get_engine().begin() as connection:
                 workspace_service.require_active_owned_workspace(
                     user_id=request.user_id,
@@ -78,6 +80,11 @@ def create_chat_session(request: CreateSessionRequest) -> SessionItem:
                     workspace_id=request.workspace_id,
                     conn=connection,
                 )
+    except WorkspaceDisabledError as error:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"error": "workspace_disabled", "workspace_id": error.workspace_id},
+        ) from error
     except WorkspaceNotFoundError as error:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

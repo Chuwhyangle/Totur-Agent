@@ -10,6 +10,7 @@ from app.services.agent.context import AgentContext
 from app.services.agent.response_parser import REPLY_FORMAT_MARKDOWN_V2
 from app.services.memory_settings import RECENT_HISTORY_LIMIT
 from app.services.summary_service import SummaryService
+from app.services.workspaces.workspace_service import WorkspaceService
 
 
 class MemoryManager:
@@ -19,6 +20,7 @@ class MemoryManager:
         """保存摘要服务依赖。"""
 
         self.summary_service = summary_service
+        self.workspace_service = WorkspaceService()
 
     def load_context(
         self,
@@ -57,15 +59,35 @@ class MemoryManager:
         # json_v1 的旧记录仍存五字段 JSON 信封。读取时按 reply_format 显式分发。
         reply_json = reply.answer
 
+        def validate_workspace_before_insert(connection) -> None:
+            session = self._get_session_for_write(session_id, connection)
+            if session.workspace_id is not None:
+                self.workspace_service.ensure_enabled(session.workspace_id)
+                self.workspace_service.ensure_active_workspace(
+                    session.workspace_id,
+                    conn=connection,
+                    for_update=True,
+                )
+
         save_conversation(
             user_id=user_id,
             message=message,
             reply_json=reply_json,
             session_id=session_id,
             reply_format=REPLY_FORMAT_MARKDOWN_V2,
+            before_insert=validate_workspace_before_insert,
         )
         try:
             # 摘要是辅助记忆能力，失败时不影响本轮聊天结果。
             self.summary_service.update_summary_if_needed(session_id)
         except Exception:
             pass
+
+    @staticmethod
+    def _get_session_for_write(session_id: int, connection):
+        from app.repositories.session_repository import get_session_for_update
+
+        session = get_session_for_update(session_id, conn=connection)
+        if session is None:
+            raise RuntimeError("Session not found while saving conversation")
+        return session

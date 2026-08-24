@@ -6,6 +6,7 @@ from uuid import uuid4
 
 from sqlalchemy import Connection
 
+from app.db.engine import get_engine
 from app.db.models import WorkspaceRecord, WorkspaceStatus
 from app.repositories import workspace_repository
 from app.services.workspaces.settings import (
@@ -29,6 +30,14 @@ class WorkspaceArchivedError(WorkspaceDomainError):
     def __init__(self, workspace_id: str) -> None:
         self.workspace_id = workspace_id
         super().__init__(f"workspace {workspace_id} is archived")
+
+
+class WorkspaceDisabledError(WorkspaceDomainError):
+    """Workspace functionality is disabled by the feature flag."""
+
+    def __init__(self, workspace_id: str | None = None) -> None:
+        self.workspace_id = workspace_id
+        super().__init__("workspace functionality is disabled")
 
 
 class InvalidWorkspaceError(WorkspaceDomainError):
@@ -82,8 +91,13 @@ class WorkspaceService:
         user_id: str,
         workspace_id: str,
         conn: Connection | None = None,
+        for_update: bool = False,
     ) -> WorkspaceRecord:
-        record = workspace_repository.get_workspace(workspace_id, conn=conn)
+        record = workspace_repository.get_workspace(
+            workspace_id,
+            conn=conn,
+            for_update=for_update,
+        )
         if record is None or record.user_id != user_id.strip():
             raise WorkspaceNotFoundError
         return record
@@ -111,10 +125,19 @@ class WorkspaceService:
         workspace_id: str,
         conn: Connection | None = None,
     ) -> WorkspaceRecord:
+        if conn is None:
+            with get_engine().begin() as connection:
+                return self.archive_workspace(
+                    user_id=user_id,
+                    workspace_id=workspace_id,
+                    conn=connection,
+                )
+
         record = self.get_owned_workspace(
             user_id=user_id,
             workspace_id=workspace_id,
             conn=conn,
+            for_update=conn is not None,
         )
         if record.status is WorkspaceStatus.ARCHIVED:
             return record
@@ -129,10 +152,19 @@ class WorkspaceService:
         workspace_id: str,
         conn: Connection | None = None,
     ) -> WorkspaceRecord:
+        if conn is None:
+            with get_engine().begin() as connection:
+                return self.restore_workspace(
+                    user_id=user_id,
+                    workspace_id=workspace_id,
+                    conn=connection,
+                )
+
         record = self.get_owned_workspace(
             user_id=user_id,
             workspace_id=workspace_id,
             conn=conn,
+            for_update=conn is not None,
         )
         if record.status is WorkspaceStatus.ACTIVE:
             return record
@@ -151,6 +183,7 @@ class WorkspaceService:
             user_id=user_id,
             workspace_id=workspace_id,
             conn=conn,
+            for_update=conn is not None,
         )
         if record.status is WorkspaceStatus.ARCHIVED:
             raise WorkspaceArchivedError(workspace_id)
@@ -161,10 +194,21 @@ class WorkspaceService:
         workspace_id: str,
         *,
         conn: Connection | None = None,
+        for_update: bool = False,
     ) -> None:
-        record = workspace_repository.get_workspace(workspace_id, conn=conn)
+        record = workspace_repository.get_workspace(
+            workspace_id,
+            conn=conn,
+            for_update=for_update,
+        )
         if record is not None and record.status is WorkspaceStatus.ARCHIVED:
             raise WorkspaceArchivedError(workspace_id)
+
+    def ensure_enabled(self, workspace_id: str | None = None) -> None:
+        from app.services.workspaces.settings import is_workspaces_enabled
+
+        if not is_workspaces_enabled():
+            raise WorkspaceDisabledError(workspace_id)
 
 
 def _normalize_whitespace(value: str) -> str:

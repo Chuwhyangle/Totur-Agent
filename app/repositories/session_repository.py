@@ -106,7 +106,10 @@ def get_or_create_default_session(
     SELECT id, user_id, title, persona_id, created_at, updated_at,
            subject, workspace_id
     FROM {CHAT_SESSIONS_TABLE}
-    WHERE user_id = :user_id AND title = :title AND persona_id = :persona_id
+    WHERE user_id = :user_id
+      AND title = :title
+      AND persona_id = :persona_id
+      AND workspace_id IS NULL
     ORDER BY id ASC
     LIMIT 1
     """
@@ -159,17 +162,35 @@ def get_session(session_id: int) -> ChatSessionRecord | None:
     FROM {CHAT_SESSIONS_TABLE}
     WHERE id = :id
     """
-
     with get_engine().connect() as connection:
         row = connection.execute(
             text(select_sql),
             {"id": session_id},
         ).mappings().fetchone()
+    return _session_from_row(row) if row is not None else None
 
-        if row is None:
-            return None
 
-        return _session_from_row(row)
+def get_session_for_update(
+    session_id: int,
+    *,
+    conn: Connection,
+) -> ChatSessionRecord | None:
+    """Fetch a session in the caller's transaction, locking it on MySQL."""
+
+    select_sql = f"""
+    SELECT id, user_id, title, persona_id, created_at, updated_at,
+           subject, workspace_id
+    FROM {CHAT_SESSIONS_TABLE}
+    WHERE id = :id
+    """
+    if conn.dialect.name == "mysql":
+        select_sql = f"{select_sql} FOR UPDATE"
+
+    row = conn.execute(
+        text(select_sql),
+        {"id": session_id},
+    ).mappings().fetchone()
+    return _session_from_row(row) if row is not None else None
 
 
 def list_sessions(user_id: str, limit: int = 50) -> list[ChatSessionRecord]:
