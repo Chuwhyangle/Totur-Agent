@@ -53,6 +53,51 @@ def test_stream_preserves_token_tool_and_done_event_order(monkeypatch):
     assert events[-1][1]["reply"] == final_reply
 
 
+def test_stream_serializes_multiple_model_chunks_as_multiple_sse_token_events(monkeypatch):
+    """多个模型 chunk 应经服务事件转换为多个 SSE token 事件。"""
+
+    from types import SimpleNamespace
+
+    from app.services.agent.react_orchestrator import ReactOrchestrator
+
+    class Chunks:
+        def __iter__(self):
+            return iter([
+                SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(content="第一"))]),
+                SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(content="部分"))]),
+            ])
+
+    orchestrator = ReactOrchestrator(
+        config=SimpleNamespace(model="test-model"),
+        client=SimpleNamespace(
+            chat=SimpleNamespace(
+                completions=SimpleNamespace(create=lambda **_kwargs: Chunks()),
+            ),
+        ),
+    )
+
+    def fake_stream(_request):
+        stream = orchestrator._stream_round([])
+        for event in stream:
+            yield {"event": event.type, "data": event.data}
+        yield {
+            "event": "done",
+            "data": {"full_response": "第一部分", "reply": {}, "session_id": 7},
+        }
+
+    monkeypatch.setattr(chat_route.tutor_agent_service, "chat_stream", fake_stream)
+
+    response = client.post("/chat/stream", json=REQUEST)
+
+    assert response.status_code == 200
+    events = _parse_events(response.text)
+    assert [event_type for event_type, _ in events] == ["token", "token", "done"]
+    assert [data["text"] for kind, data in events if kind == "token"] == [
+        "第一",
+        "部分",
+    ]
+
+
 def test_stream_converts_generator_exception_to_well_formed_error_event(monkeypatch):
     def broken_stream(_request):
         yield {"event": "token", "data": {"text": "partial"}}

@@ -979,6 +979,68 @@ def test_run_stream_separator_tokens_match_final_reply_exactly():
     assert tool_trace.used is True
 
 
+def test_stream_round_emits_multiple_token_events_for_multiple_model_chunks():
+    """模型的多个内容 chunk 应分别转换为多个 token 事件。"""
+
+    calls = []
+
+    class Chunks:
+        def __iter__(self):
+            return iter([
+                SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(content="第一"))]),
+                SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(content="部分"))]),
+            ])
+
+    def create(**kwargs):
+        calls.append(kwargs)
+        return Chunks()
+
+    orchestrator = make_orchestrator()
+    orchestrator.client = SimpleNamespace(
+        chat=SimpleNamespace(
+            completions=SimpleNamespace(create=create),
+        ),
+    )
+
+    stream = orchestrator._stream_round([])
+    events = list(stream)
+
+    assert [event.type for event in events] == ["token", "token"]
+    assert [event.data["text"] for event in events] == ["第一", "部分"]
+    assert calls[0]["stream"] is True
+    assert "stream_options" not in calls[0]
+
+
+def test_stream_round_logs_stream_failure_before_non_stream_fallback(caplog):
+    """流式失败后保留兜底时，必须留下可定位且不含正文的日志。"""
+
+    def create(**kwargs):
+        if kwargs.get("stream") is True:
+            raise RuntimeError("provider rejected stream")
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=final_message("fallback reply"))],
+            usage=None,
+        )
+
+    orchestrator = make_orchestrator()
+    orchestrator.client = SimpleNamespace(
+        chat=SimpleNamespace(
+            completions=SimpleNamespace(create=create),
+        ),
+    )
+
+    with caplog.at_level("WARNING"):
+        events = list(orchestrator._stream_round([]))
+
+    assert [event.data["text"] for event in events] == ["fallback reply"]
+    assert "llm_stream_failed" in caplog.text
+    assert "stream_fallback_to_non_stream" in caplog.text
+    assert "model=test-model" in caplog.text
+    assert "provider=legacy" in caplog.text
+    assert "error_type=RuntimeError" in caplog.text
+    assert "provider rejected stream" not in caplog.text
+
+
 def test_stream_round_emits_content_prefix_once_before_first_token():
     """_stream_round 只在真正产出内容时发出一次前缀 token。"""
 

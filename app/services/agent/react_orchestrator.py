@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import time
 from collections.abc import Generator
 from contextvars import ContextVar
@@ -34,6 +35,8 @@ WEB_SEARCH_TOOL_NAME = "web_search"
 RAG_TOOL_NAME = "search_learning_notes"
 JD_TOOL_NAME = "search_job_descriptions"
 ATTACHMENT_TOOL_NAME = "search_attachments"
+
+logger = logging.getLogger(__name__)
 
 
 def _tool_schema_name(tool: Any) -> str:
@@ -70,6 +73,7 @@ class _ModelRuntime:
     client: OpenAI
     api_model: str
     trace_model: str
+    provider: str
     request_params: dict[str, Any]
 
 
@@ -489,7 +493,6 @@ class ReactOrchestrator:
                 "tools": tools,
                 "tool_choice": active_tool_choice,
                 "stream": True,
-                "stream_options": {"include_usage": True},
             }
         )
 
@@ -581,6 +584,17 @@ class ReactOrchestrator:
         )
 
         if stream_error is not None:
+            logger.warning(
+                "llm_stream_failed model=%s provider=%s error_type=%s",
+                runtime.trace_model,
+                runtime.provider,
+                type(stream_error).__name__,
+            )
+            logger.warning(
+                "stream_fallback_to_non_stream model=%s provider=%s",
+                runtime.trace_model,
+                runtime.provider,
+            )
             timings.bump("llm_calls")
             fallback_started_at = time.perf_counter()
             with timings.track("llm"):
@@ -789,6 +803,7 @@ class ReactOrchestrator:
                 client=get_llm_client(spec.provider),
                 api_model=spec.api_model,
                 trace_model=spec.model_id,
+                provider=spec.provider,
                 request_params=request_params,
             )
 
@@ -799,6 +814,7 @@ class ReactOrchestrator:
             client=self.client,
             api_model=self.config.model,
             trace_model=self.config.model,
+            provider="legacy",
             request_params={},
         )
 
