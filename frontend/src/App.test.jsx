@@ -129,6 +129,32 @@ describe('App attachment scope and sending', () => {
     expect(screen.getByText('second.pdf')).not.toBeNull()
   })
 
+  it('keeps the first message when session history finishes after sending', async () => {
+    const user = userEvent.setup()
+    const history = deferred()
+    api.getSessionConversations.mockReturnValue(history.promise)
+    api.getAttachments.mockResolvedValue({ data: { items: [] } })
+
+    render(<App />)
+    await openSession(user)
+    await user.type(
+      screen.getByPlaceholderText('写下你的问题，或让导师帮你拆解下一步…'),
+      'first question',
+    )
+    expect(screen.getByRole('button', { name: '发送消息' }).disabled).toBe(true)
+
+    await act(async () => {
+      history.resolve({ data: { items: [] } })
+      await history.promise
+    })
+
+    await user.click(screen.getByRole('button', { name: '发送消息' }))
+
+    await waitFor(() => expect(api.postChat).toHaveBeenCalledTimes(1))
+
+    expect(screen.getByText('first question')).not.toBeNull()
+  })
+
   it('clears attachment state and ignores stale responses after persona changes', async () => {
     const user = userEvent.setup()
     const attachmentList = deferred()

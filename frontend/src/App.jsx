@@ -176,6 +176,7 @@ function App() {
   const canSend = draftMessage.trim().length > 0
     && userId.trim().length > 0
     && !isSending
+    && activeSessionStatus !== 'loading'
     && !attachmentSendBlockReason
     && activeSessionWorkspace?.status !== 'ARCHIVED'
 
@@ -822,7 +823,7 @@ function App() {
 
     const trimmedMessage = draftMessage.trim()
     const trimmedUserId = userId.trim()
-    if (!trimmedMessage || !trimmedUserId || isSending) return
+    if (!trimmedMessage || !trimmedUserId || isSending || activeSessionStatus === 'loading') return
     if (attachmentSendBlockReason) {
       setAttachmentError(attachmentSendBlockReason)
       return
