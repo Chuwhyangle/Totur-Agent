@@ -112,6 +112,13 @@ async def lifespan(_: FastAPI):
     validate_model_configuration()
     # 业务库 schema 就绪先于观测库；只在启动时执行一次（A2）。
     initialize_database()
+    if is_workspaces_enabled():
+        try:
+            from app.services.workspaces.asset_recovery_service import recover_workspace_assets_once
+
+            recover_workspace_assets_once()
+        except Exception as exc:
+            logger.error("workspace_asset_startup_recovery_failed error_type=%s", type(exc).__name__)
     stop_event = threading.Event()
     shutdown_event = asyncio.Event()
     try:
@@ -203,8 +210,14 @@ app.include_router(journal_router)
 
 if is_workspaces_enabled():
     from app.api.routes.workspaces import router as workspaces_router
+    from app.api.routes.workspace_assets import router as workspace_assets_router
+    from app.api.routes.workspace_tasks import router as workspace_tasks_router
+    from app.api.routes.workspace_artifacts import router as workspace_artifacts_router
 
     app.include_router(workspaces_router)
+    app.include_router(workspace_assets_router)
+    app.include_router(workspace_tasks_router)
+    app.include_router(workspace_artifacts_router)
 
 if is_mcp_http_enabled():
     from app.mcp.server import MCPMountPathMiddleware, get_mcp_http_app
