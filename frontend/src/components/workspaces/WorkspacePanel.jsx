@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import Icon from '../Icon.jsx'
 import WorkspaceArtifacts from './WorkspaceArtifacts.jsx'
@@ -48,10 +48,26 @@ function WorkspacePanel({
   const [description, setDescription] = useState('')
   const [instructionDraft, setInstructionDraft] = useState('')
   const [instructionSaving, setInstructionSaving] = useState(false)
+  const closeButtonRef = useRef(null)
+  const triggerRef = useRef(null)
 
   useEffect(() => {
     if (!instructionSaving) setInstructionDraft(workspaceInstructions.content)
   }, [workspaceInstructions.content, instructionSaving])
+
+  useEffect(() => {
+    if (!open) return undefined
+    triggerRef.current = document.activeElement
+    closeButtonRef.current?.focus()
+    function handleEscape(event) {
+      if (event.key === 'Escape') onClose?.()
+    }
+    window.addEventListener('keydown', handleEscape)
+    return () => {
+      window.removeEventListener('keydown', handleEscape)
+      triggerRef.current?.focus?.()
+    }
+  }, [open, onClose])
 
   if (!open) return null
 
@@ -72,10 +88,12 @@ function WorkspacePanel({
   }
 
   return (
-    <aside className="workspace-panel" aria-label="Workspace 工作台">
+    <>
+      <button className="drawer-scrim workspace-scrim" type="button" aria-label="关闭 Workspace 工作台" onClick={onClose} />
+      <aside className="workspace-panel" aria-label="Workspace 工作台">
       <div className="workspace-panel-header">
         <div><span className="workspace-eyebrow">Workspace</span><h1>项目工作台</h1></div>
-        <button className="icon-button" type="button" onClick={onClose} aria-label="关闭 Workspace 工作台" title="关闭"><Icon name="close" size={17} /></button>
+        <button ref={closeButtonRef} className="icon-button" type="button" onClick={onClose} aria-label="关闭 Workspace 工作台" title="关闭"><Icon name="close" size={17} /></button>
       </div>
       {featureStatus === 'error' ? <p className="workspace-error" role="alert">Workspace 功能未启用，普通聊天仍可使用。</p> : null}
       {featureStatus === 'loading' ? <p className="workspace-muted">正在读取 Workspace…</p> : null}
@@ -102,7 +120,8 @@ function WorkspacePanel({
           <WorkspaceArtifacts artifacts={artifacts} loading={artifactsStatus === 'loading'} error={artifactsError} selectedArtifact={selectedArtifact} content={artifactContent} contentLoading={artifactContentLoading} onSelect={onSelectArtifact} onClosePreview={onCloseArtifact} onDownload={onDownloadArtifact} />
         </>
       ) : <p className="workspace-empty">选择一个 Workspace 查看文件和产出。</p>}
-    </aside>
+      </aside>
+    </>
   )
 }
 

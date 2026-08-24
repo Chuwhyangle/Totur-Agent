@@ -9,6 +9,8 @@
     message: <><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4Z" /></>,
     target: <><circle cx="12" cy="12" r="9" /><circle cx="12" cy="12" r="4" /><path d="M12 3v3M21 12h-3M12 21v-3M3 12h3" /></>,
     chevron: <path d="m9 18 6-6-6-6" />,
+    'chevron-down': <path d="m6 9 6 6 6-6" />,
+    menu: <path d="M4 6h16M4 12h16M4 18h16" />,
     check: <path d="m5 12 4 4L19 6" />,
     user: <><path d="M20 21a8 8 0 0 0-16 0" /><circle cx="12" cy="7" r="4" /></>,
     panel: <><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M9 4v16" /></>,

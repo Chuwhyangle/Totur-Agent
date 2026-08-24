@@ -46,7 +46,6 @@ import ModelSelector from './components/ModelSelector.jsx'
 import PersonaSelector from './components/PersonaSelector.jsx'
 import PersonaManager from './components/PersonaManager.jsx'
 import SessionSidebar from './components/SessionSidebar.jsx'
-import UserIdInput from './components/UserIdInput.jsx'
 import WorkspacePanel from './components/workspaces/WorkspacePanel.jsx'
 import { useAttachmentPolling } from './hooks/useAttachmentPolling.js'
 import {
@@ -181,6 +180,8 @@ function App() {
   const [workspaces, setWorkspaces] = useState([])
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState(null)
   const [workspacePanelOpen, setWorkspacePanelOpen] = useState(false)
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => localStorage.getItem('tutor-sidebar-collapsed') === 'true')
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false)
   const [workspaceInstructions, setWorkspaceInstructions] = useState({ content: '', version: 0 })
   const [workspaceAssets, setWorkspaceAssets] = useState([])
   const [workspaceAssetsStatus, setWorkspaceAssetsStatus] = useState('idle')
@@ -205,11 +206,11 @@ function App() {
   const workspaceRequestIdRef = useRef(0)
 
   const activeSession = sessions.find((session) => session.id === activeSessionId)
+  const activeSessionWorkspace = workspaces.find((workspace) => workspace.id === activeSession?.workspace_id)
   const attachmentSendBlockReason = getAttachmentSendBlockReason(
     attachments,
     selectedAttachmentIds,
   )
-  const activeSessionWorkspace = workspaces.find((workspace) => workspace.id === activeSession?.workspace_id)
   const canSend = draftMessage.trim().length > 0
     && userId.trim().length > 0
     && !isSending
@@ -1093,6 +1094,18 @@ function App() {
   }, [theme])
 
   useEffect(() => {
+    localStorage.setItem('tutor-sidebar-collapsed', String(isSidebarCollapsed))
+  }, [isSidebarCollapsed])
+
+  useEffect(() => {
+    function handleEscape(event) {
+      if (event.key === 'Escape') setIsMobileSidebarOpen(false)
+    }
+    window.addEventListener('keydown', handleEscape)
+    return () => window.removeEventListener('keydown', handleEscape)
+  }, [])
+
+  useEffect(() => {
     threadRef.current?.scrollTo({ top: threadRef.current.scrollHeight, behavior: 'smooth' })
   }, [messages, isSending, streamingMessage])
 
@@ -1140,12 +1153,11 @@ function App() {
   return (
     <main className="app-shell">
       <header className="app-header">
-        <div className="brand-block">
-          <span className="brand-mark"><Icon name="sparkles" size={18} strokeWidth={1.6} /></span>
-          <div><strong>Tutor Agent</strong><span>专注学习 · 清晰推进</span></div>
+        <div className="header-leading">
+          <button className="icon-button menu-button" type="button" onClick={() => setIsMobileSidebarOpen(true)} aria-label="打开会话侧栏" title="打开会话侧栏"><Icon name="menu" size={19} /></button>
+          <span className="active-session-title">{activeSession?.title || '未命名会话'}</span>
         </div>
         <div className="header-center">
-          <span className="active-session-title">{activeSession?.title || '未命名会话'}</span>
           <ApiStatus status={apiStatus} onRefresh={checkApiHealth} />
         </div>
         <div className="header-controls">
@@ -1166,11 +1178,6 @@ function App() {
           <button className="header-action-button" type="button" onClick={() => setIsTargetPanelOpen(true)}>
             <Icon name="target" size={17} /><span>学习目标</span>
           </button>
-          {workspaceFeatureStatus !== 'error' ? (
-            <button className="header-action-button" type="button" onClick={() => setWorkspacePanelOpen(true)}>
-              <Icon name="panel" size={17} /><span>{activeSessionWorkspace?.name || 'Workspace'}</span>
-            </button>
-          ) : null}
           <button className="theme-button" type="button" onClick={() => setTheme((current) => current === 'dark' ? 'light' : 'dark')} aria-label="切换明暗主题">
             <Icon name={theme === 'dark' ? 'sun' : 'moon'} size={18} />
           </button>
@@ -1178,22 +1185,30 @@ function App() {
       </header>
 
       <div className="workspace-layout">
+        {isMobileSidebarOpen ? <button className="drawer-scrim sidebar-scrim" type="button" aria-label="关闭会话侧栏" onClick={() => setIsMobileSidebarOpen(false)} /> : null}
         <SessionSidebar
           userId={userId}
           sessions={sessions}
           personas={personas}
+          workspaces={workspaces}
+          selectedWorkspaceId={selectedWorkspaceId}
           activeSessionId={activeSessionId}
           status={sessionsStatus}
           isCreating={isCreatingSession}
+          isSidebarCollapsed={isSidebarCollapsed}
+          onToggleCollapsed={() => setIsSidebarCollapsed((value) => !value)}
           onCreateSession={handleCreateSession}
           onRefreshSessions={loadSessions}
           onSelectSession={loadSessionMessages}
+          onSelectWorkspace={selectWorkspace}
+          onCreateWorkspace={() => setWorkspacePanelOpen(true)}
+          onArchiveWorkspace={(workspaceId) => handleWorkspaceLifecycle(workspaceId, 'archive')}
+          onRestoreWorkspace={(workspaceId) => handleWorkspaceLifecycle(workspaceId, 'restore')}
+          onOpenWorkspaceDetail={(workspaceId) => { void selectWorkspace(workspaceId); setWorkspacePanelOpen(true) }}
+          onUserIdChange={handleUserIdChange}
         />
 
         <section className="chat-surface" aria-label="聊天工作区">
-          <div className="mobile-chat-toolbar">
-            <UserIdInput userId={userId} onUserIdChange={handleUserIdChange} />
-          </div>
           <div className="thread-preview" ref={threadRef}>
             {messages.length === 0 && activeSessionStatus !== 'loading' ? (
               <div className="welcome-state">
@@ -1251,7 +1266,6 @@ function App() {
         </section>
       </div>
 
-      <div className="desktop-user-control"><UserIdInput userId={userId} onUserIdChange={handleUserIdChange} /></div>
       <InterviewJDPanel
         userId={userId}
         items={interviewJDs}
