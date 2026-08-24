@@ -36,6 +36,7 @@ from app.services.rag_seed_context import retrieve_seed_knowledge_context
 from app.services.rag_settings import ENABLE_RAG_SEED_CONTEXT
 from app.services.summary_service import SummaryService
 from app.services import timings
+from app.services.workspaces.workspace_service import WorkspaceService
 
 
 _CITATION_PATTERN = re.compile(r"\[(web|attachment|note|jd)_(\d+)\]")
@@ -118,6 +119,7 @@ class TutorAgentService:
         # initializes an embedding client.
         self.attachment_retrieval_service = attachment_retrieval_service
         self.attachment_context_max_chars = attachment_context_max_chars
+        self.workspace_service = WorkspaceService()
 
     def chat(self, request: ChatRequest) -> ChatResponse:
         """处理一次聊天请求。"""
@@ -510,12 +512,15 @@ class TutorAgentService:
         )
         if session_id is None:
             # 兼容旧版前端：不传 session_id 时仍然使用默认会话，但默认会话按 persona 隔离。
-            return get_or_create_default_session(
+            session = get_or_create_default_session(
                 user_id,
                 persona_id=request_persona.persona_id
                 if request_persona is not None
                 else DEFAULT_PERSONA_ID,
             )
+            if session.workspace_id is not None:
+                self.workspace_service.ensure_active_workspace(session.workspace_id)
+            return session
 
         session = get_session(session_id)
         if session is None or session.user_id != user_id:
@@ -530,5 +535,8 @@ class TutorAgentService:
                 session_persona_id=session.persona_id,
                 request_persona_id=request_persona.persona_id,
             )
+
+        if session.workspace_id is not None:
+            self.workspace_service.ensure_active_workspace(session.workspace_id)
 
         return session

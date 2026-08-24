@@ -11,7 +11,56 @@ INTERVIEW_JDS_TABLE = "interview_jds"
 PUBLIC_JOB_DESCRIPTIONS_TABLE = "public_job_descriptions"
 DOCUMENTS_TABLE = "documents"
 JOURNAL_ENTRIES_TABLE = "journal_entries"
+WORKSPACES_TABLE = "workspaces"
+WORKSPACE_ASSETS_TABLE = "workspace_assets"
+TASKS_TABLE = "tasks"
+TASK_STEPS_TABLE = "task_steps"
+TASK_ASSET_REFS_TABLE = "task_asset_refs"
+ARTIFACTS_TABLE = "artifacts"
+ARTIFACT_SOURCES_TABLE = "artifact_sources"
 DEFAULT_SESSION_TITLE = "默认会话"
+
+
+class WorkspaceStatus(str, Enum):
+    """Lifecycle state of a long-lived Workspace."""
+
+    ACTIVE = "ACTIVE"
+    ARCHIVED = "ARCHIVED"
+
+
+class WorkspaceAssetStatus(str, Enum):
+    """Reserved lifecycle states for future Workspace assets."""
+
+    STAGING = "STAGING"
+    PROCESSING = "PROCESSING"
+    READY = "READY"
+    FAILED = "FAILED"
+    DELETING = "DELETING"
+    DELETED = "DELETED"
+
+
+class WorkspaceTaskStatus(str, Enum):
+    """Reserved lifecycle states for future Workspace tasks."""
+
+    RUNNING = "RUNNING"
+    COMPLETED = "COMPLETED"
+    FAILED = "FAILED"
+
+
+class WorkspaceTaskStepStatus(str, Enum):
+    """Reserved lifecycle states for future task steps."""
+
+    RUNNING = "RUNNING"
+    SUCCEEDED = "SUCCEEDED"
+    FAILED = "FAILED"
+
+
+class ArtifactStatus(str, Enum):
+    """Reserved lifecycle states for future Workspace artifacts."""
+
+    CREATING = "CREATING"
+    READY = "READY"
+    FAILED = "FAILED"
 
 
 class DocumentScope(str, Enum):
@@ -118,6 +167,139 @@ class ChatSessionRecord:
     created_at: str
     updated_at: str
     subject: str | None = None
+    workspace_id: str | None = None
+
+
+@dataclass
+class WorkspaceRecord:
+    """workspaces 表中的一行记录。"""
+
+    id: str
+    user_id: str
+    name: str
+    description: str | None
+    status: WorkspaceStatus
+    created_at: str
+    updated_at: str
+    archived_at: str | None = None
+
+    def __post_init__(self) -> None:
+        self.status = WorkspaceStatus(self.status)
+
+
+@dataclass
+class WorkspaceAssetRecord:
+    """workspace_assets 表中的一行记录。"""
+
+    id: str
+    workspace_id: str
+    original_filename: str
+    media_type: str
+    size_bytes: int
+    storage_key: str | None
+    parsed_storage_key: str | None
+    content_hash: str
+    dedupe_key: str | None
+    status: WorkspaceAssetStatus
+    parser_name: str | None
+    parser_version: str | None
+    error_code: str | None
+    error_message: str | None
+    created_at: str
+    updated_at: str
+    deleted_at: str | None = None
+
+    def __post_init__(self) -> None:
+        self.status = WorkspaceAssetStatus(self.status)
+
+
+@dataclass
+class WorkspaceTaskRecord:
+    """tasks 表中的一行记录。"""
+
+    id: str
+    workspace_id: str
+    session_id: int
+    trace_id: str
+    goal: str
+    status: WorkspaceTaskStatus
+    warning_count: int
+    error_code: str | None
+    started_at: str
+    finished_at: str | None
+    created_at: str
+    updated_at: str
+
+    def __post_init__(self) -> None:
+        self.status = WorkspaceTaskStatus(self.status)
+
+
+@dataclass
+class WorkspaceTaskStepRecord:
+    """task_steps 表中的一行记录。"""
+
+    id: int
+    task_id: str
+    sequence_no: int
+    tool_call_id: str
+    step_type: str
+    tool_name: str
+    status: WorkspaceTaskStepStatus
+    input_summary: str | None
+    output_summary: str | None
+    error_code: str | None
+    started_at: str
+    finished_at: str | None
+    created_at: str
+
+    def __post_init__(self) -> None:
+        self.status = WorkspaceTaskStepStatus(self.status)
+
+
+@dataclass
+class TaskAssetRefRecord:
+    """task_asset_refs 表中的一行记录。"""
+
+    task_id: str
+    asset_id: str
+    first_step_id: int
+    created_at: str
+
+
+@dataclass
+class ArtifactRecord:
+    """artifacts 表中的一行记录。"""
+
+    id: str
+    workspace_id: str
+    task_id: str
+    created_by_step_id: int
+    artifact_series_id: str
+    supersedes_artifact_id: str | None
+    version_number: int
+    title: str
+    media_type: str
+    storage_key: str | None
+    size_bytes: int | None
+    content_hash: str | None
+    creation_key: str
+    status: ArtifactStatus
+    error_code: str | None
+    created_at: str
+    updated_at: str
+    deleted_at: str | None = None
+
+    def __post_init__(self) -> None:
+        self.status = ArtifactStatus(self.status)
+
+
+@dataclass
+class ArtifactSourceRecord:
+    """artifact_sources 表中的一行记录。"""
+
+    artifact_id: str
+    asset_id: str
+    created_at: str
 
 
 @dataclass
