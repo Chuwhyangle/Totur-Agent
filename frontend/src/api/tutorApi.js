@@ -33,7 +33,7 @@ export class TutorApiError extends Error {
     this.detail = detail
     this.responseBody = responseBody
     this.debug = debug
-    this.isNetworkError = status == null && cause?.name !== 'AbortError'
+    this.isNetworkError = status == null && cause != null && cause.name !== 'AbortError'
     this.isAbortError = cause?.name === 'AbortError'
   }
 }

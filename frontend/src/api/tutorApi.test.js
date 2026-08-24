@@ -109,6 +109,16 @@ describe('tutorApi attachment API', () => {
     })
   })
 
+  it('treats a fetch failure as an offline network error', async () => {
+    fetch.mockRejectedValue(new TypeError('Failed to fetch'))
+
+    await expect(retryAttachment('session-1', 'attachment-1', 'user-1'))
+      .rejects.toMatchObject({
+        isNetworkError: true,
+        isAbortError: false,
+      })
+  })
+
   it('sends attachment_ids in the chat JSON body', async () => {
     fetch.mockResolvedValue(jsonResponse({ reply: { answer: 'ok' } }))
     const requestBody = {
@@ -278,7 +288,11 @@ describe('tutorApi SSE API', () => {
     const callbacks = { onToken: vi.fn(), onError: vi.fn() }
 
     await expect(postChatStream({ user_id: 'user-1', message: 'hello' }, callbacks))
-      .rejects.toMatchObject({ name: 'TutorApiError', message: 'Chat stream ended unexpectedly' })
+      .rejects.toMatchObject({
+        name: 'TutorApiError',
+        message: 'Chat stream ended unexpectedly',
+        isNetworkError: false,
+      })
 
     expect(callbacks.onToken).toHaveBeenCalledWith('partial')
     expect(callbacks.onError).toHaveBeenCalledWith('Chat stream ended unexpectedly')
@@ -290,7 +304,11 @@ describe('tutorApi SSE API', () => {
     const onError = vi.fn()
 
     await expect(postChatStream({ user_id: 'user-1', message: 'hello' }, { onError }))
-      .rejects.toMatchObject({ name: 'TutorApiError', message: 'Chat stream failed' })
+      .rejects.toMatchObject({
+        name: 'TutorApiError',
+        message: 'Chat stream failed',
+        isNetworkError: false,
+      })
 
     expect(onError).toHaveBeenCalledWith('generation failed')
   })
