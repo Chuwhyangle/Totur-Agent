@@ -17,3 +17,5 @@ class AgentContext:
     seed_knowledge_context: str | None = None
     attachment_context: str | None = None
     private_jd_context: str | None = None
+    workspace_agent_instructions: str | None = None
+    workspace_agent_instructions_version: int | None = None

@@ -22,6 +22,7 @@ from app.services.agent.personas import (
     available_persona_ids,
     get_persona,
 )
+from app.services.agent.persona_service import PersonaService
 from app.services.agent.response_parser import ResponseParser
 from app.services.workspaces.workspace_service import (
     WorkspaceArchivedError,
@@ -33,6 +34,7 @@ from app.services.workspaces.workspace_service import (
 
 router = APIRouter(tags=["sessions"])
 workspace_service = WorkspaceService()
+persona_service = PersonaService()
 
 
 @router.post(
@@ -44,7 +46,10 @@ def create_chat_session(request: CreateSessionRequest) -> SessionItem:
     """创建一个新的聊天会话。"""
 
     try:
-        persona = get_persona(request.persona_id)
+        persona = persona_service.resolve(
+            user_id=request.user_id,
+            persona_id=request.persona_id,
+        )
     except InvalidPersonaError as error:
         raise HTTPException(
             status_code=422,

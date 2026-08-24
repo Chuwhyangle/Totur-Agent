@@ -12,6 +12,7 @@ PUBLIC_JOB_DESCRIPTIONS_TABLE = "public_job_descriptions"
 DOCUMENTS_TABLE = "documents"
 JOURNAL_ENTRIES_TABLE = "journal_entries"
 WORKSPACES_TABLE = "workspaces"
+CUSTOM_PERSONAS_TABLE = "custom_personas"
 WORKSPACE_ASSETS_TABLE = "workspace_assets"
 TASKS_TABLE = "tasks"
 TASK_STEPS_TABLE = "task_steps"
@@ -182,9 +183,25 @@ class WorkspaceRecord:
     created_at: str
     updated_at: str
     archived_at: str | None = None
+    agent_instructions: str | None = None
+    agent_instructions_version: int = 0
 
     def __post_init__(self) -> None:
         self.status = WorkspaceStatus(self.status)
+
+
+@dataclass
+class CustomPersonaRecord:
+    """custom_personas 表中的一行记录。"""
+
+    id: str
+    user_id: str
+    name: str
+    description: str
+    system_prompt: str
+    status: str
+    created_at: str
+    updated_at: str
 
 
 @dataclass

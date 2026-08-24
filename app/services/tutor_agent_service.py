@@ -20,8 +20,8 @@ from app.services.agent.memory_manager import MemoryManager
 from app.services.agent.model_registry import resolve_model
 from app.services.agent.personas import (
     DEFAULT_PERSONA_ID,
-    get_persona,
 )
+from app.services.agent.persona_service import PersonaService
 from app.services.agent.prompt_builder import PromptBuilder
 from app.services.agent.react_orchestrator import ReactOrchestrator, StreamEvent
 from app.services.agent.response_parser import ResponseParser
@@ -128,6 +128,7 @@ class TutorAgentService:
         self.attachment_retrieval_service = attachment_retrieval_service
         self.attachment_context_max_chars = attachment_context_max_chars
         self.workspace_service = WorkspaceService()
+        self.persona_service = PersonaService()
 
     def validate_chat_request(self, request: ChatRequest) -> None:
         """Validate an existing Session before a streaming response starts."""
@@ -176,7 +177,10 @@ class TutorAgentService:
                 trace_id=trace_id,
                 current_goal=message,
             )
-            persona = get_persona(session.persona_id)
+            persona = self.persona_service.resolve(
+                user_id=user_id,
+                persona_id=session.persona_id,
+            )
 
             # 先准备模型上下文；具体怎么读历史和摘要交给 MemoryManager。
             context = self.memory_manager.load_context(
@@ -184,6 +188,7 @@ class TutorAgentService:
                 session_id=session.id,
                 current_message=message,
             )
+            self._attach_workspace_instructions(context, user_id=user_id, session=session)
             if self.seed_context_enabled:
                 context.seed_knowledge_context = self.seed_context_provider(message)
 
@@ -318,13 +323,17 @@ class TutorAgentService:
                 trace_id=trace_id,
                 current_goal=message,
             )
-            persona = get_persona(session.persona_id)
+            persona = self.persona_service.resolve(
+                user_id=user_id,
+                persona_id=session.persona_id,
+            )
 
             context = self.memory_manager.load_context(
                 user_id=user_id,
                 session_id=session.id,
                 current_message=message,
             )
+            self._attach_workspace_instructions(context, user_id=user_id, session=session)
             if self.seed_context_enabled:
                 context.seed_knowledge_context = self.seed_context_provider(message)
 
@@ -660,7 +669,8 @@ class TutorAgentService:
         """确定这次聊天要写入哪个会话。"""
 
         request_persona = (
-            get_persona(request_persona_id) if request_persona_id is not None else None
+            self.persona_service.resolve(user_id=user_id, persona_id=request_persona_id)
+            if request_persona_id is not None else None
         )
         if session_id is None:
             # 兼容旧版前端：不传 session_id 时仍然使用默认会话，但默认会话按 persona 隔离。
@@ -694,3 +704,15 @@ class TutorAgentService:
             self.workspace_service.ensure_active_workspace(session.workspace_id)
 
         return session
+
+    def _attach_workspace_instructions(self, context, *, user_id: str, session) -> None:
+        """Load current Workspace rules without letting PromptBuilder access storage."""
+
+        if session.workspace_id is None:
+            return
+        workspace = self.workspace_service.get_agent_instructions(
+            user_id=user_id,
+            workspace_id=session.workspace_id,
+        )
+        context.workspace_agent_instructions = workspace.agent_instructions
+        context.workspace_agent_instructions_version = workspace.agent_instructions_version

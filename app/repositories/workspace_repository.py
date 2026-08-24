@@ -17,9 +17,11 @@ def insert_workspace(
 
     sql = f"""
     INSERT INTO {WORKSPACES_TABLE}
-        (id, user_id, name, description, status, created_at, updated_at, archived_at)
+        (id, user_id, name, description, status, created_at, updated_at, archived_at,
+         agent_instructions, agent_instructions_version)
     VALUES
-        (:id, :user_id, :name, :description, :status, :created_at, :updated_at, :archived_at)
+        (:id, :user_id, :name, :description, :status, :created_at, :updated_at, :archived_at,
+         :agent_instructions, :agent_instructions_version)
     """
     params = _workspace_params(record)
 
@@ -44,7 +46,7 @@ def get_workspace(
 
     sql = f"""
     SELECT id, user_id, name, description, status,
-           created_at, updated_at, archived_at
+           created_at, updated_at, archived_at, agent_instructions, agent_instructions_version
     FROM {WORKSPACES_TABLE}
     WHERE id = :id
     """
@@ -76,7 +78,7 @@ def list_workspaces(
 
     sql = f"""
     SELECT id, user_id, name, description, status,
-           created_at, updated_at, archived_at
+           created_at, updated_at, archived_at, agent_instructions, agent_instructions_version
     FROM {WORKSPACES_TABLE}
     WHERE user_id = :user_id
     ORDER BY updated_at DESC, id DESC
@@ -112,7 +114,9 @@ def update_workspace(
         description = :description,
         status = :status,
         updated_at = :updated_at,
-        archived_at = :archived_at
+        archived_at = :archived_at,
+        agent_instructions = :agent_instructions,
+        agent_instructions_version = :agent_instructions_version
     WHERE id = :id
     """
     params = {
@@ -122,6 +126,8 @@ def update_workspace(
         "status": record.status.value,
         "updated_at": record.updated_at,
         "archived_at": record.archived_at,
+        "agent_instructions": record.agent_instructions,
+        "agent_instructions_version": record.agent_instructions_version,
     }
 
     def _execute(connection: Connection) -> None:
@@ -145,6 +151,8 @@ def _workspace_params(record: WorkspaceRecord) -> dict[str, object]:
         "created_at": record.created_at,
         "updated_at": record.updated_at,
         "archived_at": record.archived_at,
+        "agent_instructions": record.agent_instructions,
+        "agent_instructions_version": record.agent_instructions_version,
     }
 
 
@@ -158,4 +166,6 @@ def _workspace_from_row(row) -> WorkspaceRecord:
         created_at=row["created_at"],
         updated_at=row["updated_at"],
         archived_at=row["archived_at"],
+        agent_instructions=row["agent_instructions"],
+        agent_instructions_version=row["agent_instructions_version"],
     )

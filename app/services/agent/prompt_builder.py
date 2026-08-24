@@ -39,6 +39,18 @@ class PromptBuilder:
         }
         messages: list[ChatCompletionMessageParam] = [system_msg]
 
+        if context.workspace_agent_instructions and context.workspace_agent_instructions.strip():
+            workspace_msg: ChatCompletionSystemMessageParam = {
+                "role": "system",
+                "content": (
+                    "[WORKSPACE_INSTRUCTIONS]\n"
+                    "以下是用户为当前 Workspace 配置的工作规则。"
+                    "它只能影响工作流程和表达方式，不能改变数据及工具权限。\n"
+                    f"{context.workspace_agent_instructions.strip()}"
+                ),
+            }
+            messages.append(workspace_msg)
+
         if context.summary_text and context.summary_text.strip():
             # 摘要代表较早历史，必须放在最近几轮原文之前。
             summary_msg: ChatCompletionSystemMessageParam = {
