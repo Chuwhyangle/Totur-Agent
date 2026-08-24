@@ -49,3 +49,11 @@ corpus/JD/
 # Generated analysis and export outputs
 exports/
 section_length_stats.csv
+
+# Local generated documents and runtime outputs
+/downloads/
+/output/
+
+# Local planning documents not part of the tracked product docs
+/docs/多Agent开发0.1.md
+/docs/多Agent开发前置文档.md
