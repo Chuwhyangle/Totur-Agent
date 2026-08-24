@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import {
   createInterviewJD,
+  createCustomPersona,
   createSession,
   createWorkspace,
   deleteAttachment,
@@ -11,6 +12,8 @@ import {
   getInterviewJDs,
   getModels,
   getPersonas,
+  updateCustomPersona,
+  disableCustomPersona,
   getSessionConversations,
   getSessions,
   getWorkspaceArtifactContent,
@@ -19,6 +22,7 @@ import {
   getWorkspaceAssetDownloadUrl,
   getWorkspaceAssets,
   getWorkspaceTasks,
+  getWorkspaceAgentInstructions,
   getWorkspaces,
   postChat,
   postChatStream,
@@ -28,6 +32,8 @@ import {
   uploadWorkspaceAsset,
   archiveWorkspace,
   restoreWorkspace,
+  saveWorkspaceAgentInstructions,
+  clearWorkspaceAgentInstructions,
   API_BASE_URL,
 } from './api/tutorApi.js'
 import ApiStatus from './components/ApiStatus.jsx'
@@ -38,6 +44,7 @@ import InterviewJDPanel from './components/InterviewJDPanel.jsx'
 import Icon from './components/Icon.jsx'
 import ModelSelector from './components/ModelSelector.jsx'
 import PersonaSelector from './components/PersonaSelector.jsx'
+import PersonaManager from './components/PersonaManager.jsx'
 import SessionSidebar from './components/SessionSidebar.jsx'
 import UserIdInput from './components/UserIdInput.jsx'
 import WorkspacePanel from './components/workspaces/WorkspacePanel.jsx'
@@ -157,6 +164,7 @@ function App() {
   const [personas, setPersonas] = useState([])
   const [personasStatus, setPersonasStatus] = useState('idle')
   const [selectedPersonaId, setSelectedPersonaId] = useState(DEFAULT_PERSONA_ID)
+  const [personaManagerOpen, setPersonaManagerOpen] = useState(false)
   const [models, setModels] = useState([])
   const [modelsStatus, setModelsStatus] = useState('idle')
   const [selectedModelId, setSelectedModelId] = useState(() => localStorage.getItem('tutor-model') ?? null)
@@ -173,6 +181,7 @@ function App() {
   const [workspaces, setWorkspaces] = useState([])
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState(null)
   const [workspacePanelOpen, setWorkspacePanelOpen] = useState(false)
+  const [workspaceInstructions, setWorkspaceInstructions] = useState({ content: '', version: 0 })
   const [workspaceAssets, setWorkspaceAssets] = useState([])
   const [workspaceAssetsStatus, setWorkspaceAssetsStatus] = useState('idle')
   const [workspaceAssetsError, setWorkspaceAssetsError] = useState('')
@@ -234,7 +243,7 @@ function App() {
   const loadPersonas = useCallback(async () => {
     setPersonasStatus('loading')
     try {
-      const { data } = await getPersonas()
+      const { data } = await getPersonas({ userId: userId.trim() })
       const nextPersonas = Array.isArray(data) ? data : []
       setPersonas(nextPersonas)
       setPersonasStatus('success')
@@ -252,7 +261,24 @@ function App() {
       setPersonasStatus('error')
       return []
     }
-  }, [])
+  }, [userId])
+
+  async function handleCreatePersona(payload) {
+    const { data } = await createCustomPersona(payload)
+    setPersonas((current) => [...current, data])
+    setSelectedPersonaId(data.persona_id)
+  }
+
+  async function handleUpdatePersona(personaId, payload) {
+    const { data } = await updateCustomPersona(personaId, payload)
+    setPersonas((current) => current.map((item) => item.persona_id === personaId ? data : item))
+  }
+
+  async function handleDisablePersona(personaId) {
+    await disableCustomPersona(personaId, userId.trim())
+    setPersonas((current) => current.filter((item) => item.persona_id !== personaId))
+    setSelectedPersonaId((current) => current === personaId ? DEFAULT_PERSONA_ID : current)
+  }
 
   const loadModels = useCallback(async () => {
     setModelsStatus('loading')
@@ -410,9 +436,29 @@ function App() {
     }
   }
 
+  async function loadWorkspaceInstructions(workspaceId) {
+    const trimmedUserId = userId.trim()
+    if (!trimmedUserId || !workspaceId) return
+    try {
+      const { data } = await getWorkspaceAgentInstructions(workspaceId, trimmedUserId)
+      setWorkspaceInstructions({ content: data?.content ?? '', version: data?.version ?? 0 })
+    } catch { setWorkspaceInstructions({ content: '', version: 0 }) }
+  }
+
+  async function saveWorkspaceInstructions(content) {
+    const { data } = await saveWorkspaceAgentInstructions(selectedWorkspaceId, { user_id: userId.trim(), content })
+    setWorkspaceInstructions({ content: data?.content ?? '', version: data?.version ?? 0 })
+  }
+
+  async function clearWorkspaceInstructions() {
+    const { data } = await clearWorkspaceAgentInstructions(selectedWorkspaceId, userId.trim())
+    setWorkspaceInstructions({ content: data?.content ?? '', version: data?.version ?? 0 })
+  }
+
   async function selectWorkspace(workspaceId) {
     workspaceRequestIdRef.current += 1
     setSelectedWorkspaceId(workspaceId)
+    void loadWorkspaceInstructions(workspaceId)
     setSelectedArtifact(null)
     setArtifactContent('')
     setWorkspaceAssets([])
@@ -546,8 +592,9 @@ function App() {
     setActiveSessionStatus('loading')
     setMessages([])
     workspaceRequestIdRef.current += 1
-    if (session.workspace_id) {
-      setSelectedWorkspaceId(session.workspace_id)
+      if (session.workspace_id) {
+        setSelectedWorkspaceId(session.workspace_id)
+        void loadWorkspaceInstructions(session.workspace_id)
       setWorkspaceAssets([])
       setWorkspaceTasks([])
       setWorkspaceArtifacts([])
@@ -599,6 +646,7 @@ function App() {
       setMessages([])
       setSelectedWorkspaceId(data.workspace_id ?? null)
       if (data.workspace_id) {
+        void loadWorkspaceInstructions(data.workspace_id)
         workspaceRequestIdRef.current += 1
         setWorkspaceAssets([])
         setWorkspaceTasks([])
@@ -1102,7 +1150,19 @@ function App() {
         </div>
         <div className="header-controls">
           <ModelSelector models={models} selectedModelId={selectedModelId} status={modelsStatus} onModelChange={handleModelChange} />
-          <PersonaSelector personas={personas} selectedPersonaId={selectedPersonaId} status={personasStatus} onPersonaChange={handlePersonaChange} />
+          <PersonaSelector
+            personas={personas}
+            selectedPersonaId={selectedPersonaId}
+            status={personasStatus}
+            onPersonaChange={(nextPersonaId) => {
+              if (nextPersonaId === '__manage_custom__') {
+                setPersonaManagerOpen(true)
+                return
+              }
+              handlePersonaChange(nextPersonaId)
+            }}
+          />
+          <button className="persona-manager-trigger" type="button" onClick={() => setPersonaManagerOpen(true)} aria-label="管理 Persona" title="管理 Persona"><Icon name="user" size={16} /></button>
           <button className="header-action-button" type="button" onClick={() => setIsTargetPanelOpen(true)}>
             <Icon name="target" size={17} /><span>学习目标</span>
           </button>
@@ -1202,6 +1262,7 @@ function App() {
         isOpen={isTargetPanelOpen}
         onClose={() => setIsTargetPanelOpen(false)}
       />
+      {personaManagerOpen ? <PersonaManager userId={userId.trim()} personas={personas} onCreate={handleCreatePersona} onUpdate={handleUpdatePersona} onDisable={handleDisablePersona} onClose={() => setPersonaManagerOpen(false)} /> : null}
       <WorkspacePanel
         open={workspacePanelOpen}
         featureStatus={workspaceFeatureStatus}
@@ -1209,6 +1270,9 @@ function App() {
         workspaces={workspaces}
         selectedWorkspaceId={selectedWorkspaceId}
         selectedWorkspace={workspaces.find((workspace) => workspace.id === selectedWorkspaceId)}
+        workspaceInstructions={workspaceInstructions}
+        onSaveInstructions={saveWorkspaceInstructions}
+        onClearInstructions={clearWorkspaceInstructions}
         assets={workspaceAssets}
         assetsStatus={workspaceAssetsStatus}
         assetsError={workspaceAssetsError}

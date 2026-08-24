@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import Icon from '../Icon.jsx'
 import WorkspaceArtifacts from './WorkspaceArtifacts.jsx'
@@ -13,6 +13,9 @@ function WorkspacePanel({
   workspaces,
   selectedWorkspaceId,
   selectedWorkspace,
+  workspaceInstructions = { content: '', version: 0 },
+  onSaveInstructions,
+  onClearInstructions,
   assets,
   assetsStatus,
   assetsError,
@@ -43,6 +46,12 @@ function WorkspacePanel({
   const [isCreating, setIsCreating] = useState(false)
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
+  const [instructionDraft, setInstructionDraft] = useState('')
+  const [instructionSaving, setInstructionSaving] = useState(false)
+
+  useEffect(() => {
+    if (!instructionSaving) setInstructionDraft(workspaceInstructions.content)
+  }, [workspaceInstructions.content, instructionSaving])
 
   if (!open) return null
 
@@ -56,6 +65,11 @@ function WorkspacePanel({
   }
 
   const archived = selectedWorkspace?.status === 'ARCHIVED'
+
+  async function handleSaveInstructions() {
+    setInstructionSaving(true)
+    try { await onSaveInstructions?.(instructionDraft) } finally { setInstructionSaving(false) }
+  }
 
   return (
     <aside className="workspace-panel" aria-label="Workspace 工作台">
@@ -78,6 +92,11 @@ function WorkspacePanel({
           <div className="workspace-current-heading"><div><span className="workspace-eyebrow">Current</span><h2>{selectedWorkspace.name}</h2></div><span className={`workspace-status workspace-status-${String(selectedWorkspace.status).toLowerCase()}`}>{selectedWorkspace.status}</span></div>
           {archived ? <div className="workspace-archive-notice"><Icon name="archive" size={15} /><span>Workspace 已归档，请恢复后继续聊天和管理 Assets。</span></div> : null}
           <button className="workspace-primary-button" type="button" disabled={archived} onClick={() => onCreateSession?.(selectedWorkspace.id)}><Icon name="message" size={14} /> 在此 Workspace 开始会话</button>
+          <section className="workspace-section" aria-label="AGENT.md 设置">
+            <div className="workspace-section-heading"><div><span className="workspace-eyebrow">AGENT.md</span><h2>工作规则</h2></div><small>v{workspaceInstructions.version}</small></div>
+            <textarea value={instructionDraft} maxLength={8000} disabled={archived || instructionSaving} onChange={(event) => setInstructionDraft(event.target.value)} placeholder="为当前 Workspace 定义 Agent 的工作流程和输出结构。" rows={8} />
+            <div className="workspace-form-actions"><small>{instructionDraft.length}/8000</small><button type="button" className="workspace-secondary-button" disabled={archived || instructionSaving || !instructionDraft} onClick={async () => { setInstructionSaving(true); try { await onClearInstructions?.(); setInstructionDraft('') } finally { setInstructionSaving(false) } }}>清空</button><button type="button" className="workspace-small-button" disabled={archived || instructionSaving} onClick={handleSaveInstructions}>保存</button></div>
+          </section>
           <WorkspaceAssets assets={assets} loading={assetsStatus === 'loading'} error={assetsError} disabled={archived} actionStates={assetActionStates} onUpload={onUploadAsset} onRetry={onRetryAsset} onDelete={onDeleteAsset} onDownload={onDownloadAsset} />
           <WorkspaceTasks tasks={tasks} loading={tasksStatus === 'loading'} error={tasksError} />
           <WorkspaceArtifacts artifacts={artifacts} loading={artifactsStatus === 'loading'} error={artifactsError} selectedArtifact={selectedArtifact} content={artifactContent} contentLoading={artifactContentLoading} onSelect={onSelectArtifact} onClosePreview={onCloseArtifact} onDownload={onDownloadArtifact} />

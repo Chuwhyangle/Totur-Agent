@@ -30,6 +30,7 @@ function PersonaSelector({
             {persona.name}
           </option>
         ))}
+        <option value="__manage_custom__">管理自定义 Persona…</option>
       </select>
     </label>
   )
