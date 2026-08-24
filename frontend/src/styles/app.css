@@ -1570,6 +1570,44 @@ button:disabled { cursor: not-allowed; opacity: 0.48; }
 @media (prefers-reduced-motion: reduce) {
   .workspace-panel, .session-sidebar, .workspace-layout { animation: none; transition: none; }
 }
+
+/* Composer attachment controls */
+.composer-wrap { position: relative; }
+.composer-wrap.is-dragging { outline: 1px dashed var(--pborder); outline-offset: -3px; border-radius: var(--radius-md); background: var(--soft); }
+.composer-drop-overlay { position: absolute; inset: 8px 0 auto; z-index: 8; display: grid; place-items: center; min-height: 54px; color: var(--primary); font-size: 12px; font-weight: 600; pointer-events: none; }
+.attachment-chips { display: flex; gap: 6px; max-width: 100%; margin: 0 0 6px; padding: 0 2px; overflow-x: auto; scrollbar-width: thin; }
+.attachment-chip { min-width: max-content; height: 26px; display: inline-flex; align-items: center; gap: 5px; padding: 0 6px 0 8px; color: var(--sub); font-size: 10px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--solid); }
+.attachment-chip-name { max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.attachment-chip-dot, .attachment-status-dot { width: 6px; height: 6px; flex: 0 0 6px; border-radius: 50%; background: var(--dim); }
+.attachment-chip-dot-ready { background: var(--success); }
+.attachment-chip-dot-parsing, .attachment-chip-dot-indexing, .attachment-chip-dot-partial { background: var(--warn); }
+.attachment-chip-dot-failed { background: var(--danger); }
+.attachment-chip-status { color: var(--dim); }
+.attachment-chip button { width: 18px; height: 18px; display: grid; place-items: center; color: var(--dim); border-radius: 5px; }
+.attachment-chip button:hover { color: var(--danger); background: var(--muted); }
+.attachment-control, .mode-control { position: relative; display: inline-flex; align-items: stretch; }
+.attachment-toggle { gap: 6px; }
+.pill-badge { min-width: 17px; height: 17px; display: inline-grid; place-items: center; padding: 0 4px; color: var(--primary); font-size: 9px; font-weight: 700; border-radius: 50%; background: var(--soft); }
+.attachment-file-input { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+.attachment-popover { position: absolute; right: 0; bottom: calc(100% + 8px); z-index: 12; width: min(390px, 100%); max-height: 280px; display: grid; gap: 8px; padding: 12px; overflow-y: auto; border: 1px solid var(--line2); border-radius: var(--radius-md); background: var(--solid); box-shadow: var(--shadow-lg); }
+.attachment-popover-header { display: flex; align-items: center; justify-content: space-between; color: var(--text); font-size: 12px; }
+.attachment-popover-header .icon-button { width: 26px; height: 26px; border-radius: 8px; }
+.attachment-popover .attachment-upload-button { justify-self: start; }
+.attachment-popover .attachment-toolbar-summary { display: block; margin-top: -28px; text-align: right; }
+.composer-options { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
+.mode-chevron { width: 22px; display: grid; place-items: center; color: var(--dim); border: 1px solid var(--line); border-left: 0; border-radius: 0 999px 999px 0; background: color-mix(in srgb, var(--solid) 85%, transparent); }
+.mode-control > .web-search-toggle { border-radius: 999px 0 0 999px; }
+.mode-popover { position: absolute; left: 0; bottom: calc(100% + 6px); z-index: 10; display: grid; min-width: 132px; padding: 4px; border: 1px solid var(--line2); border-radius: var(--radius-sm); background: var(--solid); box-shadow: var(--shadow-md, var(--shadow)); }
+.mode-popover button { padding: 7px 9px; color: var(--sub); font-size: 11px; text-align: left; border-radius: 6px; }
+.mode-popover button:hover, .mode-popover button[aria-checked='true'] { color: var(--primary); background: var(--soft); }
+.attachment-status { display: inline-flex; align-items: center; gap: 4px; }
+.attachment-status-parsing .attachment-status-dot, .attachment-status-indexing .attachment-status-dot { animation: pulse 1.2s ease-in-out infinite; background: var(--warn); }
+@media (max-width: 680px) {
+  .attachment-popover { left: 0; right: auto; width: min(360px, calc(100vw - 20px)); }
+  .composer-options { gap: 4px; }
+  .web-search-toggle { padding-inline: 8px; }
+  .web-search-toggle small { display: none; }
+}
 .persona-manager-trigger { display: none; }
 .persona-manager-header {
   display: flex;

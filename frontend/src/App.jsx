@@ -37,7 +37,6 @@ import {
   API_BASE_URL,
 } from './api/tutorApi.js'
 import ApiStatus from './components/ApiStatus.jsx'
-import AttachmentPanel from './components/AttachmentPanel.jsx'
 import ChatInput from './components/ChatInput.jsx'
 import ChatMessage from './components/ChatMessage.jsx'
 import InterviewJDPanel from './components/InterviewJDPanel.jsx'
@@ -1133,22 +1132,20 @@ function App() {
     { title: '模拟面试练习', text: '请围绕我的目标岗位，开始一轮循序渐进的模拟面试。', icon: 'message' },
   ]
 
-  const attachmentPanel = (
-    <AttachmentPanel
-      attachments={attachments}
-      selectedAttachmentIds={selectedAttachmentIds}
-      status={attachmentStatus}
-      error={attachmentError}
-      actionErrors={attachmentActionErrors}
-      actionStates={attachmentActionStates}
-      sendBlockReason={attachmentSendBlockReason}
-      disabled={isSending || isUploadingAttachment || !userId.trim()}
-      onUpload={handleUploadAttachment}
-      onToggle={handleToggleAttachment}
-      onRetry={handleRetryAttachment}
-      onDelete={handleDeleteAttachment}
-    />
-  )
+  const attachmentProps = {
+    attachments,
+    selectedAttachmentIds,
+    status: attachmentStatus,
+    error: attachmentError,
+    actionErrors: attachmentActionErrors,
+    actionStates: attachmentActionStates,
+    sendBlockReason: attachmentSendBlockReason,
+    disabled: isSending || isUploadingAttachment || !userId.trim(),
+    onUpload: handleUploadAttachment,
+    onToggle: handleToggleAttachment,
+    onRetry: handleRetryAttachment,
+    onDelete: handleDeleteAttachment,
+  }
 
   return (
     <main className="app-shell">
@@ -1261,7 +1258,7 @@ function App() {
             streamingEnabled={streamingEnabled}
             onStreamingEnabledChange={handleStreamingToggle}
             onStopStreaming={streamingEnabled ? handleStopStreaming : undefined}
-            attachmentPanel={attachmentPanel}
+            attachmentProps={attachmentProps}
           />
         </section>
       </div>

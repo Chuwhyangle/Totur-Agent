@@ -202,6 +202,7 @@ describe('App attachment scope and sending', () => {
     render(<App />)
     await openSession(user)
     expect(await screen.findByText('resume.pdf')).not.toBeNull()
+    await user.click(screen.getByRole('button', { name: /^附件/ }))
     expect(screen.getByRole('checkbox', { name: '选择附件 resume.pdf' }).checked).toBe(true)
 
     await user.type(
@@ -246,13 +247,14 @@ describe('App attachment scope and sending', () => {
     render(<App />)
     await openSession(user)
     expect(await screen.findByText('resume.pdf')).not.toBeNull()
+    await user.click(screen.getByRole('button', { name: /^附件/ }))
 
     const input = screen.getByPlaceholderText('写下你的问题，或让导师帮你拆解下一步…')
     await user.type(input, '总结附件')
     await user.click(screen.getByRole('button', { name: '发送消息' }))
 
     await waitFor(() => expect(api.getAttachments).toHaveBeenCalledTimes(2))
-    expect(await screen.findByText('处理失败')).not.toBeNull()
+    expect((await screen.findAllByText('处理失败')).length).toBeGreaterThan(0)
     expect(screen.getByText('附件索引缺失，请重试处理。')).not.toBeNull()
     expect(screen.getByRole('button', { name: '重试附件 resume.pdf' })).not.toBeNull()
     expect(screen.getByRole('status').textContent).toContain('所选附件处理失败')
@@ -276,6 +278,8 @@ describe('App attachment scope and sending', () => {
 
     render(<App />)
     await openSession(user)
+    await screen.findByText('processing.pdf')
+    await user.click(screen.getByRole('button', { name: /^附件/ }))
     const checkbox = await screen.findByRole('checkbox', { name: '选择附件 processing.pdf' })
     await user.click(checkbox)
     await user.type(
