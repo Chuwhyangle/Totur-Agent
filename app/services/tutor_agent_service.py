@@ -1,6 +1,7 @@
 """Tutor Agent 聊天业务服务。"""
 
 from collections.abc import Callable, Generator
+import logging
 import re
 import time
 
@@ -47,6 +48,8 @@ from app.services.workspaces.workspace_service import (
 _CITATION_PATTERN = re.compile(r"\[(web|attachment|note|jd)_(\d+)\]")
 _RAW_HTTP_URL_PATTERN = re.compile(r"https?://[^\s<>\"']+", re.IGNORECASE)
 _UNVERIFIED_LINK_REPLACEMENT = "[已移除未验证链接]"
+
+logger = logging.getLogger(__name__)
 
 
 def _citation_ids_from_answer(answer: str) -> list[str]:
@@ -385,13 +388,38 @@ class TutorAgentService:
                 note_references_allowed=request.rag_enabled,
             )
 
-            self.memory_manager.save_turn_and_update_summary(
-                user_id=user_id,
-                session_id=session.id,
-                message=message,
-                reply=reply,
-            )
-            self._complete_execution_context(execution_context)
+            try:
+                self.memory_manager.save_turn_and_update_summary(
+                    user_id=user_id,
+                    session_id=session.id,
+                    message=message,
+                    reply=reply,
+                )
+            except Exception as exc:
+                logger.exception("conversation_persistence_failed")
+                status = "ERROR"
+                yield {
+                    "event": "error",
+                    "data": {
+                        "error": "conversation_persistence_failed",
+                        "stage": "persistence",
+                        "message": "回答已生成，但对话保存失败。",
+                        "debug_message": f"{type(exc).__name__}: {exc}",
+                        "retryable": True,
+                    },
+                }
+                return
+
+            warnings = []
+            try:
+                self._complete_execution_context(execution_context)
+            except Exception as exc:
+                logger.exception("workspace_task_completion_failed")
+                warnings.append({
+                    "error": "workspace_task_completion_failed",
+                    "message": "回答已保存，但 Workspace Task 状态更新失败。",
+                    "debug_message": f"{type(exc).__name__}: {exc}",
+                })
 
             status = "OK"
             yield {
@@ -402,6 +430,7 @@ class TutorAgentService:
                     "session_id": session.id,
                     "model_id": model_spec.model_id,
                     "sources": [s.model_dump() for s in reply.sources],
+                    "warnings": warnings,
                 },
             }
         except GeneratorExit:
