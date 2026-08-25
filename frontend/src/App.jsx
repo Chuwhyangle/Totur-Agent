@@ -9,6 +9,7 @@ import {
   deleteWorkspaceAsset,
   getAttachments,
   getHealth,
+  getGitHubMcpStatus,
   getInterviewJDs,
   getLearningProgress,
   getModels,
@@ -51,6 +52,7 @@ import SessionSidebar from './components/SessionSidebar.jsx'
 import WorkspacePanel from './components/workspaces/WorkspacePanel.jsx'
 import KnowledgeLibrary from './components/KnowledgeLibrary.jsx'
 import LearningProgressPanel from './components/LearningProgressPanel.jsx'
+import GitHubMcpPanel from './components/GitHubMcpPanel.jsx'
 import { useAttachmentPolling } from './hooks/useAttachmentPolling.js'
 import {
   addSelectedAttachmentId,
@@ -183,6 +185,10 @@ function App() {
   const [selectedModelId, setSelectedModelId] = useState(() => localStorage.getItem('tutor-model') ?? null)
   const [isTargetPanelOpen, setIsTargetPanelOpen] = useState(false)
   const [knowledgeLibraryOpen, setKnowledgeLibraryOpen] = useState(false)
+  const [githubMcpOpen, setGithubMcpOpen] = useState(false)
+  const [githubMcpStatus, setGithubMcpStatus] = useState(null)
+  const [githubMcpStatusState, setGithubMcpStatusState] = useState('idle')
+  const [githubMcpError, setGithubMcpError] = useState('')
   const [theme, setTheme] = useState(() => localStorage.getItem('tutor-theme') ?? 'light')
   const [attachments, setAttachments] = useState([])
   const [attachmentStatus, setAttachmentStatus] = useState('idle')
@@ -1249,6 +1255,19 @@ function App() {
     }
   }, [])
 
+  const loadGitHubMcpStatus = useCallback(async () => {
+    setGithubMcpStatusState('loading')
+    setGithubMcpError('')
+    try {
+      const { data } = await getGitHubMcpStatus()
+      setGithubMcpStatus(data)
+      setGithubMcpStatusState('ready')
+    } catch (error) {
+      setGithubMcpError(error?.message || 'GitHub MCP 状态读取失败。')
+      setGithubMcpStatusState('error')
+    }
+  }, [])
+
   useEffect(() => {
     checkApiHealth()
     void loadPersonas()
@@ -1354,6 +1373,9 @@ function App() {
           </button>
           <button className="header-action-button" type="button" onClick={() => setKnowledgeLibraryOpen(true)}>
             <Icon name="file" size={17} /><span>文档库</span>
+          </button>
+          <button className="header-action-button github-mcp-trigger" type="button" onClick={() => { setGithubMcpOpen(true); void loadGitHubMcpStatus() }}>
+            <Icon name="file-code" size={17} /><span>GitHub MCP</span>
           </button>
           <button className="theme-button" type="button" onClick={() => setTheme((current) => current === 'dark' ? 'light' : 'dark')} aria-label="切换明暗主题">
             <Icon name={theme === 'dark' ? 'sun' : 'moon'} size={18} />
@@ -1472,6 +1494,14 @@ function App() {
       />
       {personaManagerOpen ? <PersonaManager userId={userId.trim()} personas={personas} onCreate={handleCreatePersona} onUpdate={handleUpdatePersona} onDisable={handleDisablePersona} onClose={() => setPersonaManagerOpen(false)} /> : null}
       {knowledgeLibraryOpen ? <KnowledgeLibrary userId={userId} onClose={() => setKnowledgeLibraryOpen(false)} /> : null}
+      <GitHubMcpPanel
+        open={githubMcpOpen}
+        data={githubMcpStatus}
+        status={githubMcpStatusState}
+        error={githubMcpError}
+        onRefresh={loadGitHubMcpStatus}
+        onClose={() => setGithubMcpOpen(false)}
+      />
       <WorkspacePanel
         open={workspacePanelOpen}
         featureStatus={workspaceFeatureStatus}

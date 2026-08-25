@@ -77,6 +77,7 @@ GITHUB_MCP_PAT=你自己的 PAT，绝不提交到代码或日志
 MCP_CLIENT_ENABLED=true
 MCP_CLIENT_TIMEOUT_SECONDS=20
 MCP_CLIENT_RETRY_SECONDS=30
+GITHUB_MCP_PROJECTS=Chuwhyangle/Totur-Agent
 MCP_CLIENT_SERVERS=[{"name":"github","transport":"streamable-http","url":"https://api.githubcopilot.com/mcp/","headers":{"Authorization":"Bearer ${GITHUB_MCP_PAT}","X-MCP-Toolsets":"repos","X-MCP-Readonly":"true"}}]
 ```
 
@@ -87,6 +88,8 @@ MCP_CLIENT_SERVERS=[{"name":"github","transport":"streamable-http","url":"https:
 - 不能编辑、Commit、Push、Merge；
 - GitHub MCP 不可用时，本地 Agent 工具继续工作；
 - 当前默认分析仓库是 `Chuwhyangle/Totur-Agent`。
+
+前端顶部的 `GitHub MCP` 入口会显示连接状态、已声明的挂载项目和当前发现的只读工具。需要展示多个项目时，用逗号分隔填写 `GITHUB_MCP_PROJECTS`，例如 `Chuwhyangle/Totur-Agent,example/another-repo`。项目清单是部署声明值，不会从 PAT 反推出权限范围，也不会向浏览器返回 PAT 或请求头。
 
 PAT 建议使用 Fine-grained PAT：
 

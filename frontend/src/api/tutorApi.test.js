@@ -11,6 +11,7 @@ import {
   getWorkspaceTasks,
   getWorkspaces,
   getLearningProgress,
+  getGitHubMcpStatus,
   saveLearningProgress,
   deleteLearningProgress,
   createWorkspace,
@@ -174,6 +175,27 @@ describe('tutorApi learning progress API', () => {
       `${API_BASE_URL}/learning-progress/3?user_id=user+one&subject=sql`,
     )
     expect(fetch.mock.calls[2][1].method).toBe('DELETE')
+  })
+})
+
+describe('tutorApi GitHub MCP API', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('reads the credential-free GitHub MCP status endpoint', async () => {
+    fetch.mockResolvedValue(jsonResponse({ status: 'connected', projects: [] }))
+
+    await getGitHubMcpStatus()
+
+    expect(fetch).toHaveBeenCalledWith(
+      `${API_BASE_URL}/mcp/github/status`,
+      expect.objectContaining({ signal: undefined }),
+    )
   })
 })
 

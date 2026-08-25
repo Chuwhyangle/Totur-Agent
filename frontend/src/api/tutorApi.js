@@ -26,6 +26,7 @@ const JOURNAL_URL = `${API_BASE_URL}/api/journal`
 const WORKSPACES_URL = `${API_BASE_URL}/workspaces`
 const LEARNING_PROGRESS_URL = `${API_BASE_URL}/learning-progress`
 const KNOWLEDGE_DOCUMENTS_URL = `${API_BASE_URL}/knowledge/documents`
+const GITHUB_MCP_STATUS_URL = `${API_BASE_URL}/mcp/github/status`
 
 export class TutorApiError extends Error {
   constructor(message, { status = null, detail = null, responseBody = null, debug = null, cause = null } = {}) {
@@ -156,6 +157,14 @@ export async function getHealth(options = {}) {
     'Health check failed',
   )
   return data
+}
+
+export function getGitHubMcpStatus(options = {}) {
+  return requestJson(
+    GITHUB_MCP_STATUS_URL,
+    { signal: options.signal },
+    'GitHub MCP status request failed',
+  )
 }
 
 export function getLearningProgress(userId, subject = 'sql', options = {}) {

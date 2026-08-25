@@ -12,6 +12,8 @@ from dotenv import load_dotenv
 # headers, and the local settings validate that configuration explicitly.
 GITHUB_MCP_HOST = "api.githubcopilot.com"
 ALLOWED_GITHUB_TOOLSETS = frozenset({"repos", "issues", "pull_requests"})
+DEFAULT_GITHUB_MCP_PROJECTS = ("Chuwhyangle/Totur-Agent",)
+_GITHUB_PROJECT_PATTERN = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 
 _ENV_REF_PATTERN = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 
@@ -84,6 +86,28 @@ def get_mcp_client_retry_seconds() -> float:
     except ValueError:
         return 30.0
     return min(max(retry_seconds, 0.0), 3600.0)
+
+
+def get_github_mcp_projects() -> list[str]:
+    """Return the public repository allow-list shown in the MCP status panel.
+
+    GitHub Hosted MCP does not expose the PAT's selected repositories as a
+    safe metadata endpoint. Keep the UI honest by showing repositories the
+    deployment explicitly declares, with the Tutor Agent repository as the
+    default for this MVP.
+    """
+
+    load_dotenv()
+    raw = os.getenv("GITHUB_MCP_PROJECTS", "").strip()
+    values = raw.split(",") if raw else list(DEFAULT_GITHUB_MCP_PROJECTS)
+    projects: list[str] = []
+    for value in values:
+        project = value.strip()
+        if not project or not _GITHUB_PROJECT_PATTERN.fullmatch(project):
+            continue
+        if project not in projects:
+            projects.append(project)
+    return projects or list(DEFAULT_GITHUB_MCP_PROJECTS)
 
 def get_project_root() -> Path:
     return Path(__file__).resolve().parents[2]

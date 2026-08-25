@@ -20,6 +20,7 @@ from app.api.routes.knowledge_documents import router as knowledge_documents_rou
 from app.api.routes.journal import router as journal_router
 from app.api.routes.learning_progress import router as learning_progress_router
 from app.api.routes.models import router as models_router
+from app.api.routes.mcp import router as mcp_router
 from app.api.routes.personas import router as personas_router
 from app.api.routes.sessions import router as sessions_router
 from app.clients.llm_client_pool import close_llm_clients
@@ -208,6 +209,8 @@ app.include_router(conversations_router)
 app.include_router(health_router)
 app.include_router(personas_router)
 app.include_router(models_router)
+# Public MCP status is credential-free; tool calls stay server-side.
+app.include_router(mcp_router)
 # Session endpoints: create, list, and inspect chat history.
 app.include_router(sessions_router)
 # Interview JD endpoints: store user profiles before matching tools.
