@@ -785,6 +785,9 @@ SUMMARY_TRIGGER_COUNT = 8
 当前技术债：PDF 双栏版面、真实字号提取、扫描件 OCR、语义近重复去重尚未处理；
 `DVD` 等合法罗马数字词仍可能触发页码判定。
 
+契约测试维护注意事项：`test_business_schema_has_workspace_foundation_tables` 使用精确表集合；
+以后每新增一张业务表，都必须在该测试中显式追加表名，不能改成子集断言。
+
 ---
 
 ## AI 辅导提示词模板

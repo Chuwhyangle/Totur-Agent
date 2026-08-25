@@ -43,7 +43,9 @@ KNOWLEDGE_SOURCE_DIR = "docs"
 KNOWLEDGE_SOURCE_DIRS = ("docs", "corpus/self-llm/docs")
 
 # 离线索引脚本调用 embedding 接口时的默认批大小。
-EMBEDDING_BATCH_SIZE = 32
+# DashScope text-embedding-v4 rejects batches larger than 10; keeping the
+# shared limit at 10 also bounds attachment and JD indexing requests.
+EMBEDDING_BATCH_SIZE = 10
 
 # v0.4 Hybrid 检索候选池大小：向量和 BM25 各取 top_k * 2 后融合。
 HYBRID_CANDIDATE_MULTIPLIER = 2

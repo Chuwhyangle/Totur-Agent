@@ -19,6 +19,7 @@ TASK_STEPS_TABLE = "task_steps"
 TASK_ASSET_REFS_TABLE = "task_asset_refs"
 ARTIFACTS_TABLE = "artifacts"
 ARTIFACT_SOURCES_TABLE = "artifact_sources"
+KNOWLEDGE_DOCUMENTS_TABLE = "knowledge_documents"
 DEFAULT_SESSION_TITLE = "默认会话"
 
 
@@ -62,6 +63,37 @@ class ArtifactStatus(str, Enum):
     CREATING = "CREATING"
     READY = "READY"
     FAILED = "FAILED"
+
+
+class KnowledgeDocumentStatus(str, Enum):
+    """Lifecycle states for user-uploaded knowledge documents."""
+
+    UPLOADED = "UPLOADED"
+    PARSING = "PARSING"
+    CHUNKING = "CHUNKING"
+    EMBEDDING = "EMBEDDING"
+    READY = "READY"
+    FAILED = "FAILED"
+    DELETING = "DELETING"
+    DELETED = "DELETED"
+
+
+NON_TERMINAL_STATUSES = frozenset(
+    {
+        KnowledgeDocumentStatus.UPLOADED,
+        KnowledgeDocumentStatus.PARSING,
+        KnowledgeDocumentStatus.CHUNKING,
+        KnowledgeDocumentStatus.EMBEDDING,
+        KnowledgeDocumentStatus.DELETING,
+    }
+)
+TERMINAL_STATUSES = frozenset(
+    {
+        KnowledgeDocumentStatus.READY,
+        KnowledgeDocumentStatus.FAILED,
+        KnowledgeDocumentStatus.DELETED,
+    }
+)
 
 
 class DocumentScope(str, Enum):
@@ -228,6 +260,45 @@ class WorkspaceAssetRecord:
 
     def __post_init__(self) -> None:
         self.status = WorkspaceAssetStatus(self.status)
+
+
+@dataclass
+class KnowledgeDocumentRecord:
+    """knowledge_documents 表中的一行用户文档记录。"""
+
+    id: str
+    user_id: str
+    original_filename: str
+    media_type: str
+    size_bytes: int
+    storage_key: str | None
+    file_sha256: str
+    text_sha256: str | None
+    dedupe_key: str | None
+    version_no: int
+    status: KnowledgeDocumentStatus
+    page_count: int | None
+    chunk_count: int | None
+    parser_name: str | None
+    parser_version: str | None
+    error_code: str | None
+    error_message: str | None
+    created_at: str
+    updated_at: str
+    deleted_at: str | None = None
+
+    def __post_init__(self) -> None:
+        try:
+            self.status = KnowledgeDocumentStatus(self.status)
+        except ValueError as exc:
+            raise InvalidDocumentRecord(str(exc)) from exc
+
+        if not self.id:
+            raise InvalidDocumentRecord("knowledge document id must not be empty")
+        if self.size_bytes < 0:
+            raise InvalidDocumentRecord("size_bytes must not be negative")
+        if self.version_no < 1:
+            raise InvalidDocumentRecord("version_no must be at least 1")
 
 
 @dataclass
