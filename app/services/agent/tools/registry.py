@@ -378,7 +378,15 @@ class ToolRegistry:
                 self._mcp_client_adapter = None
 
     def get_tools_schema(self, execution_context=None) -> list[dict[str, Any]]:
-        """Return OpenAI-compatible tool schemas."""
+        """Return tools allowed for the current request mode."""
+
+        if (
+            execution_context is not None
+            and getattr(execution_context, "progress_update_requested", False)
+        ):
+            # Progress mode is deliberately isolated: the model must not turn
+            # a structured progress update into a journal entry or retrieval.
+            return [deepcopy(UPDATE_LEARNING_PROGRESS_SCHEMA)]
 
         learning_notes_schema = deepcopy(SEARCH_LEARNING_NOTES_SCHEMA)
         if not rag_settings.ENABLE_SUBJECT_SHARDING:
@@ -400,11 +408,6 @@ class ToolRegistry:
                 schemas.extend(self._mcp_client_adapter.get_tools_schema())
             except Exception:
                 pass
-        if (
-            execution_context is not None
-            and getattr(execution_context, "progress_update_requested", False)
-        ):
-            schemas.append(deepcopy(UPDATE_LEARNING_PROGRESS_SCHEMA))
         if execution_context is not None and self.workspace_context_error(execution_context) is None:
             schemas.extend(deepcopy(schema) for schema in WORKSPACE_TOOL_SCHEMAS.values())
         return schemas
