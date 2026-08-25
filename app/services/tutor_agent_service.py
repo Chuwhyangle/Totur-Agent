@@ -4,6 +4,7 @@ from collections.abc import Callable, Generator
 import logging
 import re
 import time
+from typing import Any
 
 from openai import OpenAI
 from app.db import trace_db
@@ -29,9 +30,13 @@ from app.services.agent.tools.executor import ToolExecutor
 from app.services.agent.tools.registry import ToolRegistry
 from app.services.agent.workspace import AgentExecutionContext, WorkspaceTaskRecorder
 from app.services.documents.attachment_retrieval_service import (
+    AttachmentNotFoundError,
+    AttachmentNotReadyError,
+    AttachmentProcessingFailedError,
     AttachmentRetrievalFailedError,
     AttachmentRetrievalService,
 )
+from app.services.documents.attachment_content_service import AttachmentContentService
 from app.repositories.interview_jd_repository import list_all_interview_jds
 from app.services.private_jd_context import format_private_jd_context
 from app.services.rag_seed_context import retrieve_seed_knowledge_context
@@ -102,6 +107,7 @@ class TutorAgentService:
         seed_context_enabled: bool = ENABLE_RAG_SEED_CONTEXT,
         seed_context_provider: Callable[[str], str | None] | None = None,
         attachment_retrieval_service: AttachmentRetrievalService | None = None,
+        attachment_content_service: AttachmentContentService | None = None,
         attachment_context_max_chars: int | None = None,
     ) -> None:
         """初始化模型配置、模型客户端和 Agent 辅助组件。"""
@@ -126,6 +132,7 @@ class TutorAgentService:
         # Keep attachment dependencies lazy so ordinary chat never opens Chroma or
         # initializes an embedding client.
         self.attachment_retrieval_service = attachment_retrieval_service
+        self.attachment_content_service = attachment_content_service
         self.attachment_context_max_chars = attachment_context_max_chars
         self.workspace_service = WorkspaceService()
         self.persona_service = PersonaService()
@@ -195,19 +202,13 @@ class TutorAgentService:
             private_jd_records = list_all_interview_jds()
             context.private_jd_context = format_private_jd_context(private_jd_records)
 
-            # FR-3: 附件不再预注入上下文，改为工具化 + tool_choice 强制。
-            # 通过 executor 默认参数注入权限上下文（不进 schema）。
             if request.attachment_ids:
-                self._set_attachment_tool_defaults(
+                context.attachment_context = self._build_attachment_context(
                     user_id=user_id,
                     session_id=session.id,
                     attachment_ids=request.attachment_ids,
-                    subject=session.subject,
                 )
-            else:
-                set_defaults = getattr(self.tool_executor, "set_default_tool_kwargs", None)
-                if callable(set_defaults):
-                    set_defaults({"search_learning_notes": {"subject": session.subject}})
+            self._set_learning_note_defaults(session.subject)
 
             if not context.recent_history and session.title == DEFAULT_SESSION_TITLE:
                 # 新会话第一条消息发出后，用这条消息生成一个更自然的会话标题。
@@ -220,7 +221,7 @@ class TutorAgentService:
                 web_search_enabled=request.web_search_enabled,
                 rag_enabled=request.rag_enabled,
                 force_rag=request.force_rag,
-                attachment_ids=request.attachment_ids,
+                attachment_ids=[],
                 model_spec=model_spec,
                 execution_context=execution_context,
             )
@@ -340,18 +341,13 @@ class TutorAgentService:
             private_jd_records = list_all_interview_jds()
             context.private_jd_context = format_private_jd_context(private_jd_records)
 
-            # FR-3: 附件工具化，权限参数经 executor 注入。
             if request.attachment_ids:
-                self._set_attachment_tool_defaults(
+                context.attachment_context = self._build_attachment_context(
                     user_id=user_id,
                     session_id=session.id,
                     attachment_ids=request.attachment_ids,
-                    subject=session.subject,
                 )
-            else:
-                set_defaults = getattr(self.tool_executor, "set_default_tool_kwargs", None)
-                if callable(set_defaults):
-                    set_defaults({"search_learning_notes": {"subject": session.subject}})
+            self._set_learning_note_defaults(session.subject)
 
             if not context.recent_history and session.title == DEFAULT_SESSION_TITLE:
                 update_session_title(session.id, make_title_from_message(message))
@@ -365,7 +361,7 @@ class TutorAgentService:
                 web_search_enabled=request.web_search_enabled,
                 rag_enabled=request.rag_enabled,
                 force_rag=request.force_rag,
-                attachment_ids=request.attachment_ids,
+                attachment_ids=[],
                 model_spec=model_spec,
                 execution_context=execution_context,
             )
@@ -478,6 +474,18 @@ class TutorAgentService:
                     "workspace_id": exc.workspace_id,
                 },
             }
+        except AttachmentNotFoundError:
+            status = "ERROR"
+            yield {"event": "error", "data": {"error": "attachment_not_found", "retryable": False}}
+        except AttachmentNotReadyError:
+            status = "ERROR"
+            yield {"event": "error", "data": {"error": "attachment_not_ready", "retryable": False}}
+        except AttachmentProcessingFailedError:
+            status = "ERROR"
+            yield {"event": "error", "data": {"error": "attachment_processing_failed", "retryable": False}}
+        except AttachmentRetrievalFailedError:
+            status = "ERROR"
+            yield {"event": "error", "data": {"error": "attachment_retrieval_failed", "retryable": True}}
         except Exception as exc:
             logger.exception("stream_internal_error")
             status = "ERROR"
@@ -630,6 +638,35 @@ class TutorAgentService:
             except Exception as exc:
                 raise AttachmentRetrievalFailedError from exc
         return self.attachment_retrieval_service
+
+    def _get_attachment_content_service(self) -> AttachmentContentService:
+        if self.attachment_content_service is None:
+            self.attachment_content_service = AttachmentContentService(
+                context_max_chars=self.attachment_context_max_chars,
+            )
+        return self.attachment_content_service
+
+    def _build_attachment_context(
+        self,
+        *,
+        user_id: str,
+        session_id: int,
+        attachment_ids: list[str],
+    ) -> str:
+        return self._get_attachment_content_service().build_context(
+            user_id=user_id,
+            session_id=session_id,
+            attachment_ids=attachment_ids,
+            max_chars=self.attachment_context_max_chars,
+        )
+
+    def _set_learning_note_defaults(self, subject: str | None) -> None:
+        set_defaults = getattr(self.tool_executor, "set_default_tool_kwargs", None)
+        if callable(set_defaults):
+            defaults: dict[str, dict[str, Any]] = {}
+            if subject:
+                defaults["search_learning_notes"] = {"subject": subject}
+            set_defaults(defaults)
 
     def _set_attachment_tool_defaults(
         self,

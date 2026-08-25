@@ -1,7 +1,4 @@
-"""FR-3: 附件工具化 + tool_choice 强制的 API 与编排测试。
-
-附件从「预注入上下文」改为「search_attachments 工具 + tool_choice 强制」。
-"""
+"""Direct prompt injection tests for explicitly selected attachments."""
 
 import json
 
@@ -47,6 +44,18 @@ class FakeAttachmentRetrievalService:
         return list(self.evidence)
 
 
+class FakeAttachmentContentService:
+    context_max_chars = 8000
+
+    def __init__(self, context="[attachment_excerpt] Resume evidence"):
+        self.context = context
+        self.calls = []
+
+    def build_context(self, **kwargs):
+        self.calls.append(kwargs)
+        return self.context
+
+
 def use_temp_database(monkeypatch, tmp_path):
     monkeypatch.setenv("DATA_DIR", str(tmp_path))
 
@@ -79,11 +88,9 @@ def configure_chat_service(
 
     service = chat_route.tutor_agent_service
     monkeypatch.setattr(service, "seed_context_enabled", False)
-    monkeypatch.setattr(
-        service,
-        "attachment_retrieval_service",
-        retrieval_service,
-    )
+    monkeypatch.setattr(service, "attachment_retrieval_service", retrieval_service)
+    content_service = FakeAttachmentContentService()
+    monkeypatch.setattr(service, "attachment_content_service", content_service)
     captured_messages = []
 
     def fake_run(messages, **kwargs):
@@ -91,7 +98,7 @@ def configure_chat_service(
         return raw_reply, ToolTrace(used=bool(tool_calls), calls=tool_calls or [])
 
     monkeypatch.setattr(service.react_orchestrator, "run", fake_run)
-    return captured_messages
+    return captured_messages, content_service
 
 
 def evidence(text="Resume evidence", evidence_id="attachment_1"):
@@ -142,7 +149,7 @@ def test_chat_without_attachment_ids_does_not_touch_attachment_service(
     use_temp_database(monkeypatch, tmp_path)
     session = create_session("alice")
     retrieval = FakeAttachmentRetrievalService(error=AssertionError("must not run"))
-    captured = configure_chat_service(
+    captured, _content = configure_chat_service(
         monkeypatch,
         retrieval,
         model_reply("ordinary answer"),
@@ -163,16 +170,16 @@ def test_chat_without_attachment_ids_does_not_touch_attachment_service(
     assert captured[-1]["content"] == "ordinary question"
 
 
-def test_chat_with_attachment_ids_forces_search_attachments_tool(
+def test_chat_with_attachment_ids_are_loaded_into_prompt(
     monkeypatch,
     tmp_path,
 ):
-    """FR-3 验收：attachment_ids 非空时，附件服务被注入到工具默认参数。"""
+    """Selected attachments are loaded before the model call."""
 
     use_temp_database(monkeypatch, tmp_path)
     session = create_session("alice")
     retrieval = FakeAttachmentRetrievalService([evidence("Resume evidence")])
-    configure_chat_service(
+    captured, content_service = configure_chat_service(
         monkeypatch,
         retrieval,
         model_reply("answer"),
@@ -189,8 +196,9 @@ def test_chat_with_attachment_ids_forces_search_attachments_tool(
     )
 
     assert response.status_code == 200
-    # 附件服务已注入，但未在 service 层预检索（由工具在 ReAct 内调用）。
+    assert "Resume evidence" in captured[-2]["content"]
     assert retrieval.calls == []
+    assert content_service.calls[0]["attachment_ids"] == ["server-document-id"]
 
 
 def test_search_attachments_tool_passes_request_context_to_service(
@@ -265,11 +273,11 @@ def test_search_attachments_tool_rejects_empty_query():
     assert result["error"] == "invalid_arguments"
 
 
-def test_react_orchestrator_forces_attachment_tool_choice_first_round(
+def test_react_orchestrator_does_not_force_attachment_tool_choice(
     monkeypatch,
     tmp_path,
 ):
-    """FR-3 核心：attachment_ids 非空时首轮 tool_choice 强制 search_attachments。"""
+    """Attachments are prompt context, not a ReAct retrieval tool."""
 
     from types import SimpleNamespace
 
@@ -289,14 +297,31 @@ def test_react_orchestrator_forces_attachment_tool_choice_first_round(
     # 直接验证 _resolve_tool_choice
     run_state = SimpleNamespace(attachment_ids=["doc-1"])
     choice = orchestrator._resolve_tool_choice(run_state, round_number=1)
-    assert choice == {
-        "type": "function",
-        "function": {"name": "search_attachments"},
-    }
+    assert choice == "auto"
     # 非首轮或没有附件 → auto
     assert orchestrator._resolve_tool_choice(run_state, round_number=2) == "auto"
     no_attachment = SimpleNamespace(attachment_ids=[])
     assert orchestrator._resolve_tool_choice(no_attachment, round_number=1) == "auto"
+
+
+def test_react_orchestrator_hides_attachment_tool_from_model(monkeypatch):
+    from app.services.agent.react_orchestrator import ReactOrchestrator
+
+    registry = type(
+        "Registry",
+        (),
+        {
+            "get_tools_schema": lambda self, **_: [
+                {"type": "function", "function": {"name": "search_attachments"}},
+                {"type": "function", "function": {"name": "web_search"}},
+            ]
+        },
+    )()
+    orchestrator = ReactOrchestrator(tool_registry=registry)
+
+    tools = orchestrator._active_tools()
+
+    assert [item["function"]["name"] for item in tools] == ["web_search"]
 
 
 def test_react_orchestrator_prepares_attachment_ledger(monkeypatch, tmp_path):

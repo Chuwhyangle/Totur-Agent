@@ -836,6 +836,13 @@ class ReactOrchestrator:
                 for tool in tools
                 if _tool_schema_name(tool) != WEB_SEARCH_TOOL_NAME
             ]
+        # Conversation attachments are already injected as trusted, bounded
+        # prompt context.  They are not a vector-search tool anymore.
+        tools = [
+            tool
+            for tool in tools
+            if _tool_schema_name(tool) != ATTACHMENT_TOOL_NAME
+        ]
         return tools
 
     def _call_model_with_request_state(
@@ -995,6 +1002,15 @@ class ReactOrchestrator:
                         tool_result,
                         run_state,
                     )
+            elif tool_name == ATTACHMENT_TOOL_NAME:
+                # Attachments are injected before this loop.  Reject stale or
+                # hallucinated retrieval calls so Chroma/embeddings are never
+                # used by the conversation path.
+                tool_result = {
+                    "ok": False,
+                    "error": "tool_disabled",
+                    "message": "会话附件已直接注入上下文，本轮不可检索附件。",
+                }
             else:
                 tool_result = self.tool_executor.execute(
                     tool_name,
@@ -1009,11 +1025,6 @@ class ReactOrchestrator:
                     )
                 elif tool_name == JD_TOOL_NAME:
                     tool_result = self._prepare_jd_result(
-                        tool_result,
-                        run_state,
-                    )
-                elif tool_name == ATTACHMENT_TOOL_NAME:
-                    tool_result = self._prepare_attachment_result(
                         tool_result,
                         run_state,
                     )
@@ -1045,13 +1056,8 @@ class ReactOrchestrator:
         run_state: _RunState,
         round_number: int,
     ) -> str | dict:
-        """FR-3: 附件强意图时首轮强制 search_attachments，其余 auto。"""
+        """Attachments are prompt context; only ordinary tools route here."""
 
-        if round_number == 1 and run_state.attachment_ids:
-            return {
-                "type": "function",
-                "function": {"name": ATTACHMENT_TOOL_NAME},
-            }
         return "auto"
 
     def _prepare_attachment_result(
