@@ -8,12 +8,12 @@ from app.db.models import DocumentRecord, DocumentScope, DocumentStatus
 import app.repositories.document_repository as document_repository
 from app.repositories.attachment_vector_repository import AttachmentVectorRepository
 from app.services.documents.attachment_chunker import AttachmentChunker
+from app.services.documents.attachment_parsers import AttachmentParserDispatch
 from app.services.documents.attachment_indexing_service import (
     AttachmentIndexingService,
 )
 from app.services.documents.parsed_document_storage import ParsedDocumentStorage
-from app.services.documents.pdf_parser import PdfParser
-from app.services.documents.pdf_parsing_service import PdfParsingService
+from app.services.documents.attachment_parsing_service import AttachmentParsingService
 from app.services.documents.settings import load_temporary_document_settings
 from app.services.documents.temporary_file_storage import TemporaryFileStorage
 
@@ -45,7 +45,7 @@ class AttachmentProcessingService:
 
     def __init__(
         self,
-        parsing_service: PdfParsingService,
+        parsing_service: AttachmentParsingService,
         indexing_service: AttachmentIndexingService,
     ) -> None:
         self.parsing_service = parsing_service
@@ -133,9 +133,9 @@ def get_attachment_processing_service() -> AttachmentProcessingService:
     )
     parsed_storage = ParsedDocumentStorage(file_storage)
     vector_repository = AttachmentVectorRepository()
-    parsing_service = PdfParsingService(
+    parsing_service = AttachmentParsingService(
         settings,
-        parser=PdfParser(),
+        parser=AttachmentParserDispatch(),
         file_storage=file_storage,
         parsed_storage=parsed_storage,
     )
