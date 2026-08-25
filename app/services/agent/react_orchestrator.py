@@ -97,6 +97,8 @@ class _RunState:
     jd_id_by_fingerprint: dict[str, str] = field(default_factory=dict)
     progress_update_requested: bool = False
     progress_update_round: int = 1
+    progress_update_retry_requested: bool = False
+    progress_update_succeeded: bool = False
 
 
 @dataclass
@@ -269,6 +271,7 @@ class ReactOrchestrator:
             )
             tool_call_traces.extend(step_traces)
             failure_count += sum(1 for trace in step_traces if not trace.ok)
+            self._update_progress_retry_state(run_state, step_traces)
 
             if failure_count >= self.max_failures:
                 break
@@ -464,6 +467,7 @@ class ReactOrchestrator:
             )
             tool_call_traces.extend(step_traces)
             failure_count += sum(1 for trace in step_traces if not trace.ok)
+            self._update_progress_retry_state(run_state, step_traces)
 
             # Yield tool_result events
             for trace in step_traces:
@@ -913,6 +917,14 @@ class ReactOrchestrator:
         except TypeError:
             # Keep lightweight test registries and old integrations compatible.
             tools = self.tool_registry.get_tools_schema()
+        if getattr(execution_context, "progress_update_requested", False):
+            # This is a write-only maintenance mode. Do not let the model
+            # choose a journal, web search, RAG, or Workspace tool instead.
+            return [
+                tool
+                for tool in tools
+                if _tool_schema_name(tool) == PROGRESS_UPDATE_TOOL_NAME
+            ]
         if not rag_enabled:
             tools = [
                 tool
@@ -1061,7 +1073,21 @@ class ReactOrchestrator:
         for index, tool_call in enumerate(tool_calls):
             tool_name = self._tool_call_name(tool_call)
             tool_arguments = self._tool_call_arguments(tool_call)
-            if run_state.rag_scope == "user_documents" and tool_name != RAG_TOOL_NAME:
+            if (
+                run_state.progress_update_requested
+                and tool_name != PROGRESS_UPDATE_TOOL_NAME
+            ):
+                # Progress mode is isolated from every other write or retrieval
+                # tool. A wrong model choice becomes a retryable observation.
+                tool_result = {
+                    "ok": False,
+                    "error": "tool_disabled",
+                    "message": (
+                        "当前是学习进度更新模式，本轮只能调用 "
+                        "update_learning_progress，不能调用 save_journal_entry。"
+                    ),
+                }
+            elif run_state.rag_scope == "user_documents" and tool_name != RAG_TOOL_NAME:
                 # Document-library mode is source-isolated.  Do not let a
                 # hallucinated tool call bypass the filtered tool schema.
                 tool_result = {
@@ -1171,17 +1197,42 @@ class ReactOrchestrator:
         run_state: _RunState,
         round_number: int,
     ) -> str | dict:
-        """Force one progress update tool call after an explicit request."""
+        """Force or retry the progress tool after an explicit request."""
 
+        if run_state.progress_update_requested and run_state.progress_update_succeeded:
+            return "none"
         if (
             run_state.progress_update_requested
-            and round_number == run_state.progress_update_round
+            and (
+                round_number == run_state.progress_update_round
+                or run_state.progress_update_retry_requested
+            )
         ):
             return {
                 "type": "function",
                 "function": {"name": PROGRESS_UPDATE_TOOL_NAME},
             }
         return "auto"
+
+    @staticmethod
+    def _update_progress_retry_state(
+        run_state: _RunState,
+        step_traces: list[ToolCallTrace],
+    ) -> None:
+        """Retry progress mode until its dedicated tool succeeds."""
+
+        if not run_state.progress_update_requested:
+            return
+        progress_traces = [
+            trace
+            for trace in step_traces
+            if trace.name == PROGRESS_UPDATE_TOOL_NAME
+        ]
+        if any(trace.ok for trace in progress_traces):
+            run_state.progress_update_succeeded = True
+            run_state.progress_update_retry_requested = False
+            return
+        run_state.progress_update_retry_requested = True
 
     def _prepare_attachment_result(
         self,

@@ -14,9 +14,15 @@ SCHEMA: dict[str, Any] = {
     "function": {
         "name": TOOL_NAME,
         "description": (
-            "Update the user's SQL learning progress only after the user explicitly "
-            "requested a progress update. Use evidence from the current conversation "
-            "and existing progress; do not invent changes."
+            "只在用户明确要求更新学习进度时调用。这个工具写入 SQL 学习进度，"
+            "不是 save_journal_entry，不能用来保存学习日志。请根据已有进度、"
+            "当前会话摘要和最近对话，提交 1 到 5 个有证据的 updates。"
+            "每个 update 必须包含 topic、level、status、evidence；"
+            "level 映射为 0=未接触、1=初步理解、2=可以完成基础练习、"
+            "3=基本掌握。示例："
+            '{"updates":[{"topic":"窗口函数","level":1,'
+            '"status":"learning","evidence":"能解释 OVER，但尚未完成练习",'
+            '"next_step":"完成 ROW_NUMBER 练习","confidence":"medium"}]}。'
         ),
         "parameters": {
             "type": "object",
@@ -25,22 +31,19 @@ SCHEMA: dict[str, Any] = {
                     "type": "array",
                     "minItems": 1,
                     "maxItems": 5,
-                    "description": "At most five evidence-based SQL topic updates.",
+                    "description": "最多提交 5 个有证据的知识点更新。不要提交学习日志全文；日志请使用 save_journal_entry。",
                     "items": {
                         "type": "object",
                         "properties": {
                             "topic": {
                                 "type": "string",
-                                "description": "SQL topic, such as JOIN or GROUP BY.",
+                                "description": "知识点名称，例如 JOIN、GROUP BY、窗口函数；不要填写整段总结。",
                             },
                             "level": {
                                 "type": "integer",
                                 "minimum": 0,
                                 "maximum": 3,
-                                "description": (
-                                    "0 not started, 1 initial understanding, "
-                                    "2 basic exercises, 3 basically mastered."
-                                ),
+                                "description": "只能填写 0、1、2、3：0 未接触；1 初步理解；2 可以完成基础练习；3 基本掌握。",
                             },
                             "status": {
                                 "type": "string",
@@ -50,19 +53,21 @@ SCHEMA: dict[str, Any] = {
                                     "needs_practice",
                                     "mastered",
                                 ],
+                                "description": "not_started=未接触；learning=正在学习；needs_practice=需要巩固；mastered=基本掌握。",
                             },
                             "evidence": {
                                 "type": "string",
-                                "description": "Concrete evidence from the user's learning.",
+                                "description": "必须是具体学习证据，例如做题结果、用户自述或反复出现的错误；不能写空泛结论。",
                             },
                             "next_step": {
                                 "type": "string",
-                                "description": "One practical next learning step.",
+                                "description": "一个明确、可执行的下一步练习；没有时可以省略。",
                             },
                             "confidence": {
                                 "type": "string",
                                 "enum": ["low", "medium", "high"],
                                 "default": "medium",
+                                "description": "判断可信度；low 会被跳过，medium/high 才会写入。",
                             },
                         },
                         "required": ["topic", "level", "status", "evidence"],

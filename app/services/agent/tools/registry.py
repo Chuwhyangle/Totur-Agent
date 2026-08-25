@@ -309,7 +309,9 @@ SAVE_JOURNAL_ENTRY_SCHEMA: dict[str, Any] = {
         "name": "save_journal_entry",
         "description": (
             "Save a daily journal/diary entry recording what the user learned, "
-            "accomplished, or reflected on today. Content should be in markdown format."
+            "accomplished, or reflected on today. Content should be in markdown format. "
+            "Do NOT use this tool to update structured SQL learning progress; "
+            "use update_learning_progress when the user explicitly requests a progress update."
         ),
         "parameters": {
             "type": "object",

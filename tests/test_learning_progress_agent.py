@@ -3,9 +3,11 @@
 from app.schemas.chat import ToolCallTrace, ToolTrace, TutorReply
 from app.services.agent.context import AgentContext
 from app.services.agent.prompt_builder import PromptBuilder
+from app.services.agent.react_orchestrator import ReactOrchestrator, _RunState
 from app.services.agent.response_parser import ResponseParser
 from app.services.agent.tools.executor import ToolExecutor
 from app.services.agent.tools.registry import ToolRegistry
+from app.services.agent.tools.update_learning_progress import SCHEMA
 from app.services.agent.workspace.context import AgentExecutionContext
 from app.services.learning_progress_service import LearningProgressService
 from app.services.learning_progress_trigger import is_progress_update_request
@@ -36,7 +38,7 @@ def test_progress_trigger_accepts_command_and_explicit_phrases_only():
 
 
 def test_progress_tool_is_hidden_unless_explicitly_requested():
-    registry = ToolRegistry(mcp_client_adapter=None)
+    registry = ToolRegistry(mcp_client_adapter=object())
 
     ordinary_names = {
         item["function"]["name"] for item in registry.get_tools_schema()
@@ -45,9 +47,16 @@ def test_progress_tool_is_hidden_unless_explicitly_requested():
         item["function"]["name"]
         for item in registry.get_tools_schema(_execution_context(requested=True))
     }
+    active_names = {
+        item["function"]["name"]
+        for item in ReactOrchestrator(tool_registry=registry)._active_tools(
+            execution_context=_execution_context(requested=True),
+        )
+    }
 
     assert "update_learning_progress" not in ordinary_names
     assert "update_learning_progress" in update_names
+    assert active_names == {"update_learning_progress"}
 
     rejected = ToolExecutor(registry).execute(
         "update_learning_progress",
@@ -55,6 +64,43 @@ def test_progress_tool_is_hidden_unless_explicitly_requested():
         execution_context=_execution_context(requested=False),
     )
     assert rejected["error"] == "progress_update_not_requested"
+
+
+def test_progress_tool_schema_explains_parameters_and_example():
+    description = SCHEMA["function"]["description"]
+    properties = SCHEMA["function"]["parameters"]["properties"]["updates"]["items"]["properties"]
+
+    assert "save_journal_entry" in description
+    assert "窗口函数" in description
+    assert "知识点" in properties["topic"]["description"]
+    assert "具体学习证据" in properties["evidence"]["description"]
+
+
+def test_failed_progress_tool_call_is_retried_and_success_stops_retry():
+    orchestrator = ReactOrchestrator(tool_registry=ToolRegistry(mcp_client_adapter=object()))
+    run_state = _RunState(
+        progress_update_requested=True,
+        progress_update_round=1,
+    )
+    failed = ToolCallTrace(
+        round=1,
+        name="update_learning_progress",
+        arguments={},
+        ok=False,
+    )
+    succeeded = ToolCallTrace(
+        round=2,
+        name="update_learning_progress",
+        arguments={},
+        ok=True,
+    )
+
+    orchestrator._update_progress_retry_state(run_state, [failed])
+    retry_choice = orchestrator._resolve_tool_choice(run_state, 2)
+    assert retry_choice["function"]["name"] == "update_learning_progress"
+
+    orchestrator._update_progress_retry_state(run_state, [succeeded])
+    assert orchestrator._resolve_tool_choice(run_state, 3) == "none"
 
 
 def test_progress_tool_updates_shared_records_and_preserves_higher_agent_level():
