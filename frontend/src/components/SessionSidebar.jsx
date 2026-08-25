@@ -41,6 +41,7 @@ function SessionSidebar({
   selectedWorkspaceId,
   activeSessionId,
   status,
+  sessionCreateError = '',
   isCreating,
   isSidebarCollapsed = false,
   isMobileOpen = false,
@@ -75,12 +76,12 @@ function SessionSidebar({
           <span className="brand-mark"><Icon name="sparkles" size={18} strokeWidth={1.6} /></span>
           <div><strong>Tutor Agent</strong><span>专注学习 · 清晰推进</span></div>
         </div>
-        <button className="icon-button sidebar-collapse-button" type="button" onClick={onToggleCollapsed} aria-label={isSidebarCollapsed ? '展开侧栏' : '收起侧栏'} title={isSidebarCollapsed ? '展开侧栏' : '收起侧栏'}>
+        <button className="icon-button sidebar-collapse-button" type="button" onClick={() => onToggleCollapsed()} aria-label={isSidebarCollapsed ? '展开侧栏' : '收起侧栏'} title={isSidebarCollapsed ? '展开侧栏' : '收起侧栏'}>
           <Icon name="chevron" size={15} className={isSidebarCollapsed ? 'is-open' : ''} />
         </button>
       </div>
 
-      <button className="session-primary-button" type="button" disabled={isCreating || !userId.trim()} onClick={onCreateSession} title="开始新对话">
+      <button className="session-primary-button" type="button" disabled={isCreating || !userId.trim()} onClick={() => onCreateSession()} title="开始新对话">
         <Icon name="plus" size={18} />
         <span>{isCreating ? '创建中…' : '开始新对话'}</span>
       </button>
@@ -102,7 +103,7 @@ function SessionSidebar({
             <option value="workspace">本工作区</option>
             <option value="all">全部</option>
           </select>
-          <button className="icon-button" type="button" disabled={isLoading || !userId.trim()} onClick={onRefreshSessions} aria-label="刷新会话" title="刷新会话">
+          <button className="icon-button" type="button" disabled={isLoading || !userId.trim()} onClick={() => onRefreshSessions()} aria-label="刷新会话" title="刷新会话">
             <Icon name="refresh" size={14} />
           </button>
         </span>
@@ -110,7 +111,7 @@ function SessionSidebar({
 
       {status === 'idle' ? <p className="session-empty">刷新后可查看历史会话</p> : null}
       {status === 'loading' ? <div className="session-skeletons"><span /><span /><span /></div> : null}
-      {status === 'error' ? <p className="session-error">会话读取失败，请检查服务连接。</p> : null}
+      {status === 'error' ? <p className="session-error"><strong>会话操作失败</strong>{sessionCreateError ? `：${sessionCreateError}` : ''}</p> : null}
       {status === 'success' && workspaceSessions.length === 0 ? <p className="session-empty">还没有会话。从一次清晰的问题开始。</p> : null}
 
       {workspaceSessions.length > 0 ? (

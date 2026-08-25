@@ -93,6 +93,41 @@ async function openSession(user, title = 'Session One') {
   await user.click(await screen.findByText(title))
 }
 
+describe('App session creation', () => {
+  beforeEach(() => {
+    Object.values(api).forEach((mock) => typeof mock === 'function' && mock.mockReset())
+    localStorage.clear()
+    mockAppBootstrap()
+  })
+
+  it('creates a top-level session without passing a click event as workspace_id', async () => {
+    const user = userEvent.setup()
+    api.getSessions.mockResolvedValue({ data: { items: [] } })
+    render(<App />)
+
+    await user.click(await screen.findByRole('button', { name: '开始新对话' }))
+
+    await waitFor(() => expect(api.createSession).toHaveBeenCalledWith({
+      user_id: 'demo-user',
+      persona_id: 'tutor',
+    }))
+    expect(api.createSession.mock.calls[0][0]).not.toHaveProperty('workspace_id')
+  })
+
+  it('shows a concrete creation error instead of reporting a connection failure', async () => {
+    const user = userEvent.setup()
+    api.createSession.mockRejectedValue(new Error('create session failed'))
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    render(<App />)
+
+    await user.click(await screen.findByRole('button', { name: '开始新对话' }))
+
+    expect(await screen.findByText(/创建会话失败：create session failed/)).not.toBeNull()
+    expect(screen.getByText(/会话操作失败/)).not.toBeNull()
+    consoleError.mockRestore()
+  })
+})
+
 describe('App attachment scope and sending', () => {
   beforeEach(() => {
     Object.values(api).forEach((mock) => typeof mock === 'function' && mock.mockReset())

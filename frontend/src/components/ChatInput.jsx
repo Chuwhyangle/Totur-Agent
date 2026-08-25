@@ -37,6 +37,7 @@ function ChatInput({
   streamingEnabled = true,
   onStreamingEnabledChange,
   attachmentProps = null,
+  notice = '',
   onStopStreaming,
   placeholder = '写下你的问题，或让导师帮你拆解下一步…',
 }) {
@@ -110,6 +111,7 @@ function ChatInput({
         {onStreamingEnabledChange ? <button className={`streaming-toggle${streamingEnabled ? ' is-active' : ''}`} type="button" aria-pressed={streamingEnabled} disabled={isSending} onClick={() => onStreamingEnabledChange(!streamingEnabled)} title={streamingEnabled ? '流式输出已开启' : '流式输出已关闭'}><Icon name="sparkles" size={14} strokeWidth={1.7} /><span>流式</span></button> : null}
       </div>
       <p className="composer-hint">Enter 发送 · Shift + Enter 换行 · AI 可能出错，重要信息请再核对</p>
+      {notice ? <p className="composer-notice" role="alert">{notice}</p> : null}
     </div>
   )
 }

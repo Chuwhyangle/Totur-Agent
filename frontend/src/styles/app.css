@@ -1461,6 +1461,7 @@ button:disabled { cursor: not-allowed; opacity: 0.48; }
   box-shadow: var(--shadow-lg);
   animation: personaPanelIn .34s var(--ease-out) both;
 }
+.composer-notice { margin: 6px 0 0; color: var(--danger); font-size: var(--text-xs); text-align: center; }
 .answer-text tbody tr:nth-child(even) { background: color-mix(in srgb, var(--muted) 55%, transparent); }
 .message { position: relative; }
 .message-actions { position: absolute; top: -4px; right: 0; display: inline-flex; gap: 3px; opacity: 0; transform: translateY(3px); transition: opacity .16s var(--ease), transform .16s var(--ease); }

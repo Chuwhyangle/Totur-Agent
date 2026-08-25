@@ -153,6 +153,7 @@ function App() {
   const [streamingTool, setStreamingTool] = useState(null) // Currently running tool
   const [sessions, setSessions] = useState([])
   const [sessionsStatus, setSessionsStatus] = useState('idle')
+  const [sessionCreateError, setSessionCreateError] = useState('')
   const [activeSessionId, setActiveSessionId] = useState(null)
   const [activeSessionStatus, setActiveSessionStatus] = useState('idle')
   const [isCreatingSession, setIsCreatingSession] = useState(false)
@@ -172,6 +173,7 @@ function App() {
   const [attachmentStatus, setAttachmentStatus] = useState('idle')
   const [selectedAttachmentIds, setSelectedAttachmentIds] = useState([])
   const [attachmentError, setAttachmentError] = useState('')
+  const [composerNotice, setComposerNotice] = useState('')
   const [attachmentActionStates, setAttachmentActionStates] = useState({})
   const [attachmentActionErrors, setAttachmentActionErrors] = useState({})
   const [isUploadingAttachment, setIsUploadingAttachment] = useState(false)
@@ -316,6 +318,7 @@ function App() {
     setMessages([])
     setSessions([])
     setSessionsStatus('idle')
+    setSessionCreateError('')
     setActiveSessionId(null)
     setActiveSessionStatus('idle')
     setInterviewJDs([])
@@ -347,15 +350,20 @@ function App() {
     if (!trimmedUserId) {
       setSessions([])
       setSessionsStatus('error')
+      setSessionCreateError('请先填写用户 ID。')
       return []
     }
-    if (!silent) setSessionsStatus('loading')
+    if (!silent) {
+      setSessionsStatus('loading')
+      setSessionCreateError('')
+    }
 
     try {
       const { data } = await getSessions(trimmedUserId)
       const nextSessions = Array.isArray(data?.items) ? data.items : []
       setSessions(nextSessions)
       setSessionsStatus('success')
+      setSessionCreateError('')
       return nextSessions
     } catch {
       setSessions([])
@@ -620,13 +628,17 @@ function App() {
     }
   }
 
-  async function handleCreateSession(workspaceId = null) {
+  async function handleCreateSession(workspaceIdInput = null) {
+    const workspaceId = typeof workspaceIdInput === 'string' && workspaceIdInput.trim()
+      ? workspaceIdInput
+      : null
     const trimmedUserId = userId.trim()
     if (!trimmedUserId || isCreatingSession) return null
 
     const requestId = sessionCreateRequestIdRef.current + 1
     sessionCreateRequestIdRef.current = requestId
     setIsCreatingSession(true)
+    setSessionCreateError('')
 
     try {
       const { data } = await createSession({
@@ -638,6 +650,7 @@ function App() {
 
       upsertSession(data)
       setSessionsStatus('success')
+      setSessionCreateError('')
       activateAttachmentScope(data.id, trimmedUserId, selectedPersonaId, {
         preserveSessionCreation: true,
       })
@@ -657,7 +670,13 @@ function App() {
       return data
     } catch (error) {
       if (requestId !== sessionCreateRequestIdRef.current || error?.isAbortError) return null
+      console.error('createSession failed', error)
       setSessionsStatus('error')
+      setSessionCreateError(
+        error?.status
+          ? `创建会话失败（HTTP ${error.status}）：${error?.detail?.error ?? error.message}`
+          : `创建会话失败：${error.message}`,
+      )
       return null
     } finally {
       if (requestId === sessionCreateRequestIdRef.current) setIsCreatingSession(false)
@@ -873,7 +892,20 @@ function App() {
 
     const trimmedMessage = draftMessage.trim()
     const trimmedUserId = userId.trim()
-    if (!trimmedMessage || !trimmedUserId || isSending || activeSessionStatus === 'loading') return
+    if (!trimmedMessage) return
+    if (!trimmedUserId) {
+      setComposerNotice('用户 ID 为空，请先填写。')
+      return
+    }
+    if (isSending) {
+      setComposerNotice('正在生成中，请等待当前回复完成。')
+      return
+    }
+    if (activeSessionStatus === 'loading') {
+      setComposerNotice('正在加载历史消息，请稍候。')
+      return
+    }
+    setComposerNotice('')
     if (attachmentSendBlockReason) {
       setAttachmentError(attachmentSendBlockReason)
       return
@@ -1148,7 +1180,7 @@ function App() {
   }
 
   return (
-    <main className="app-shell">
+    <main className={`app-shell${isSidebarCollapsed ? ' sidebar-collapsed' : ''}`}>
       <header className="app-header">
         <div className="header-leading">
           <button className="icon-button menu-button" type="button" onClick={() => setIsMobileSidebarOpen(true)} aria-label="打开会话侧栏" title="打开会话侧栏"><Icon name="menu" size={19} /></button>
@@ -1191,6 +1223,7 @@ function App() {
           selectedWorkspaceId={selectedWorkspaceId}
           activeSessionId={activeSessionId}
           status={sessionsStatus}
+          sessionCreateError={sessionCreateError}
           isCreating={isCreatingSession}
           isSidebarCollapsed={isSidebarCollapsed}
           isMobileOpen={isMobileSidebarOpen}
@@ -1260,6 +1293,7 @@ function App() {
             onStreamingEnabledChange={handleStreamingToggle}
             onStopStreaming={streamingEnabled ? handleStopStreaming : undefined}
             attachmentProps={attachmentProps}
+            notice={composerNotice}
           />
         </section>
       </div>
