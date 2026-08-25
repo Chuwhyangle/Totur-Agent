@@ -159,6 +159,7 @@ class TutorAgentService:
         """处理一次聊天请求。"""
 
         model_spec = resolve_model(request.model_id)
+        rag_scope = getattr(request, "rag_scope", "all")
         started_at = time.perf_counter()
         trace_id = timings.start_request()
         timings.set_meta("model", model_spec.model_id)
@@ -203,13 +204,14 @@ class TutorAgentService:
                 current_message=message,
             )
             self._attach_workspace_instructions(context, user_id=user_id, session=session)
-            if self.seed_context_enabled:
+            if self.seed_context_enabled and rag_scope != "user_documents":
                 context.seed_knowledge_context = self.seed_context_provider(message)
 
-            private_jd_records = list_all_interview_jds()
-            context.private_jd_context = format_private_jd_context(private_jd_records)
+            if rag_scope != "user_documents":
+                private_jd_records = list_all_interview_jds()
+                context.private_jd_context = format_private_jd_context(private_jd_records)
 
-            if request.attachment_ids:
+            if request.attachment_ids and rag_scope != "user_documents":
                 context.attachment_context = self._build_attachment_context(
                     user_id=user_id,
                     session_id=session.id,
@@ -218,7 +220,7 @@ class TutorAgentService:
             self._set_learning_note_defaults(
                 user_id=user_id,
                 subject=session.subject,
-                scope=request.rag_scope,
+                scope=rag_scope,
             )
 
             if not context.recent_history and session.title == DEFAULT_SESSION_TITLE:
@@ -232,7 +234,7 @@ class TutorAgentService:
                 web_search_enabled=request.web_search_enabled,
                 rag_enabled=request.rag_enabled,
                 force_rag=request.force_rag,
-                rag_scope=request.rag_scope,
+                rag_scope=rag_scope,
                 attachment_ids=[],
                 model_spec=model_spec,
                 execution_context=execution_context,
@@ -316,6 +318,7 @@ class TutorAgentService:
         """
 
         model_spec = resolve_model(request.model_id)
+        rag_scope = getattr(request, "rag_scope", "all")
         started_at = time.perf_counter()
         trace_id = timings.start_request()
         timings.set_meta("model", model_spec.model_id)
@@ -359,13 +362,14 @@ class TutorAgentService:
                 current_message=message,
             )
             self._attach_workspace_instructions(context, user_id=user_id, session=session)
-            if self.seed_context_enabled:
+            if self.seed_context_enabled and rag_scope != "user_documents":
                 context.seed_knowledge_context = self.seed_context_provider(message)
 
-            private_jd_records = list_all_interview_jds()
-            context.private_jd_context = format_private_jd_context(private_jd_records)
+            if rag_scope != "user_documents":
+                private_jd_records = list_all_interview_jds()
+                context.private_jd_context = format_private_jd_context(private_jd_records)
 
-            if request.attachment_ids:
+            if request.attachment_ids and rag_scope != "user_documents":
                 context.attachment_context = self._build_attachment_context(
                     user_id=user_id,
                     session_id=session.id,
@@ -374,7 +378,7 @@ class TutorAgentService:
             self._set_learning_note_defaults(
                 user_id=user_id,
                 subject=session.subject,
-                scope=request.rag_scope,
+                scope=rag_scope,
             )
 
             if not context.recent_history and session.title == DEFAULT_SESSION_TITLE:
@@ -389,7 +393,7 @@ class TutorAgentService:
                 web_search_enabled=request.web_search_enabled,
                 rag_enabled=request.rag_enabled,
                 force_rag=request.force_rag,
-                rag_scope=request.rag_scope,
+                rag_scope=rag_scope,
                 attachment_ids=[],
                 model_spec=model_spec,
                 execution_context=execution_context,
