@@ -171,6 +171,7 @@ export function postChat(requestBody, options = {}) {
  * Post a chat request and stream the response via SSE.
  * @param {Object} requestBody - The chat request body
  * @param {Object} callbacks - Event callbacks
+ * @param {function} callbacks.onThinking - Called for each model reasoning summary chunk: (text) => void
  * @param {function} callbacks.onToken - Called for each token: (text) => void
  * @param {function} callbacks.onToolCall - Called when a tool starts: (tool, args) => void
  * @param {function} callbacks.onToolResult - Called when a tool finishes: (tool, result) => void
@@ -180,7 +181,7 @@ export function postChat(requestBody, options = {}) {
  * @returns {Promise<void>}
  */
 export async function postChatStream(requestBody, callbacks, options = {}) {
-  const { onToken, onToolCall, onToolResult, onDone, onError } = callbacks
+  const { onThinking, onToken, onToolCall, onToolResult, onDone, onError } = callbacks
   const { signal } = options
 
   let response
@@ -247,7 +248,9 @@ export async function postChatStream(requestBody, callbacks, options = {}) {
           const dataStr = line.slice(6)
           try {
             const data = JSON.parse(dataStr)
-            if (currentEvent === 'token') {
+            if (currentEvent === 'thinking') {
+              onThinking?.(data.text ?? '')
+            } else if (currentEvent === 'token') {
               onToken?.(data.text ?? '')
             } else if (currentEvent === 'tool_call') {
               onToolCall?.(data.tool, data.args)

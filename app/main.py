@@ -18,6 +18,7 @@ from app.api.routes.health import router as health_router
 from app.api.routes.interview_jds import router as interview_jds_router
 from app.api.routes.knowledge_documents import router as knowledge_documents_router
 from app.api.routes.journal import router as journal_router
+from app.api.routes.learning_progress import router as learning_progress_router
 from app.api.routes.models import router as models_router
 from app.api.routes.personas import router as personas_router
 from app.api.routes.sessions import router as sessions_router
@@ -214,6 +215,8 @@ app.include_router(interview_jds_router)
 app.include_router(knowledge_documents_router)
 # Journal endpoints: daily learning diary entries.
 app.include_router(journal_router)
+# User-level learning progress endpoints, currently used by the SQL workspace.
+app.include_router(learning_progress_router)
 
 if is_workspaces_enabled():
     from app.api.routes.workspaces import router as workspaces_router

@@ -59,7 +59,7 @@ def _note_source_title(source: str, title_path: Any) -> str:
 class StreamEvent:
     """An event yielded during streaming ReAct execution."""
 
-    type: str  # "tool_call", "tool_result", "token", "done", "error"
+    type: str  # "thinking", "tool_call", "tool_result", "token", "done", "error"
     data: dict[str, Any]
 
 
@@ -82,6 +82,7 @@ class _RunState:
     ledger: dict[str, Source] = field(default_factory=dict)
     evidence_id_by_url: dict[str, str] = field(default_factory=dict)
     rag_enabled: bool = True
+    rag_scope: str = "all"
     web_search_enabled: bool = True
     next_note_number: int = 1
     note_id_by_fingerprint: dict[str, str] = field(default_factory=dict)
@@ -129,6 +130,7 @@ class ReactOrchestrator:
         web_search_enabled: bool = True,
         rag_enabled: bool = True,
         force_rag: bool = False,
+        rag_scope: str = "all",
         attachment_ids: list[str] | None = None,
         model_spec: ModelSpec | None = None,
         execution_context=None,
@@ -141,6 +143,7 @@ class ReactOrchestrator:
             web_search_enabled=web_search_enabled,
             rag_enabled=rag_enabled,
             force_rag=force_rag,
+            rag_scope=rag_scope,
             attachment_ids=attachment_ids,
             model_spec=model_spec,
             execution_context=execution_context,
@@ -153,16 +156,25 @@ class ReactOrchestrator:
         web_search_enabled: bool = True,
         rag_enabled: bool = True,
         force_rag: bool = False,
+        rag_scope: str = "all",
         attachment_ids: list[str] | None = None,
         model_spec: ModelSpec | None = None,
         execution_context=None,
     ) -> tuple[str, ToolTrace]:
         """执行最多 max_steps 步的 ReAct 工具循环。"""
 
+        if rag_scope == "user_documents":
+            web_search_enabled = False
+            force_web_search = False
+            # Document-library mode is a RAG-level query: it must retrieve
+            # before generation, even when a caller omitted force_rag.
+            rag_enabled = True
+            force_rag = True
         working_messages: list[ChatCompletionMessageParam] = [*messages]
         tool_call_traces: list[ToolCallTrace] = []
         run_state = _RunState(
             rag_enabled=rag_enabled,
+            rag_scope=rag_scope,
             web_search_enabled=web_search_enabled,
             attachment_ids=list(attachment_ids or []),
         )
@@ -210,6 +222,7 @@ class ReactOrchestrator:
                 execution_context=execution_context,
                 rag_enabled=rag_enabled,
                 web_search_enabled=web_search_enabled,
+                rag_scope=rag_scope,
             )
             tool_calls = self._message_tool_calls(model_message)
             round_content = self._message_content(model_message)
@@ -279,6 +292,7 @@ class ReactOrchestrator:
         web_search_enabled: bool = True,
         rag_enabled: bool = True,
         force_rag: bool = False,
+        rag_scope: str = "all",
         attachment_ids: list[str] | None = None,
         model_spec: ModelSpec | None = None,
         execution_context=None,
@@ -292,6 +306,7 @@ class ReactOrchestrator:
                 web_search_enabled=web_search_enabled,
                 rag_enabled=rag_enabled,
                 force_rag=force_rag,
+                rag_scope=rag_scope,
                 attachment_ids=attachment_ids,
                 model_spec=model_spec,
                 execution_context=execution_context,
@@ -305,6 +320,7 @@ class ReactOrchestrator:
         web_search_enabled: bool = True,
         rag_enabled: bool = True,
         force_rag: bool = False,
+        rag_scope: str = "all",
         attachment_ids: list[str] | None = None,
         model_spec: ModelSpec | None = None,
         execution_context=None,
@@ -318,10 +334,16 @@ class ReactOrchestrator:
             Tuple of (raw_reply, ToolTrace) — accessible via generator.return_value.
         """
 
+        if rag_scope == "user_documents":
+            web_search_enabled = False
+            force_web_search = False
+            rag_enabled = True
+            force_rag = True
         working_messages: list[ChatCompletionMessageParam] = [*messages]
         tool_call_traces: list[ToolCallTrace] = []
         run_state = _RunState(
             rag_enabled=rag_enabled,
+            rag_scope=rag_scope,
             web_search_enabled=web_search_enabled,
             attachment_ids=list(attachment_ids or []),
         )
@@ -367,14 +389,20 @@ class ReactOrchestrator:
             # 工具调用前已有可见正文时，本轮正文前补两个换行：
             # 分隔符既作为 token 发给前端，也计入最终落库的 answer。
             content_prefix = "\n\n" if visible_parts else ""
+            stream_round_kwargs = {
+                "tool_choice": active_tool_choice,
+                "content_prefix": content_prefix,
+                "model_spec": model_spec,
+                "execution_context": execution_context,
+                "rag_enabled": rag_enabled,
+                "web_search_enabled": web_search_enabled,
+            }
+            stream_round_parameters = inspect.signature(self._stream_round).parameters
+            if "rag_scope" in stream_round_parameters:
+                stream_round_kwargs["rag_scope"] = rag_scope
             round_result = yield from self._stream_round(
                 working_messages,
-                tool_choice=active_tool_choice,
-                content_prefix=content_prefix,
-                model_spec=model_spec,
-                execution_context=execution_context,
-                rag_enabled=rag_enabled,
-                web_search_enabled=web_search_enabled,
+                **stream_round_kwargs,
             )
             # _stream_round 已把分隔前缀计入 content 并作为 token 发出。
             if round_result.content:
@@ -433,14 +461,20 @@ class ReactOrchestrator:
         # Tool budget was exhausted. Ask for a final streamed answer without tools.
         timings.set_meta("round_number", None)
         content_prefix = "\n\n" if visible_parts else ""
+        final_round_kwargs = {
+            "tool_choice": "none",
+            "content_prefix": content_prefix,
+            "model_spec": model_spec,
+            "execution_context": execution_context,
+            "rag_enabled": rag_enabled,
+            "web_search_enabled": web_search_enabled,
+        }
+        final_round_parameters = inspect.signature(self._stream_round).parameters
+        if "rag_scope" in final_round_parameters:
+            final_round_kwargs["rag_scope"] = rag_scope
         final_round = yield from self._stream_round(
             working_messages,
-            tool_choice="none",
-            content_prefix=content_prefix,
-            model_spec=model_spec,
-            execution_context=execution_context,
-            rag_enabled=rag_enabled,
-            web_search_enabled=web_search_enabled,
+            **final_round_kwargs,
         )
         if final_round.content:
             visible_parts.append(final_round.content)
@@ -465,6 +499,7 @@ class ReactOrchestrator:
         execution_context=None,
         rag_enabled: bool = True,
         web_search_enabled: bool = True,
+        rag_scope: str = "all",
     ) -> Generator[StreamEvent, None, _RoundResult]:
         """Make one streamed model call and accumulate its complete round result.
 
@@ -478,6 +513,7 @@ class ReactOrchestrator:
             execution_context=execution_context,
             rag_enabled=rag_enabled,
             web_search_enabled=web_search_enabled,
+            rag_scope=rag_scope,
         )
         active_tool_choice = tool_choice or "auto"
         request_params = dict(runtime.request_params)
@@ -539,7 +575,12 @@ class ReactOrchestrator:
 
                     reasoning = self._object_value(delta, "reasoning_content")
                     if reasoning:
-                        reasoning_parts.append(str(reasoning))
+                        reasoning_text = str(reasoning)
+                        reasoning_parts.append(reasoning_text)
+                        yield StreamEvent(
+                            type="thinking",
+                            data={"text": reasoning_text},
+                        )
 
                     for tool_call in self._object_value(delta, "tool_calls") or []:
                         index = self._object_value(tool_call, "index", 0)
@@ -600,6 +641,11 @@ class ReactOrchestrator:
             fallback_result = self._round_result_from_message(
                 completion.choices[0].message
             )
+            if fallback_result.reasoning:
+                yield StreamEvent(
+                    type="thinking",
+                    data={"text": fallback_result.reasoning},
+                )
             if fallback_result.content:
                 if content_prefix and not content_parts:
                     content_parts.append(content_prefix)
@@ -810,6 +856,7 @@ class ReactOrchestrator:
         execution_context=None,
         rag_enabled: bool = True,
         web_search_enabled: bool = True,
+        rag_scope: str = "all",
     ) -> list[dict[str, Any]]:
         """Return tools allowed by the explicit model and request switches."""
 
@@ -836,6 +883,12 @@ class ReactOrchestrator:
                 for tool in tools
                 if _tool_schema_name(tool) != WEB_SEARCH_TOOL_NAME
             ]
+        if rag_scope == "user_documents":
+            tools = [
+                tool
+                for tool in tools
+                if _tool_schema_name(tool) == RAG_TOOL_NAME
+            ]
         # Conversation attachments are already injected as trusted, bounded
         # prompt context.  They are not a vector-search tool anymore.
         tools = [
@@ -854,6 +907,7 @@ class ReactOrchestrator:
         execution_context,
         rag_enabled: bool,
         web_search_enabled: bool,
+        rag_scope: str = "all",
     ):
         """Call a model round with explicit state while keeping test hooks compatible."""
 
@@ -872,6 +926,7 @@ class ReactOrchestrator:
             execution_context=execution_context,
             rag_enabled=rag_enabled,
             web_search_enabled=web_search_enabled,
+            rag_scope=rag_scope,
         )
 
     def _call_model_for_request(
@@ -896,6 +951,7 @@ class ReactOrchestrator:
         execution_context=None,
         rag_enabled: bool = True,
         web_search_enabled: bool = True,
+        rag_scope: str = "all",
     ):
         """调用模型并提供工具 schema，让模型选择是否请求工具。"""
 
@@ -916,6 +972,7 @@ class ReactOrchestrator:
             execution_context=execution_context,
             rag_enabled=rag_enabled,
             web_search_enabled=web_search_enabled,
+            rag_scope=rag_scope,
         )
 
         active_tool_choice = tool_choice or "auto"
@@ -957,7 +1014,15 @@ class ReactOrchestrator:
         for index, tool_call in enumerate(tool_calls):
             tool_name = self._tool_call_name(tool_call)
             tool_arguments = self._tool_call_arguments(tool_call)
-            if tool_name == RAG_TOOL_NAME and not run_state.rag_enabled:
+            if run_state.rag_scope == "user_documents" and tool_name != RAG_TOOL_NAME:
+                # Document-library mode is source-isolated.  Do not let a
+                # hallucinated tool call bypass the filtered tool schema.
+                tool_result = {
+                    "ok": False,
+                    "error": "tool_disabled",
+                    "message": "仅文档库模式下，本轮只能检索用户文档。",
+                }
+            elif tool_name == RAG_TOOL_NAME and not run_state.rag_enabled:
                 # 关闭模式：即使模型伪造了 RAG 工具调用也不执行，
                 # 防止绕过 Schema 移除的限制。
                 tool_result = {

@@ -155,6 +155,15 @@ class TestChatRequestThreeState:
         )
         assert request.rag_enabled is False
 
+    def test_document_scope_is_accepted_as_a_rag_level_query(self):
+        request = ChatRequest(
+            user_id="alice",
+            message="只查上传文档",
+            rag_scope="user_documents",
+        )
+
+        assert request.rag_scope == "user_documents"
+
     def test_rejects_force_rag_without_rag_enabled(self):
         with pytest.raises(ValidationError):
             ChatRequest(

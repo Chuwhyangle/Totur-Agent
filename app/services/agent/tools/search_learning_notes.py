@@ -53,6 +53,8 @@ def search_learning_notes(
     query: str,
     limit: int | None = None,
     subject: str | None = None,
+    user_id: str | None = None,
+    scope: str = "all",
 ) -> dict[str, Any]:
     """检索用户自己的学习笔记，并返回模型友好的结构化结果。"""
 
@@ -62,6 +64,12 @@ def search_learning_notes(
             "error": "invalid_arguments",
             "message": "query must be a non-empty string.",
         }
+    if scope not in {"all", "user_documents"}:
+        return {
+            "ok": False,
+            "error": "invalid_scope",
+            "message": "scope must be all or user_documents.",
+        }
 
     safe_limit = _clamp_limit(limit)
     router = _get_router() if ENABLE_SUBJECT_SHARDING else None
@@ -70,7 +78,11 @@ def search_learning_notes(
         index_count = sum(shard.repository.count() for shard in router.handles)
     else:
         index_count = repository.count()
-    user_document_count = _get_user_document_repository().count() if ENABLE_USER_DOCUMENT_RETRIEVAL else 0
+    user_document_count = (
+        _count_user_documents(user_id)
+        if ENABLE_USER_DOCUMENT_RETRIEVAL and scope in {"all", "user_documents"}
+        else 0
+    )
     if index_count == 0 and user_document_count == 0:
         trace_db.save_retrieval_event(
             trace_id=timings.get_trace_id(),
@@ -87,7 +99,11 @@ def search_learning_notes(
         return {
             "ok": False,
             "error": "index_not_built",
-            "message": "请先运行 scripts/build_knowledge_index.py 构建学习笔记索引。",
+            "message": (
+                "当前用户文档库没有可检索内容。"
+                if scope == "user_documents"
+                else "请先运行 scripts/build_knowledge_index.py 构建学习笔记索引。"
+            ),
         }
 
     stripped_query = query.strip()
@@ -122,6 +138,8 @@ def search_learning_notes(
             top_k=candidate_k,
             subject=subject,
             router=router,
+            user_id=user_id,
+            scope=scope,
         )
     search_ms = int((time.perf_counter() - search_started_at) * 1000)
     # Hybrid scores are normalized to 0-1; keep threshold semantics aligned with eval.
@@ -198,7 +216,7 @@ def search_learning_notes(
     }
 
     if not items:
-        result["message"] = "未找到相关笔记。"
+        result["message"] = "未找到相关文档。" if scope == "user_documents" else "未找到相关笔记。"
 
     return result
 
@@ -211,8 +229,18 @@ def _retrieve_hits(
     top_k: int,
     subject: str | None = None,
     router: ShardRouter | None = None,
+    user_id: str | None = None,
+    scope: str = "all",
 ) -> list[KnowledgeHit]:
     """Route through subject shards when enabled, otherwise preserve single-index behavior."""
+
+    if ENABLE_USER_DOCUMENT_RETRIEVAL and scope == "user_documents":
+        return _retrieve_user_documents_only(
+            query=query,
+            query_embedding=query_embedding,
+            top_k=top_k,
+            user_id=user_id,
+        )
 
     if ENABLE_USER_DOCUMENT_RETRIEVAL:
         return _retrieve_notes_and_user_documents(
@@ -222,6 +250,7 @@ def _retrieve_hits(
             top_k=top_k,
             subject=subject,
             router=router,
+            user_id=user_id,
         )
 
     if router is not None:
@@ -254,6 +283,7 @@ def _retrieve_notes_and_user_documents(
     top_k: int,
     subject: str | None,
     router: ShardRouter | None,
+    user_id: str | None,
 ) -> list[KnowledgeHit]:
     """Search both isolated collections; either branch may fail independently."""
 
@@ -279,25 +309,23 @@ def _retrieve_notes_and_user_documents(
 
     def user_documents_search() -> list[KnowledgeHit]:
         user_repository = _get_user_document_repository()
-        if user_repository.count() == 0:
+        if _count_user_documents(user_id) == 0:
             return []
         # Weak fingerprint: document count only. Content changes with a stable count
         # do not rebuild BM25; acceptable for the single-user MVP and a known debt.
-        fingerprint = f"userdocs:{user_repository.count()}"
+        fingerprint = f"userdocs:{user_id or 'default'}:{_count_user_documents(user_id)}"
         if ENABLE_HYBRID_RETRIEVAL:
-            return [
-                _hit_from_user_document(hit)
-                for hit in hybrid_search(
-                    repository=user_repository,
-                    query=query,
-                    query_embedding=query_embedding,
-                    top_k=top_k,
-                    fingerprint=fingerprint,
-                )
-            ]
+            return _retrieve_user_documents_hybrid(
+                user_repository=user_repository,
+                user_id=user_id,
+                query=query,
+                query_embedding=query_embedding,
+                top_k=top_k,
+                fingerprint=fingerprint,
+            )
         return [
             _hit_from_user_document(hit)
-            for hit in user_repository.search(query_embedding, "default", top_k)
+            for hit in user_repository.search(query_embedding, user_id or "default", top_k)
         ]
 
     results: list[KnowledgeHit] = []
@@ -313,6 +341,102 @@ def _retrieve_notes_and_user_documents(
         results,
         key=lambda hit: (-hit.similarity, hit.source, hit.title_path, hit.content),
     )[:top_k]
+
+
+class _ScopedUserDocumentRepository:
+    """Bind the current user to the generic HybridRepository protocol."""
+
+    def __init__(self, repository: UserDocumentVectorRepository, user_id: str) -> None:
+        self.repository = repository
+        self.user_id = user_id or "default"
+        self.collection_name = f"{repository.collection_name}:{self.user_id}"
+
+    def search(self, query_embedding: list[float], top_k: int) -> list[UserDocumentHit]:
+        return self.repository.search(query_embedding, self.user_id, top_k)
+
+    def list_entries(self, include_embeddings: bool = False):
+        return self.repository.list_entries(include_embeddings, user_id=self.user_id)
+
+
+def _retrieve_user_documents_only(
+    *,
+    query: str,
+    query_embedding: list[float],
+    top_k: int,
+    user_id: str | None,
+) -> list[KnowledgeHit]:
+    repository = _get_user_document_repository()
+    if _count_user_documents(user_id) == 0:
+        return []
+    if ENABLE_HYBRID_RETRIEVAL:
+        return _retrieve_user_documents_hybrid(
+            user_repository=repository,
+            user_id=user_id,
+            query=query,
+            query_embedding=query_embedding,
+            top_k=top_k,
+            fingerprint=f"userdocs:{user_id or 'default'}:{_count_user_documents(user_id)}",
+        )
+    return [
+        _hit_from_user_document(hit)
+        for hit in repository.search(query_embedding, user_id or "default", top_k)
+    ]
+
+
+def _retrieve_user_documents_hybrid(
+    *,
+    user_repository: UserDocumentVectorRepository,
+    user_id: str | None,
+    query: str,
+    query_embedding: list[float],
+    top_k: int,
+    fingerprint: str,
+) -> list[KnowledgeHit]:
+    scoped = _ScopedUserDocumentRepository(user_repository, user_id or "default")
+    candidate_k = max(top_k, top_k * 2)
+    metadata_hits = scoped.search(query_embedding, candidate_k)
+    metadata_by_key = {
+        (hit.source, hit.title_path, hit.content): hit
+        for hit in metadata_hits
+    }
+    hybrid_hits = hybrid_search(
+        repository=scoped,
+        query=query,
+        query_embedding=query_embedding,
+        top_k=top_k,
+        fingerprint=fingerprint,
+    )
+    results: list[KnowledgeHit] = []
+    for hit in hybrid_hits:
+        metadata = metadata_by_key.get((hit.source, hit.title_path, hit.content))
+        if metadata is None:
+            results.append(hit)
+        else:
+            results.append(
+                _hit_from_user_document(
+                    UserDocumentHit(
+                        chunk_id=metadata.chunk_id,
+                        document_id=metadata.document_id,
+                        content=metadata.content,
+                        source=metadata.source,
+                        title_path=metadata.title_path,
+                        chunk_index=metadata.chunk_index,
+                        page_start=metadata.page_start,
+                        page_end=metadata.page_end,
+                        similarity=hit.similarity,
+                    )
+                )
+            )
+    return results
+
+
+def _count_user_documents(user_id: str | None) -> int:
+    repository = _get_user_document_repository()
+    try:
+        return repository.count(user_id)
+    except TypeError:
+        # Keep lightweight test doubles and older integrations compatible.
+        return repository.count()
 
 
 @dataclass(frozen=True, slots=True)

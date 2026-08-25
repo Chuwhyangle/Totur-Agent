@@ -6,9 +6,8 @@ RECENT_HISTORY_LIMIT = 6
 # 可被压缩的旧消息达到 8 条后，才触发一次滚动摘要。
 SUMMARY_TRIGGER_COUNT = 8
 
-# ReAct 工具循环最多执行 4 轮，覆盖四路由下最长合法链路
-# （附件强制 + JD + 笔记 + 打分 = 4 轮）。
-MAX_TOOL_ROUNDS = 4
+# ReAct 工具循环最多执行 6 轮，为多工具链路保留额外推进行程。
+MAX_TOOL_ROUNDS = 6
 
 # 单条工具 observation 回填给模型前的最大字符数，防止长工具结果撑爆上下文。
 TOOL_OBSERVATION_MAX_CHARS = 4000

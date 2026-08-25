@@ -172,18 +172,27 @@ class UserDocumentVectorRepository:
             return 0
         return len(collection.get(where={"document_id": document_id}, include=[]).get("ids") or [])
 
-    def count(self) -> int:
+    def count(self, user_id: str | None = None) -> int:
         collection = self._get_collection()
-        return int(collection.count()) if collection is not None else 0
+        if collection is None:
+            return 0
+        if user_id is None:
+            return int(collection.count())
+        return len(collection.get(where={"user_id": {"$eq": user_id}}, include=[]).get("ids") or [])
 
-    def list_entries(self, include_embeddings: bool = False) -> list[KnowledgeEntry]:
+    def list_entries(
+        self,
+        include_embeddings: bool = False,
+        user_id: str | None = None,
+    ) -> list[KnowledgeEntry]:
         collection = self._get_collection()
         if collection is None or collection.count() == 0:
             return []
         include = ["documents", "metadatas"]
         if include_embeddings:
             include.append("embeddings")
-        result = collection.get(include=include)
+        where = {"user_id": {"$eq": user_id}} if user_id else None
+        result = collection.get(include=include, where=where)
         ids = result.get("ids") or []
         documents = result.get("documents") or []
         metadatas = result.get("metadatas") or []

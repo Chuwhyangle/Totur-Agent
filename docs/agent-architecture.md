@@ -552,7 +552,7 @@ app/services/agent/
 相关集中配置位于 `app/services/memory_settings.py`：
 
 ```python
-MAX_TOOL_ROUNDS = 3
+MAX_TOOL_ROUNDS = 6
 MAX_TOOL_FAILURES = 2
 TOOL_OBSERVATION_MAX_CHARS = 4000
 ```

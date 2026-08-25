@@ -20,6 +20,7 @@ TASK_ASSET_REFS_TABLE = "task_asset_refs"
 ARTIFACTS_TABLE = "artifacts"
 ARTIFACT_SOURCES_TABLE = "artifact_sources"
 KNOWLEDGE_DOCUMENTS_TABLE = "knowledge_documents"
+LEARNING_PROGRESS_TABLE = "learning_progress"
 DEFAULT_SESSION_TITLE = "默认会话"
 
 
@@ -47,6 +48,22 @@ class WorkspaceTaskStatus(str, Enum):
     RUNNING = "RUNNING"
     COMPLETED = "COMPLETED"
     FAILED = "FAILED"
+
+
+class LearningProgressStatus(str, Enum):
+    """A learner's current status for one knowledge topic."""
+
+    NOT_STARTED = "not_started"
+    LEARNING = "learning"
+    NEEDS_PRACTICE = "needs_practice"
+    MASTERED = "mastered"
+
+
+class LearningProgressSource(str, Enum):
+    """The actor that last changed a learning progress record."""
+
+    MANUAL = "manual"
+    AGENT = "agent"
 
 
 class WorkspaceTaskStepStatus(str, Enum):
@@ -572,4 +589,20 @@ class JournalEntryRecord:
     tags: str
     entry_date: str
     created_at: str
+    updated_at: str
+
+
+@dataclass
+class LearningProgressRecord:
+    """learning_progress 表中的一行用户级学习记录。"""
+
+    id: int
+    user_id: str
+    subject: str
+    topic: str
+    level: int
+    status: LearningProgressStatus
+    evidence: str | None
+    next_step: str | None
+    source: LearningProgressSource
     updated_at: str

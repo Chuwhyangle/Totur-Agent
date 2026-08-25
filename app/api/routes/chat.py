@@ -59,6 +59,7 @@ def chat_stream(request: ChatRequest) -> StreamingResponse:
     """Handle a chat request with SSE streaming.
 
     Returns a text/event-stream response with events:
+        - thinking: model reasoning summary text
         - token: partial reply text
         - tool_call: tool invocation started
         - tool_result: tool invocation completed

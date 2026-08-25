@@ -1320,6 +1320,39 @@ button:disabled { cursor: not-allowed; opacity: 0.48; }
 }
 
 /* Tool / Debug */
+.thinking-summary {
+  margin: 0 0 12px;
+  color: var(--dim);
+  font-size: 11.5px;
+}
+.thinking-summary summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  transition: color 0.15s var(--ease);
+}
+.thinking-summary summary:hover { color: var(--primary); }
+.thinking-text {
+  max-height: 240px;
+  margin-top: 8px;
+  padding: 10px 12px;
+  overflow: auto;
+  color: var(--sub);
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--muted);
+}
+.response-metrics {
+  margin-top: 8px;
+  color: var(--dim);
+  font-size: 10.5px;
+  line-height: 1.4;
+  font-variant-numeric: tabular-nums;
+}
 .tool-trace-summary,
 .debug-details {
   margin-top: 12px;

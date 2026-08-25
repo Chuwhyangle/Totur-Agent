@@ -5,7 +5,7 @@ import { AttachmentChips, AttachmentPopover } from './AttachmentPanel.jsx'
 import { SUPPORTED_ATTACHMENT_ACCEPT, validateAttachmentFile } from '../utils/attachments.js'
 
 const MODE_ORDER = ['auto', 'force', 'off']
-const MODE_LABELS = { auto: '自动判断', force: '本轮强制使用', off: '强制关闭' }
+const MODE_LABELS = { auto: '自动判断', force: '本轮强制使用', off: '强制关闭', documents: '仅文档库' }
 
 function ModeControl({ kind, mode, onChange, disabled }) {
   const [open, setOpen] = useState(false)
@@ -20,6 +20,7 @@ function ModeControl({ kind, mode, onChange, disabled }) {
       <button className="mode-chevron" type="button" aria-label="模式选项" aria-expanded={open} onClick={() => setOpen((value) => !value)} disabled={disabled}><Icon name="chevron-down" size={12} /></button>
       {open ? <div className="mode-popover" role="radiogroup" aria-label={`${kind}模式`}>
         {MODE_ORDER.map((value) => <button key={value} type="button" role="radio" aria-checked={mode === value} onClick={() => { onChange?.(value); setOpen(false) }}>{MODE_LABELS[value]}</button>)}
+        {isRag ? <button type="button" role="radio" aria-checked={mode === 'documents'} onClick={() => { onChange?.('documents'); setOpen(false) }}>{MODE_LABELS.documents}</button> : null}
       </div> : null}
     </span>
   )

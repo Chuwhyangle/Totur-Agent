@@ -16,7 +16,14 @@ from app.repositories.session_repository import (
     update_session_title,
 )
 from app.config import LLMConfig
-from app.schemas.chat import ChatRequest, ChatResponse, Source, ToolTrace, TutorReply
+from app.schemas.chat import (
+    ChatRequest,
+    ChatResponse,
+    ChatUsage,
+    Source,
+    ToolTrace,
+    TutorReply,
+)
 from app.services.agent.memory_manager import MemoryManager
 from app.services.agent.model_registry import resolve_model
 from app.services.agent.personas import (
@@ -208,7 +215,11 @@ class TutorAgentService:
                     session_id=session.id,
                     attachment_ids=request.attachment_ids,
                 )
-            self._set_learning_note_defaults(session.subject)
+            self._set_learning_note_defaults(
+                user_id=user_id,
+                subject=session.subject,
+                scope=request.rag_scope,
+            )
 
             if not context.recent_history and session.title == DEFAULT_SESSION_TITLE:
                 # 新会话第一条消息发出后，用这条消息生成一个更自然的会话标题。
@@ -221,6 +232,7 @@ class TutorAgentService:
                 web_search_enabled=request.web_search_enabled,
                 rag_enabled=request.rag_enabled,
                 force_rag=request.force_rag,
+                rag_scope=request.rag_scope,
                 attachment_ids=[],
                 model_spec=model_spec,
                 execution_context=execution_context,
@@ -244,6 +256,8 @@ class TutorAgentService:
             )
             self._complete_execution_context(execution_context)
 
+            prompt_tokens = timings.count("prompt_tokens") or None
+            completion_tokens = timings.count("completion_tokens") or None
             return ChatResponse(
                 user_id=user_id,
                 session_id=session.id,
@@ -251,6 +265,15 @@ class TutorAgentService:
                 model_id=model_spec.model_id,
                 reply=reply,
                 tool_trace=tool_trace,
+                usage=ChatUsage(
+                    prompt_tokens=prompt_tokens,
+                    completion_tokens=completion_tokens,
+                    total_tokens=(
+                        prompt_tokens + completion_tokens
+                        if prompt_tokens is not None and completion_tokens is not None
+                        else None
+                    ),
+                ),
             )
         except Exception:
             status = "ERROR"
@@ -284,6 +307,7 @@ class TutorAgentService:
         """Process a chat request with SSE streaming.
 
         Yields dicts that map to SSE events:
+            {"event": "thinking", "data": {...}}
             {"event": "token", "data": {...}}
             {"event": "tool_call", "data": {...}}
             {"event": "tool_result", "data": {...}}
@@ -347,7 +371,11 @@ class TutorAgentService:
                     session_id=session.id,
                     attachment_ids=request.attachment_ids,
                 )
-            self._set_learning_note_defaults(session.subject)
+            self._set_learning_note_defaults(
+                user_id=user_id,
+                subject=session.subject,
+                scope=request.rag_scope,
+            )
 
             if not context.recent_history and session.title == DEFAULT_SESSION_TITLE:
                 update_session_title(session.id, make_title_from_message(message))
@@ -361,6 +389,7 @@ class TutorAgentService:
                 web_search_enabled=request.web_search_enabled,
                 rag_enabled=request.rag_enabled,
                 force_rag=request.force_rag,
+                rag_scope=request.rag_scope,
                 attachment_ids=[],
                 model_spec=model_spec,
                 execution_context=execution_context,
@@ -386,8 +415,8 @@ class TutorAgentService:
                     }
                     return
 
-                if event.type == "token":
-                    yield {"event": "token", "data": event.data}
+                if event.type in ("thinking", "token"):
+                    yield {"event": event.type, "data": event.data}
                 elif event.type in ("tool_call", "tool_result"):
                     yield {"event": event.type, "data": event.data}
 
@@ -437,6 +466,13 @@ class TutorAgentService:
                 })
 
             status = "OK"
+            prompt_tokens = timings.count("prompt_tokens") or None
+            completion_tokens = timings.count("completion_tokens") or None
+            total_tokens = (
+                prompt_tokens + completion_tokens
+                if prompt_tokens is not None and completion_tokens is not None
+                else None
+            )
             yield {
                 "event": "done",
                 "data": {
@@ -446,6 +482,11 @@ class TutorAgentService:
                     "model_id": model_spec.model_id,
                     "sources": [s.model_dump() for s in reply.sources],
                     "warnings": warnings,
+                    "usage": {
+                        "prompt_tokens": prompt_tokens,
+                        "completion_tokens": completion_tokens,
+                        "total_tokens": total_tokens,
+                    },
                 },
             }
         except GeneratorExit:
@@ -660,12 +701,22 @@ class TutorAgentService:
             max_chars=self.attachment_context_max_chars,
         )
 
-    def _set_learning_note_defaults(self, subject: str | None) -> None:
+    def _set_learning_note_defaults(
+        self,
+        *,
+        user_id: str,
+        subject: str | None,
+        scope: str = "all",
+    ) -> None:
         set_defaults = getattr(self.tool_executor, "set_default_tool_kwargs", None)
         if callable(set_defaults):
             defaults: dict[str, dict[str, Any]] = {}
+            defaults["search_learning_notes"] = {
+                "user_id": user_id,
+                "scope": scope,
+            }
             if subject:
-                defaults["search_learning_notes"] = {"subject": subject}
+                defaults["search_learning_notes"]["subject"] = subject
             set_defaults(defaults)
 
     def _set_attachment_tool_defaults(
