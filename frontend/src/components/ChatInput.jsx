@@ -100,9 +100,8 @@ function ChatInput({
       {isDragging ? <div className="composer-drop-overlay">松开以上传附件</div> : null}
       <AttachmentChips attachments={attachments} onDelete={attachmentProps?.onDelete} />
       <AttachmentPopover {...attachmentProps} open={attachmentOpen} onClose={() => setAttachmentOpen(false)} />
-      <form className="chat-input-form" aria-label="发送消息" onSubmit={onSubmit}>
+      <form id="chat-input-form" className="chat-input-form" aria-label="发送消息" onSubmit={onSubmit}>
         <textarea ref={textareaRef} className="chat-input" placeholder={placeholder} rows="1" value={message} onChange={(event) => onMessageChange(event.target.value)} onKeyDown={handleKeyDown} onPaste={handlePaste} />
-        <button className="progress-update-button" type="submit" name="action" value="update_progress" disabled={progressUpdateDisabled} title="根据最近的学习情况更新长期进度"><Icon name="check" size={14} /><span>更新进度</span></button>
         {isSending && onStopStreaming ? <button className="send-button" type="button" aria-label="停止生成" title="停止生成" onClick={onStopStreaming}>停止</button> : <button className="send-button" type="submit" disabled={disabled} aria-label="发送消息">{isSending ? <span className="send-loader" /> : <Icon name="send" size={17} strokeWidth={1.7} />}</button>}
       </form>
       <div className="composer-options">
@@ -112,6 +111,7 @@ function ChatInput({
         </span>
         <ModeControl kind="联网搜索" mode={webSearchMode} onChange={onWebSearchModeChange} disabled={isSending} />
         <ModeControl kind="RAG 检索" mode={ragMode} onChange={onRagModeChange} disabled={isSending} />
+        <button className="progress-update-button" type="submit" form="chat-input-form" name="action" value="update_progress" disabled={progressUpdateDisabled} title="根据最近的学习情况更新长期进度"><Icon name="check" size={14} /><span>更新进度</span></button>
         {onStreamingEnabledChange ? <button className={`streaming-toggle${streamingEnabled ? ' is-active' : ''}`} type="button" aria-pressed={streamingEnabled} disabled={isSending} onClick={() => onStreamingEnabledChange(!streamingEnabled)} title={streamingEnabled ? '流式输出已开启' : '流式输出已关闭'}><Icon name="sparkles" size={14} strokeWidth={1.7} /><span>流式</span></button> : null}
       </div>
       <p className="composer-hint">Enter 发送 · Shift + Enter 换行 · AI 可能出错，重要信息请再核对</p>
