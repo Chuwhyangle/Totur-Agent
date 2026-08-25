@@ -19,6 +19,8 @@ TASK_STEPS_TABLE = "task_steps"
 TASK_ASSET_REFS_TABLE = "task_asset_refs"
 ARTIFACTS_TABLE = "artifacts"
 ARTIFACT_SOURCES_TABLE = "artifact_sources"
+KNOWLEDGE_DOCUMENTS_TABLE = "knowledge_documents"
+LEARNING_PROGRESS_TABLE = "learning_progress"
 DEFAULT_SESSION_TITLE = "默认会话"
 
 
@@ -48,6 +50,22 @@ class WorkspaceTaskStatus(str, Enum):
     FAILED = "FAILED"
 
 
+class LearningProgressStatus(str, Enum):
+    """A learner's current status for one knowledge topic."""
+
+    NOT_STARTED = "not_started"
+    LEARNING = "learning"
+    NEEDS_PRACTICE = "needs_practice"
+    MASTERED = "mastered"
+
+
+class LearningProgressSource(str, Enum):
+    """The actor that last changed a learning progress record."""
+
+    MANUAL = "manual"
+    AGENT = "agent"
+
+
 class WorkspaceTaskStepStatus(str, Enum):
     """Reserved lifecycle states for future task steps."""
 
@@ -62,6 +80,37 @@ class ArtifactStatus(str, Enum):
     CREATING = "CREATING"
     READY = "READY"
     FAILED = "FAILED"
+
+
+class KnowledgeDocumentStatus(str, Enum):
+    """Lifecycle states for user-uploaded knowledge documents."""
+
+    UPLOADED = "UPLOADED"
+    PARSING = "PARSING"
+    CHUNKING = "CHUNKING"
+    EMBEDDING = "EMBEDDING"
+    READY = "READY"
+    FAILED = "FAILED"
+    DELETING = "DELETING"
+    DELETED = "DELETED"
+
+
+NON_TERMINAL_STATUSES = frozenset(
+    {
+        KnowledgeDocumentStatus.UPLOADED,
+        KnowledgeDocumentStatus.PARSING,
+        KnowledgeDocumentStatus.CHUNKING,
+        KnowledgeDocumentStatus.EMBEDDING,
+        KnowledgeDocumentStatus.DELETING,
+    }
+)
+TERMINAL_STATUSES = frozenset(
+    {
+        KnowledgeDocumentStatus.READY,
+        KnowledgeDocumentStatus.FAILED,
+        KnowledgeDocumentStatus.DELETED,
+    }
+)
 
 
 class DocumentScope(str, Enum):
@@ -228,6 +277,45 @@ class WorkspaceAssetRecord:
 
     def __post_init__(self) -> None:
         self.status = WorkspaceAssetStatus(self.status)
+
+
+@dataclass
+class KnowledgeDocumentRecord:
+    """knowledge_documents 表中的一行用户文档记录。"""
+
+    id: str
+    user_id: str
+    original_filename: str
+    media_type: str
+    size_bytes: int
+    storage_key: str | None
+    file_sha256: str
+    text_sha256: str | None
+    dedupe_key: str | None
+    version_no: int
+    status: KnowledgeDocumentStatus
+    page_count: int | None
+    chunk_count: int | None
+    parser_name: str | None
+    parser_version: str | None
+    error_code: str | None
+    error_message: str | None
+    created_at: str
+    updated_at: str
+    deleted_at: str | None = None
+
+    def __post_init__(self) -> None:
+        try:
+            self.status = KnowledgeDocumentStatus(self.status)
+        except ValueError as exc:
+            raise InvalidDocumentRecord(str(exc)) from exc
+
+        if not self.id:
+            raise InvalidDocumentRecord("knowledge document id must not be empty")
+        if self.size_bytes < 0:
+            raise InvalidDocumentRecord("size_bytes must not be negative")
+        if self.version_no < 1:
+            raise InvalidDocumentRecord("version_no must be at least 1")
 
 
 @dataclass
@@ -501,4 +589,20 @@ class JournalEntryRecord:
     tags: str
     entry_date: str
     created_at: str
+    updated_at: str
+
+
+@dataclass
+class LearningProgressRecord:
+    """learning_progress 表中的一行用户级学习记录。"""
+
+    id: int
+    user_id: str
+    subject: str
+    topic: str
+    level: int
+    status: LearningProgressStatus
+    evidence: str | None
+    next_step: str | None
+    source: LearningProgressSource
     updated_at: str

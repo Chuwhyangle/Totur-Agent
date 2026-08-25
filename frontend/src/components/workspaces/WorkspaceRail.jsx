@@ -6,6 +6,7 @@ function WorkspaceRail({
   workspaces = [],
   selectedWorkspaceId,
   onSelect,
+  onCreateSession,
   onCreate,
   onArchive,
   onRestore,
@@ -46,7 +47,7 @@ function WorkspaceRail({
                 {menuId === workspace.id ? (
                   <div className="workspace-rail-popover" role="menu">
                     <button type="button" role="menuitem" onClick={() => { onOpenDetail?.(workspace.id); setMenuId(null) }}>打开工作台</button>
-                    <button type="button" role="menuitem" disabled={archived} onClick={() => { onSelect?.(workspace.id); setMenuId(null) }}>在此开始会话</button>
+                    <button type="button" role="menuitem" disabled={archived} onClick={() => { onCreateSession?.(workspace.id); setMenuId(null) }}>在此开始会话</button>
                     <button type="button" role="menuitem" onClick={() => { (archived ? onRestore : onArchive)?.(workspace.id); setMenuId(null) }}>{archived ? '恢复' : '归档'}</button>
                   </div>
                 ) : null}

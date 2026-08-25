@@ -155,6 +155,15 @@ class TestChatRequestThreeState:
         )
         assert request.rag_enabled is False
 
+    def test_document_scope_is_accepted_as_a_rag_level_query(self):
+        request = ChatRequest(
+            user_id="alice",
+            message="只查上传文档",
+            rag_scope="user_documents",
+        )
+
+        assert request.rag_scope == "user_documents"
+
     def test_rejects_force_rag_without_rag_enabled(self):
         with pytest.raises(ValidationError):
             ChatRequest(
@@ -471,6 +480,93 @@ class TestForceRagMode:
 
         assert executed_kwargs.get("query") == "FastAPI notes"
         assert executed_kwargs.get("subject") == "computer-science"
+
+    def test_document_scope_forces_retrieval_and_passes_scope_defaults(self):
+        executed_kwargs: dict[str, Any] = {}
+
+        def captured(**kwargs) -> dict[str, Any]:
+            executed_kwargs.update(kwargs)
+            return learning_notes_tool(kwargs.get("query") or "")
+
+        registry = StubToolRegistry({"search_learning_notes": captured})
+        executor = ToolExecutor(
+            registry,
+            default_tool_kwargs={
+                "search_learning_notes": {
+                    "user_id": "alice",
+                    "scope": "user_documents",
+                }
+            },
+        )
+        orchestrator = make_orchestrator(registry, executor)
+        orchestrator._call_model_with_tools = lambda _messages: final_message()
+
+        _, tool_trace = orchestrator.run(
+            [{"role": "user", "content": "只查我的 PDF"}],
+            rag_enabled=False,
+            force_rag=False,
+            web_search_enabled=True,
+            force_web_search=True,
+            rag_scope="user_documents",
+        )
+
+        assert executed_kwargs == {
+            "user_id": "alice",
+            "scope": "user_documents",
+            "query": "只查我的 PDF",
+        }
+        assert [call.name for call in tool_trace.calls] == ["search_learning_notes"]
+
+    def test_document_scope_exposes_only_rag_tool(self):
+        registry = StubToolRegistry(
+            schemas=[RAG_SCHEMA, WEB_SCHEMA, JD_SCHEMA]
+        )
+        orchestrator = make_orchestrator(registry)
+
+        tools = orchestrator._active_tools(
+            rag_enabled=True,
+            web_search_enabled=True,
+            rag_scope="user_documents",
+        )
+
+        assert [tool["function"]["name"] for tool in tools] == [
+            "search_learning_notes"
+        ]
+
+    def test_document_scope_blocks_hallucinated_non_rag_tool_calls(self):
+        executed: list[str] = []
+
+        def web_search(**_kwargs):
+            executed.append("web_search")
+            return {"ok": True}
+
+        registry = StubToolRegistry(
+            {
+                "search_learning_notes": learning_notes_tool,
+                "web_search": web_search,
+            }
+        )
+        orchestrator = make_orchestrator(registry)
+        model_call_count = 0
+
+        def fake_call_model_with_tools(_messages):
+            nonlocal model_call_count
+            model_call_count += 1
+            if model_call_count == 1:
+                return tool_call_message(tool_call("web_search", {"query": "latest"}))
+            return final_message()
+
+        orchestrator._call_model_with_tools = fake_call_model_with_tools
+
+        _, tool_trace = orchestrator.run(
+            [{"role": "user", "content": "只查文档"}],
+            rag_scope="user_documents",
+        )
+
+        assert executed == []
+        assert tool_trace.calls[0].name == "search_learning_notes"
+        assert tool_trace.calls[1].name == "web_search"
+        assert tool_trace.calls[1].error == "tool_disabled"
 
     def test_force_rag_does_not_consume_react_rounds(self):
         registry = StubToolRegistry(

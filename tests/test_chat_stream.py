@@ -101,6 +101,57 @@ def test_stream_serializes_multiple_model_chunks_as_multiple_sse_token_events(mo
     ]
 
 
+def test_stream_preserves_thinking_event(monkeypatch):
+    """thinking SSE 事件应保留原始事件类型和文本。"""
+
+    def fake_stream(_request):
+        yield {"event": "thinking", "data": {"text": "先分析问题。"}}
+        yield {"event": "token", "data": {"text": "答案"}}
+        yield {
+            "event": "done",
+            "data": {
+                "full_response": "答案",
+                "reply": {"answer": "答案", "sources": []},
+            },
+        }
+
+    monkeypatch.setattr(chat_route.tutor_agent_service, "chat_stream", fake_stream)
+
+    response = client.post("/chat/stream", json=REQUEST)
+
+    assert response.status_code == 200
+    assert [event_type for event_type, _ in _parse_events(response.text)] == [
+        "thinking", "token", "done"
+    ]
+
+
+def test_stream_preserves_usage_in_done_event(monkeypatch):
+    """done 事件应携带 provider 可用的 token usage。"""
+
+    def fake_stream(_request):
+        yield {
+            "event": "done",
+            "data": {
+                "reply": {"answer": "答案", "sources": []},
+                "usage": {
+                    "prompt_tokens": 12,
+                    "completion_tokens": 8,
+                    "total_tokens": 20,
+                },
+            },
+        }
+
+    monkeypatch.setattr(chat_route.tutor_agent_service, "chat_stream", fake_stream)
+
+    response = client.post("/chat/stream", json=REQUEST)
+
+    assert _parse_events(response.text)[0][1]["usage"] == {
+        "prompt_tokens": 12,
+        "completion_tokens": 8,
+        "total_tokens": 20,
+    }
+
+
 def test_stream_converts_generator_exception_to_well_formed_error_event(monkeypatch):
     def broken_stream(_request):
         yield {"event": "token", "data": {"text": "partial"}}

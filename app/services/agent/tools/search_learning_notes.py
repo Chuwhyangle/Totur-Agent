@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
 from pathlib import Path
 import time
 from typing import Any
@@ -10,6 +12,10 @@ from typing import Any
 from app.clients.embedding_client import EmbeddingClient, EmbeddingError
 from app.db import trace_db
 from app.repositories.knowledge_repository import KnowledgeHit, KnowledgeRepository
+from app.repositories.user_document_vector_repository import (
+    UserDocumentHit,
+    UserDocumentVectorRepository,
+)
 from app.services import timings
 from app.services.shard_router import ShardRouter
 from app.services.hybrid_retriever import hybrid_search
@@ -23,6 +29,7 @@ from app.services.rag_settings import (
     RAG_TOP_K,
     RERANK_CANDIDATE_K,
     SIMILARITY_THRESHOLD,
+    ENABLE_USER_DOCUMENT_RETRIEVAL,
 )
 
 
@@ -37,6 +44,7 @@ _repository: KnowledgeRepository | None = None
 _router: ShardRouter | None = None
 _embedding_client: EmbeddingClient | None = None
 _reranking_service: RerankingService | None = None
+_user_document_repository: UserDocumentVectorRepository | None = None
 # Cache (mtime_ns, fingerprint) so a rebuilt index is picked up without restart.
 _manifest_cache: tuple[int, str] | None = None
 
@@ -45,6 +53,8 @@ def search_learning_notes(
     query: str,
     limit: int | None = None,
     subject: str | None = None,
+    user_id: str | None = None,
+    scope: str = "all",
 ) -> dict[str, Any]:
     """检索用户自己的学习笔记，并返回模型友好的结构化结果。"""
 
@@ -54,6 +64,12 @@ def search_learning_notes(
             "error": "invalid_arguments",
             "message": "query must be a non-empty string.",
         }
+    if scope not in {"all", "user_documents"}:
+        return {
+            "ok": False,
+            "error": "invalid_scope",
+            "message": "scope must be all or user_documents.",
+        }
 
     safe_limit = _clamp_limit(limit)
     router = _get_router() if ENABLE_SUBJECT_SHARDING else None
@@ -62,11 +78,16 @@ def search_learning_notes(
         index_count = sum(shard.repository.count() for shard in router.handles)
     else:
         index_count = repository.count()
-    if index_count == 0:
+    user_document_count = (
+        _count_user_documents(user_id)
+        if ENABLE_USER_DOCUMENT_RETRIEVAL and scope in {"all", "user_documents"}
+        else 0
+    )
+    if index_count == 0 and user_document_count == 0:
         trace_db.save_retrieval_event(
             trace_id=timings.get_trace_id(),
             query=query.strip(),
-            collection="notes",
+            collection=_trace_collection_name(),
             top_k=_clamp_limit(limit),
             hit_count=0,
             top_score=0.0,
@@ -78,7 +99,11 @@ def search_learning_notes(
         return {
             "ok": False,
             "error": "index_not_built",
-            "message": "请先运行 scripts/build_knowledge_index.py 构建学习笔记索引。",
+            "message": (
+                "当前用户文档库没有可检索内容。"
+                if scope == "user_documents"
+                else "请先运行 scripts/build_knowledge_index.py 构建学习笔记索引。"
+            ),
         }
 
     stripped_query = query.strip()
@@ -91,7 +116,7 @@ def search_learning_notes(
         trace_db.save_retrieval_event(
             trace_id=timings.get_trace_id(),
             query=stripped_query,
-            collection="notes",
+            collection=_trace_collection_name(),
             passed=0,
             cost_ms=int((time.perf_counter() - retrieval_started_at) * 1000),
             rerank_fallback="embedding_failed",
@@ -113,6 +138,8 @@ def search_learning_notes(
             top_k=candidate_k,
             subject=subject,
             router=router,
+            user_id=user_id,
+            scope=scope,
         )
     search_ms = int((time.perf_counter() - search_started_at) * 1000)
     # Hybrid scores are normalized to 0-1; keep threshold semantics aligned with eval.
@@ -160,7 +187,7 @@ def search_learning_notes(
     trace_db.save_retrieval_event(
         trace_id=timings.get_trace_id(),
         query=stripped_query,
-        collection="notes",
+        collection=_trace_collection_name(),
         embed_ms=embed_ms,
         search_ms=search_ms,
         rerank_ms=rerank_ms,
@@ -189,7 +216,7 @@ def search_learning_notes(
     }
 
     if not items:
-        result["message"] = "未找到相关笔记。"
+        result["message"] = "未找到相关文档。" if scope == "user_documents" else "未找到相关笔记。"
 
     return result
 
@@ -202,8 +229,29 @@ def _retrieve_hits(
     top_k: int,
     subject: str | None = None,
     router: ShardRouter | None = None,
+    user_id: str | None = None,
+    scope: str = "all",
 ) -> list[KnowledgeHit]:
     """Route through subject shards when enabled, otherwise preserve single-index behavior."""
+
+    if ENABLE_USER_DOCUMENT_RETRIEVAL and scope == "user_documents":
+        return _retrieve_user_documents_only(
+            query=query,
+            query_embedding=query_embedding,
+            top_k=top_k,
+            user_id=user_id,
+        )
+
+    if ENABLE_USER_DOCUMENT_RETRIEVAL:
+        return _retrieve_notes_and_user_documents(
+            repository=repository,
+            query=query,
+            query_embedding=query_embedding,
+            top_k=top_k,
+            subject=subject,
+            router=router,
+            user_id=user_id,
+        )
 
     if router is not None:
         return router.search(
@@ -225,6 +273,192 @@ def _retrieve_hits(
             )
 
     return repository.search(query_embedding=query_embedding, top_k=top_k)
+
+
+def _retrieve_notes_and_user_documents(
+    *,
+    repository: KnowledgeRepository,
+    query: str,
+    query_embedding: list[float],
+    top_k: int,
+    subject: str | None,
+    router: ShardRouter | None,
+    user_id: str | None,
+) -> list[KnowledgeHit]:
+    """Search both isolated collections; either branch may fail independently."""
+
+    def notes_search() -> list[KnowledgeHit]:
+        if router is not None:
+            return router.search(
+                query=query,
+                query_embedding=query_embedding,
+                top_k=top_k,
+                subject=subject,
+            )
+        if ENABLE_HYBRID_RETRIEVAL:
+            fingerprint = _get_manifest_fingerprint()
+            if fingerprint is not None:
+                return hybrid_search(
+                    repository=repository,
+                    query=query,
+                    query_embedding=query_embedding,
+                    top_k=top_k,
+                    fingerprint=fingerprint,
+                )
+        return repository.search(query_embedding=query_embedding, top_k=top_k)
+
+    def user_documents_search() -> list[KnowledgeHit]:
+        user_repository = _get_user_document_repository()
+        if _count_user_documents(user_id) == 0:
+            return []
+        # Weak fingerprint: document count only. Content changes with a stable count
+        # do not rebuild BM25; acceptable for the single-user MVP and a known debt.
+        fingerprint = f"userdocs:{user_id or 'default'}:{_count_user_documents(user_id)}"
+        if ENABLE_HYBRID_RETRIEVAL:
+            return _retrieve_user_documents_hybrid(
+                user_repository=user_repository,
+                user_id=user_id,
+                query=query,
+                query_embedding=query_embedding,
+                top_k=top_k,
+                fingerprint=fingerprint,
+            )
+        return [
+            _hit_from_user_document(hit)
+            for hit in user_repository.search(query_embedding, user_id or "default", top_k)
+        ]
+
+    results: list[KnowledgeHit] = []
+    jobs = (notes_search, user_documents_search)
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [executor.submit(job) for job in jobs]
+        for future in as_completed(futures):
+            try:
+                results.extend(future.result())
+            except Exception as exc:
+                logger.warning("knowledge_collection_search_failed error_type=%s", type(exc).__name__)
+    return sorted(
+        results,
+        key=lambda hit: (-hit.similarity, hit.source, hit.title_path, hit.content),
+    )[:top_k]
+
+
+class _ScopedUserDocumentRepository:
+    """Bind the current user to the generic HybridRepository protocol."""
+
+    def __init__(self, repository: UserDocumentVectorRepository, user_id: str) -> None:
+        self.repository = repository
+        self.user_id = user_id or "default"
+        self.collection_name = f"{repository.collection_name}:{self.user_id}"
+
+    def search(self, query_embedding: list[float], top_k: int) -> list[UserDocumentHit]:
+        return self.repository.search(query_embedding, self.user_id, top_k)
+
+    def list_entries(self, include_embeddings: bool = False):
+        return self.repository.list_entries(include_embeddings, user_id=self.user_id)
+
+
+def _retrieve_user_documents_only(
+    *,
+    query: str,
+    query_embedding: list[float],
+    top_k: int,
+    user_id: str | None,
+) -> list[KnowledgeHit]:
+    repository = _get_user_document_repository()
+    if _count_user_documents(user_id) == 0:
+        return []
+    if ENABLE_HYBRID_RETRIEVAL:
+        return _retrieve_user_documents_hybrid(
+            user_repository=repository,
+            user_id=user_id,
+            query=query,
+            query_embedding=query_embedding,
+            top_k=top_k,
+            fingerprint=f"userdocs:{user_id or 'default'}:{_count_user_documents(user_id)}",
+        )
+    return [
+        _hit_from_user_document(hit)
+        for hit in repository.search(query_embedding, user_id or "default", top_k)
+    ]
+
+
+def _retrieve_user_documents_hybrid(
+    *,
+    user_repository: UserDocumentVectorRepository,
+    user_id: str | None,
+    query: str,
+    query_embedding: list[float],
+    top_k: int,
+    fingerprint: str,
+) -> list[KnowledgeHit]:
+    scoped = _ScopedUserDocumentRepository(user_repository, user_id or "default")
+    candidate_k = max(top_k, top_k * 2)
+    metadata_hits = scoped.search(query_embedding, candidate_k)
+    metadata_by_key = {
+        (hit.source, hit.title_path, hit.content): hit
+        for hit in metadata_hits
+    }
+    hybrid_hits = hybrid_search(
+        repository=scoped,
+        query=query,
+        query_embedding=query_embedding,
+        top_k=top_k,
+        fingerprint=fingerprint,
+    )
+    results: list[KnowledgeHit] = []
+    for hit in hybrid_hits:
+        metadata = metadata_by_key.get((hit.source, hit.title_path, hit.content))
+        if metadata is None:
+            results.append(hit)
+        else:
+            results.append(
+                _hit_from_user_document(
+                    UserDocumentHit(
+                        chunk_id=metadata.chunk_id,
+                        document_id=metadata.document_id,
+                        content=metadata.content,
+                        source=metadata.source,
+                        title_path=metadata.title_path,
+                        chunk_index=metadata.chunk_index,
+                        page_start=metadata.page_start,
+                        page_end=metadata.page_end,
+                        similarity=hit.similarity,
+                    )
+                )
+            )
+    return results
+
+
+def _count_user_documents(user_id: str | None) -> int:
+    repository = _get_user_document_repository()
+    try:
+        return repository.count(user_id)
+    except TypeError:
+        # Keep lightweight test doubles and older integrations compatible.
+        return repository.count()
+
+
+@dataclass(frozen=True, slots=True)
+class _UserDocumentKnowledgeHit:
+    content: str
+    source: str
+    title_path: str
+    similarity: float
+    doc_type: str = "user_upload"
+    page_start: int | None = None
+    page_end: int | None = None
+
+
+def _hit_from_user_document(hit: UserDocumentHit) -> _UserDocumentKnowledgeHit:
+    return _UserDocumentKnowledgeHit(
+        content=hit.content,
+        source=hit.source,
+        title_path=hit.title_path,
+        similarity=hit.similarity,
+        page_start=hit.page_start,
+        page_end=hit.page_end,
+    )
 
 
 def _get_router() -> ShardRouter | None:
@@ -303,6 +537,15 @@ def _item_from_hit(
     }
     if rerank_score is not None:
         item["rerank_score"] = round(rerank_score, 6)
+    if getattr(hit, "doc_type", None) == "user_upload":
+        item["doc_type"] = "user_upload"
+        page_start = getattr(hit, "page_start", None)
+        page_end = getattr(hit, "page_end", None)
+        if page_start is not None:
+            item["page_range"] = (
+                f"p.{page_start}" if page_end in {None, page_start}
+                else f"p.{page_start}-{page_end}"
+            )
     return item
 
 
@@ -345,6 +588,17 @@ def _get_embedding_client() -> EmbeddingClient:
         _embedding_client = EmbeddingClient()
 
     return _embedding_client
+
+
+def _get_user_document_repository() -> UserDocumentVectorRepository:
+    global _user_document_repository
+    if _user_document_repository is None:
+        _user_document_repository = UserDocumentVectorRepository()
+    return _user_document_repository
+
+
+def _trace_collection_name() -> str:
+    return "notes+userdocs" if ENABLE_USER_DOCUMENT_RETRIEVAL else "notes"
 
 
 def _get_reranking_service() -> RerankingService:

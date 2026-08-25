@@ -90,6 +90,7 @@ function SessionSidebar({
         workspaces={workspacesWithCounts}
         selectedWorkspaceId={selectedWorkspaceId}
         onSelect={onSelectWorkspace}
+        onCreateSession={onCreateSession}
         onCreate={onCreateWorkspace}
         onArchive={onArchiveWorkspace}
         onRestore={onRestoreWorkspace}

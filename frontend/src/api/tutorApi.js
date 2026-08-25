@@ -24,6 +24,7 @@ const PERSONAS_URL = `${API_BASE_URL}/personas`
 const SESSIONS_URL = `${API_BASE_URL}/sessions`
 const JOURNAL_URL = `${API_BASE_URL}/api/journal`
 const WORKSPACES_URL = `${API_BASE_URL}/workspaces`
+const KNOWLEDGE_DOCUMENTS_URL = `${API_BASE_URL}/knowledge/documents`
 
 export class TutorApiError extends Error {
   constructor(message, { status = null, detail = null, responseBody = null, debug = null, cause = null } = {}) {
@@ -170,6 +171,7 @@ export function postChat(requestBody, options = {}) {
  * Post a chat request and stream the response via SSE.
  * @param {Object} requestBody - The chat request body
  * @param {Object} callbacks - Event callbacks
+ * @param {function} callbacks.onThinking - Called for each model reasoning summary chunk: (text) => void
  * @param {function} callbacks.onToken - Called for each token: (text) => void
  * @param {function} callbacks.onToolCall - Called when a tool starts: (tool, args) => void
  * @param {function} callbacks.onToolResult - Called when a tool finishes: (tool, result) => void
@@ -179,7 +181,7 @@ export function postChat(requestBody, options = {}) {
  * @returns {Promise<void>}
  */
 export async function postChatStream(requestBody, callbacks, options = {}) {
-  const { onToken, onToolCall, onToolResult, onDone, onError } = callbacks
+  const { onThinking, onToken, onToolCall, onToolResult, onDone, onError } = callbacks
   const { signal } = options
 
   let response
@@ -246,7 +248,9 @@ export async function postChatStream(requestBody, callbacks, options = {}) {
           const dataStr = line.slice(6)
           try {
             const data = JSON.parse(dataStr)
-            if (currentEvent === 'token') {
+            if (currentEvent === 'thinking') {
+              onThinking?.(data.text ?? '')
+            } else if (currentEvent === 'token') {
               onToken?.(data.text ?? '')
             } else if (currentEvent === 'tool_call') {
               onToolCall?.(data.tool, data.args)
@@ -415,6 +419,27 @@ export function uploadWorkspaceAsset(workspaceId, userId, file, options = {}) {
     body: formData,
     signal: options.signal,
   }, 'Workspace Asset upload failed')
+}
+
+export function getKnowledgeDocuments(userId, options = {}) {
+  const params = new URLSearchParams({ user_id: userId, limit: String(options.limit ?? 100) })
+  if (options.status) params.set('status', options.status)
+  return requestJson(`${KNOWLEDGE_DOCUMENTS_URL}?${params.toString()}`, { signal: options.signal }, 'Knowledge document list request failed')
+}
+
+export function uploadKnowledgeDocument(userId, file, options = {}) {
+  const formData = new FormData()
+  formData.append('user_id', userId)
+  formData.append('file', file)
+  return requestJson(KNOWLEDGE_DOCUMENTS_URL, { method: 'POST', body: formData, signal: options.signal }, 'Knowledge document upload failed')
+}
+
+export function retryKnowledgeDocument(documentId, userId, options = {}) {
+  return requestJson(`${KNOWLEDGE_DOCUMENTS_URL}/${encodeURIComponent(documentId)}/retry?user_id=${encodeURIComponent(userId)}`, { method: 'POST', signal: options.signal }, 'Knowledge document retry failed')
+}
+
+export function deleteKnowledgeDocument(documentId, userId, options = {}) {
+  return requestJson(`${KNOWLEDGE_DOCUMENTS_URL}/${encodeURIComponent(documentId)}?user_id=${encodeURIComponent(userId)}`, { method: 'DELETE', signal: options.signal }, 'Knowledge document delete failed')
 }
 
 export function getWorkspaceAssets(workspaceId, userId, options = {}) {

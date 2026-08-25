@@ -353,6 +353,47 @@ def test_react_loop_uses_no_tools_final_call_when_max_steps_is_reached():
     assert len(tool_trace.calls) == 1
 
 
+def test_stream_round_emits_provider_reasoning_as_thinking_events():
+    """流式模型的 reasoning_content 应单独透传，不混入最终正文。"""
+
+    chunks = [
+        SimpleNamespace(
+            choices=[
+                SimpleNamespace(
+                    delta=SimpleNamespace(reasoning_content="先拆解问题。")
+                )
+            ]
+        ),
+        SimpleNamespace(
+            choices=[
+                SimpleNamespace(
+                    delta=SimpleNamespace(content="## 结论")
+                )
+            ]
+        ),
+    ]
+    orchestrator = make_orchestrator()
+    orchestrator.client = SimpleNamespace(
+        chat=SimpleNamespace(
+            completions=SimpleNamespace(create=lambda **_kwargs: iter(chunks)),
+        ),
+    )
+
+    stream = orchestrator._stream_round([])
+    events = []
+    with pytest.raises(StopIteration) as stopped:
+        while True:
+            events.append(next(stream))
+
+    result = stopped.value.value
+    assert [(event.type, event.data["text"]) for event in events] == [
+        ("thinking", "先拆解问题。"),
+        ("token", "## 结论"),
+    ]
+    assert result.reasoning == "先拆解问题。"
+    assert result.content == "## 结论"
+
+
 def test_react_loop_records_tool_errors_in_trace():
     """工具不存在时，错误应进入 trace，模型仍可基于 observation 收尾。"""
 

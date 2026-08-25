@@ -402,6 +402,27 @@ describe('App RAG three-state control', () => {
     })
   })
 
+  it('sends a forced, source-isolated request for document-library mode', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+    await openSession(user)
+    await user.click(screen.getAllByRole('button', { name: '模式选项' })[1])
+    await user.click(screen.getByRole('radio', { name: '仅文档库' }))
+    expect(ragButton().getAttribute('aria-label')).toBe('RAG 检索：仅文档库')
+
+    await user.type(input(), '总结上传文档')
+    await user.click(screen.getByRole('button', { name: '发送消息' }))
+
+    await waitFor(() => expect(api.postChat).toHaveBeenCalledTimes(1))
+    expect(api.postChat.mock.calls[0][0]).toMatchObject({
+      rag_enabled: true,
+      force_rag: true,
+      rag_scope: 'user_documents',
+      web_search_enabled: false,
+      force_web_search: false,
+    })
+  })
+
   it('sends web search force mode fields in a non-streaming request', async () => {
     const user = userEvent.setup()
     render(<App />)

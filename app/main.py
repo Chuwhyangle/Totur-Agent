@@ -16,7 +16,9 @@ from app.db.database import initialize_database
 from app.api.routes.conversations import router as conversations_router
 from app.api.routes.health import router as health_router
 from app.api.routes.interview_jds import router as interview_jds_router
+from app.api.routes.knowledge_documents import router as knowledge_documents_router
 from app.api.routes.journal import router as journal_router
+from app.api.routes.learning_progress import router as learning_progress_router
 from app.api.routes.models import router as models_router
 from app.api.routes.personas import router as personas_router
 from app.api.routes.sessions import router as sessions_router
@@ -30,6 +32,7 @@ from app.services.documents.attachment_recovery_service import (
     get_attachment_recovery_service,
 )
 from app.services.agent.model_registry import validate_model_configuration
+from app.services.knowledge_docs.recovery_service import recover_pending_documents
 
 _server_config = ServerConfig.from_env()
 
@@ -112,6 +115,10 @@ async def lifespan(_: FastAPI):
     validate_model_configuration()
     # 业务库 schema 就绪先于观测库；只在启动时执行一次（A2）。
     initialize_database()
+    try:
+        recover_pending_documents()
+    except Exception as exc:
+        logger.error("knowledge_document_startup_recovery_failed error_type=%s", type(exc).__name__)
     if is_workspaces_enabled():
         try:
             from app.services.workspaces.asset_recovery_service import recover_workspace_assets_once
@@ -205,8 +212,11 @@ app.include_router(models_router)
 app.include_router(sessions_router)
 # Interview JD endpoints: store user profiles before matching tools.
 app.include_router(interview_jds_router)
+app.include_router(knowledge_documents_router)
 # Journal endpoints: daily learning diary entries.
 app.include_router(journal_router)
+# User-level learning progress endpoints, currently used by the SQL workspace.
+app.include_router(learning_progress_router)
 
 if is_workspaces_enabled():
     from app.api.routes.workspaces import router as workspaces_router

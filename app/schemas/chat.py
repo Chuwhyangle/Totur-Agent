@@ -1,6 +1,6 @@
 """Chat API 的请求和响应格式。"""
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -17,6 +17,7 @@ class ChatRequest(BaseModel):
     force_web_search: bool = False
     rag_enabled: bool = True
     force_rag: bool = False
+    rag_scope: Literal["all", "user_documents"] = "all"
     attachment_ids: list[str] = Field(default_factory=list, max_length=5)
 
     @field_validator("force_web_search")
@@ -107,6 +108,14 @@ class ToolTrace(BaseModel):
     ledger: dict[str, Source] = Field(default_factory=dict, exclude=True)
 
 
+class ChatUsage(BaseModel):
+    """Aggregated token usage for one model request when the provider reports it."""
+
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
+    total_tokens: int | None = None
+
+
 class ChatResponse(BaseModel):
     """POST /chat 的响应体。"""
 
@@ -116,3 +125,4 @@ class ChatResponse(BaseModel):
     model_id: str
     reply: TutorReply
     tool_trace: ToolTrace
+    usage: ChatUsage | None = None

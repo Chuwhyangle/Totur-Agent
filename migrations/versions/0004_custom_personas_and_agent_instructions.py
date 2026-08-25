@@ -16,6 +16,12 @@ depends_on = None
 def upgrade() -> None:
     bind = op.get_bind()
     if bind.dialect.name == "mysql":
+        # Alembic creates this table with VARCHAR(32) by default, but this
+        # revision id (and later ones) is longer than 32 characters.
+        op.execute(
+            "ALTER TABLE alembic_version "
+            "MODIFY version_num VARCHAR(255) NOT NULL"
+        )
         op.execute(
             """
             CREATE TABLE custom_personas (

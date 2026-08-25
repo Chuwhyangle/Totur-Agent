@@ -274,3 +274,29 @@ describe('GitHub MCP tool traces', () => {
     expect(screen.queryByText('返回：0 条')).toBeNull()
   })
 })
+
+describe('thinking summary', () => {
+  it('renders model thinking collapsed by default and keeps it expandable', () => {
+    render(<ChatMessage
+      role="assistant"
+      thinking="先拆解问题，再组织回答。"
+      reply={{ answer: '最终答案。', sources: [] }}
+    />)
+
+    const thinking = document.querySelector('.thinking-summary')
+    expect(thinking).not.toBeNull()
+    expect(thinking.open).toBe(false)
+    expect(screen.getByText('先拆解问题，再组织回答。')).not.toBeNull()
+    expect(screen.getByText('思考过程')).not.toBeNull()
+  })
+
+  it('shows response latency and token metrics when available', () => {
+    render(<ChatMessage
+      role="assistant"
+      metrics={{ firstTokenLatencyMs: 820, completionElapsedMs: 2340, tokenCount: 128 }}
+      reply={{ answer: '最终答案。', sources: [] }}
+    />)
+
+    expect(screen.getByLabelText('响应指标').textContent).toBe('首字 820 ms · 完成 2.3 s · 128 tokens')
+  })
+})

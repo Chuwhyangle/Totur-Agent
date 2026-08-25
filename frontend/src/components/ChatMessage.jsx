@@ -103,7 +103,45 @@ function ToolTraceSummary({ trace }) {
   )
 }
 
-function ChatMessage({ role, text, reply, debug, isStreaming, streamingTool }) {
+function ThinkingSummary({ text, isStreaming = false }) {
+  const thinking = typeof text === 'string' ? text.trim() : ''
+  if (!thinking) return null
+
+  return (
+    <details className="thinking-summary">
+      <summary>
+        <Icon name="sparkles" size={15} />
+        {isStreaming ? '思考中' : '思考过程'}
+      </summary>
+      <div className="thinking-text">{thinking}</div>
+    </details>
+  )
+}
+
+function formatDuration(milliseconds) {
+  if (!Number.isFinite(milliseconds)) return ''
+  if (milliseconds < 1000) return `${Math.max(0, Math.round(milliseconds))} ms`
+  return `${(milliseconds / 1000).toFixed(1)} s`
+}
+
+function ResponseMetrics({ metrics }) {
+  if (!metrics) return null
+  const items = []
+  if (Number.isFinite(metrics.firstTokenLatencyMs)) {
+    items.push(`首字 ${formatDuration(metrics.firstTokenLatencyMs)}`)
+  }
+  if (Number.isFinite(metrics.completionElapsedMs)) {
+    items.push(`完成 ${formatDuration(metrics.completionElapsedMs)}`)
+  }
+  if (Number.isFinite(metrics.tokenCount)) {
+    items.push(`${metrics.tokenCount} tokens`)
+  }
+  if (items.length === 0) return null
+
+  return <div className="response-metrics" aria-label="响应指标">{items.join(' · ')}</div>
+}
+
+function ChatMessage({ role, text, reply, debug, thinking, metrics, isStreaming, streamingTool }) {
   const isAssistant = role === 'assistant'
   const rawAnswer = reply?.answer ?? text ?? ''
   const answer = rawAnswer !== '' ? rawAnswer : reply ? '暂时没有拿到有效回答。' : ''
@@ -125,6 +163,7 @@ function ChatMessage({ role, text, reply, debug, isStreaming, streamingTool }) {
         </div>
         {showStreaming ? (
           <div className="streaming-reply">
+            <ThinkingSummary text={thinking} isStreaming />
             {streamingTool ? (
               <div className="streaming-tool-status">
                 <span className="streaming-tool-spinner" />
@@ -135,13 +174,16 @@ function ChatMessage({ role, text, reply, debug, isStreaming, streamingTool }) {
               <MarkdownAnswer answer={answer} sources={sources} />
               <span className="streaming-cursor">▋</span>
             </div>
+            <ResponseMetrics metrics={metrics} />
           </div>
         ) : reply ? (
           <div className="structured-reply">
+            <ThinkingSummary text={thinking} />
             <div className="answer-text">
               <MarkdownAnswer answer={answer} sources={sources} />
             </div>
             <SourceCards sources={sources} />
+            <ResponseMetrics metrics={metrics} />
           </div>
         ) : <p className="user-text">{text}</p>}
         {!showStreaming && toolTrace ? <ToolTraceSummary trace={toolTrace} /> : null}

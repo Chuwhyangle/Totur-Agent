@@ -238,13 +238,15 @@ describe('tutorApi SSE API', () => {
 
   it('posts JSON to the stream URL and dispatches token, tool, and done events', async () => {
     fetch.mockResolvedValue(streamResponse([
-      'event: token\ndata: {"text":"Hello "}\n\n'
+      'event: thinking\ndata: {"text":"先分析问题。"}\n\n'
+      + 'event: token\ndata: {"text":"Hello "}\n\n'
       + 'event: tool_call\ndata: {"tool":"search","args":{"q":"SSE"}}\n\n'
       + 'event: tool_result\ndata: {"tool":"search","result":{"ok":true}}\n\n'
       + 'event: token\ndata: {"text":"world"}\n\n'
       + 'event: done\ndata: {"session_id":"session-1","reply":{"answer":"Hello world"}}\n\n',
     ]))
     const callbacks = {
+      onThinking: vi.fn(),
       onToken: vi.fn(),
       onToolCall: vi.fn(),
       onToolResult: vi.fn(),
@@ -260,6 +262,7 @@ describe('tutorApi SSE API', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     }))
+    expect(callbacks.onThinking).toHaveBeenCalledWith('先分析问题。')
     expect(callbacks.onToken.mock.calls).toEqual([['Hello '], ['world']])
     expect(callbacks.onToolCall).toHaveBeenCalledWith('search', { q: 'SSE' })
     expect(callbacks.onToolResult).toHaveBeenCalledWith('search', { ok: true })

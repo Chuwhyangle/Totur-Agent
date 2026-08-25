@@ -90,6 +90,7 @@ def test_business_schema_has_workspace_foundation_tables():
         "alembic_version",
         "chat_sessions",
         "conversations",
+        "custom_personas",
         "session_summaries",
         "interview_jds",
         "public_job_descriptions",
@@ -102,6 +103,7 @@ def test_business_schema_has_workspace_foundation_tables():
         "task_asset_refs",
         "artifacts",
         "artifact_sources",
+        "knowledge_documents",
     }
 
 
@@ -178,6 +180,8 @@ def test_column_collations_follow_d7():
         ("task_steps", "input_summary"),
         ("task_steps", "output_summary"),
         ("artifacts", "title"),
+        ("knowledge_documents", "original_filename"),
+        ("knowledge_documents", "error_message"),
     }
     # 标识符与路径列
     bin_columns = {
@@ -225,6 +229,13 @@ def test_column_collations_follow_d7():
         ("artifacts", "creation_key"),
         ("artifacts", "status"),
         ("artifacts", "error_code"),
+        ("knowledge_documents", "user_id"),
+        ("knowledge_documents", "media_type"),
+        ("knowledge_documents", "storage_key"),
+        ("knowledge_documents", "status"),
+        ("knowledge_documents", "parser_name"),
+        ("knowledge_documents", "parser_version"),
+        ("knowledge_documents", "error_code"),
     }
     # 纯 hex 与 UUID（D7）
     ascii_bin_columns = {
@@ -254,6 +265,10 @@ def test_column_collations_follow_d7():
         ("artifacts", "content_hash"),
         ("artifact_sources", "artifact_id"),
         ("artifact_sources", "asset_id"),
+        ("knowledge_documents", "id"),
+        ("knowledge_documents", "file_sha256"),
+        ("knowledge_documents", "text_sha256"),
+        ("knowledge_documents", "dedupe_key"),
     }
 
     for column in ai_ci_columns:

@@ -46,6 +46,7 @@ import PersonaSelector from './components/PersonaSelector.jsx'
 import PersonaManager from './components/PersonaManager.jsx'
 import SessionSidebar from './components/SessionSidebar.jsx'
 import WorkspacePanel from './components/workspaces/WorkspacePanel.jsx'
+import KnowledgeLibrary from './components/KnowledgeLibrary.jsx'
 import { useAttachmentPolling } from './hooks/useAttachmentPolling.js'
 import {
   addSelectedAttachmentId,
@@ -71,12 +72,17 @@ const RAG_MODE_REQUEST_FIELDS = {
   off: { rag_enabled: false, force_rag: false },
   auto: { rag_enabled: true, force_rag: false },
   force: { rag_enabled: true, force_rag: true },
+  documents: { rag_enabled: true, force_rag: true, rag_scope: 'user_documents' },
 }
 
 const WEB_SEARCH_MODE_REQUEST_FIELDS = {
   off: { web_search_enabled: false, force_web_search: false },
   auto: { web_search_enabled: true, force_web_search: false },
   force: { web_search_enabled: true, force_web_search: true },
+}
+
+function monotonicNow() {
+  return typeof performance !== 'undefined' ? performance.now() : Date.now()
 }
 
 function getErrorDisplayMessage(error) {
@@ -168,6 +174,7 @@ function App() {
   const [modelsStatus, setModelsStatus] = useState('idle')
   const [selectedModelId, setSelectedModelId] = useState(() => localStorage.getItem('tutor-model') ?? null)
   const [isTargetPanelOpen, setIsTargetPanelOpen] = useState(false)
+  const [knowledgeLibraryOpen, setKnowledgeLibraryOpen] = useState(false)
   const [theme, setTheme] = useState(() => localStorage.getItem('tutor-theme') ?? 'light')
   const [attachments, setAttachments] = useState([])
   const [attachmentStatus, setAttachmentStatus] = useState('idle')
@@ -924,6 +931,10 @@ function App() {
       ...RAG_MODE_REQUEST_FIELDS[ragModeForRequest],
       attachment_ids: attachmentIds,
     }
+    if (ragModeForRequest === 'documents') {
+      baseRequestBody.web_search_enabled = false
+      baseRequestBody.force_web_search = false
+    }
     const userMessage = {
       id: `message-user-${Date.now()}`,
       role: 'user',
@@ -941,6 +952,7 @@ function App() {
     setStreamingTool(null)
 
     let accumulatedText = ''
+    let accumulatedThinking = ''
 
     try {
       const activeSession = await ensureActiveSession()
@@ -953,12 +965,14 @@ function App() {
         activeSession.id,
       )
       // “本轮强制使用”只对本次成功发出的请求生效，发出后自动回到自动判断。
-      if (ragModeForRequest === 'force') setRagMode('auto')
+      if (ragModeForRequest === 'force' || ragModeForRequest === 'documents') setRagMode('auto')
       if (webSearchModeForRequest === 'force') setWebSearchMode('auto')
 
       if (streamingEnabled) {
         // Streaming mode
         const messageId = `message-assistant-${Date.now()}`
+        const requestStartedAt = monotonicNow()
+        let firstTokenLatencyMs = null
         let finalData = null
 
         // 流开始时就创建 assistant 流式消息区域：
@@ -967,19 +981,45 @@ function App() {
           id: messageId,
           role: 'assistant',
           text: '',
+          thinking: '',
+          metrics: null,
           isStreaming: true,
         })
 
         await postChatStream(
           chatRequestBody,
           {
+            onThinking: (text) => {
+              accumulatedThinking += text
+              setStreamingMessage({
+                id: messageId,
+                role: 'assistant',
+                text: accumulatedText,
+                thinking: accumulatedThinking,
+                metrics: {
+                  firstTokenLatencyMs,
+                  completionElapsedMs: Math.round(monotonicNow() - requestStartedAt),
+                  tokenCount: null,
+                },
+                isStreaming: true,
+              })
+            },
             onToken: (text) => {
               // token 按到达顺序持续追加；工具调用只更新工具状态，不清空正文。
+              if (firstTokenLatencyMs === null) {
+                firstTokenLatencyMs = Math.round(monotonicNow() - requestStartedAt)
+              }
               accumulatedText += text
               setStreamingMessage({
                 id: messageId,
                 role: 'assistant',
                 text: accumulatedText,
+                thinking: accumulatedThinking,
+                metrics: {
+                  firstTokenLatencyMs,
+                  completionElapsedMs: Math.round(monotonicNow() - requestStartedAt),
+                  tokenCount: null,
+                },
                 isStreaming: true,
               })
             },
@@ -1006,6 +1046,17 @@ function App() {
 
         // Finalize the streaming message.
         // done.reply 是最终回复的唯一数据源；临时流式文本只用于预览。
+        const usage = finalData?.usage ?? {}
+        const tokenCount = Number.isFinite(usage.total_tokens)
+          ? usage.total_tokens
+          : Number.isFinite(usage.completion_tokens)
+            ? usage.completion_tokens
+            : null
+        const responseMetrics = {
+          firstTokenLatencyMs,
+          completionElapsedMs: Math.round(monotonicNow() - requestStartedAt),
+          tokenCount,
+        }
         const streamDebug = {
           url: `${API_BASE_URL}/chat/stream`,
           method: 'POST',
@@ -1021,6 +1072,8 @@ function App() {
               id: messageId,
               role: 'assistant',
               reply: finalData.reply,
+              thinking: accumulatedThinking,
+              metrics: responseMetrics,
               debug: streamDebug,
             }
           : {
@@ -1038,6 +1091,7 @@ function App() {
         if (activeSession.workspace_id) void loadWorkspaceData(activeSession.workspace_id)
       } else {
         // Non-streaming mode (fallback)
+        const requestStartedAt = monotonicNow()
         const { data, debug } = await postChat(chatRequestBody)
         if (chatScopeKey !== attachmentScopeKeyRef.current) return
 
@@ -1045,6 +1099,15 @@ function App() {
           id: `message-assistant-${Date.now()}`,
           role: 'assistant',
           reply: data?.reply,
+          metrics: {
+            firstTokenLatencyMs: null,
+            completionElapsedMs: Math.round(monotonicNow() - requestStartedAt),
+            tokenCount: Number.isFinite(data?.usage?.total_tokens)
+              ? data.usage.total_tokens
+              : Number.isFinite(data?.usage?.completion_tokens)
+                ? data.usage.completion_tokens
+                : null,
+          },
           debug,
         }
         setMessages((currentMessages) => [...currentMessages, assistantMessage])
@@ -1209,6 +1272,9 @@ function App() {
           <button className="header-action-button" type="button" onClick={() => setIsTargetPanelOpen(true)}>
             <Icon name="target" size={17} /><span>学习目标</span>
           </button>
+          <button className="header-action-button" type="button" onClick={() => setKnowledgeLibraryOpen(true)}>
+            <Icon name="file" size={17} /><span>文档库</span>
+          </button>
           <button className="theme-button" type="button" onClick={() => setTheme((current) => current === 'dark' ? 'light' : 'dark')} aria-label="切换明暗主题">
             <Icon name={theme === 'dark' ? 'sun' : 'moon'} size={18} />
           </button>
@@ -1263,13 +1329,15 @@ function App() {
             ) : null}
             {activeSessionStatus === 'loading' ? <div className="thread-loading"><span /><span /><span /><p>正在整理学习记录…</p></div> : null}
             {messages.map((message) => (
-              <ChatMessage key={message.id} role={message.role} text={message.text} reply={message.reply} debug={message.debug} />
+              <ChatMessage key={message.id} role={message.role} text={message.text} reply={message.reply} thinking={message.thinking} metrics={message.metrics} debug={message.debug} />
             ))}
             {isSending && streamingMessage ? (
               <ChatMessage
                 key={streamingMessage.id}
                 role="assistant"
                 text={streamingMessage.text}
+                thinking={streamingMessage.thinking}
+                metrics={streamingMessage.metrics}
                 isStreaming={streamingMessage.isStreaming}
                 streamingTool={streamingTool}
               />
@@ -1311,6 +1379,7 @@ function App() {
         onClose={() => setIsTargetPanelOpen(false)}
       />
       {personaManagerOpen ? <PersonaManager userId={userId.trim()} personas={personas} onCreate={handleCreatePersona} onUpdate={handleUpdatePersona} onDisable={handleDisablePersona} onClose={() => setPersonaManagerOpen(false)} /> : null}
+      {knowledgeLibraryOpen ? <KnowledgeLibrary userId={userId} onClose={() => setKnowledgeLibraryOpen(false)} /> : null}
       <WorkspacePanel
         open={workspacePanelOpen}
         featureStatus={workspaceFeatureStatus}

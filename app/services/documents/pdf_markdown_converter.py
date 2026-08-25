@@ -1,4 +1,8 @@
-"""Convert parsed PDF blocks into heading-aware pseudo Markdown."""
+"""Convert parsed PDF blocks into heading-aware pseudo Markdown.
+
+Page sentinels stay adjacent to the body they annotate because
+``chunk_markdown`` starts a new section at every Markdown heading.
+"""
 
 from __future__ import annotations
 
@@ -14,7 +18,11 @@ _PAGE_SENTINEL_LINE_PATTERN = re.compile(
     r"^[ \t]*<!--page:\d+-->[ \t]*(?:\r?\n|$)",
     re.MULTILINE,
 )
-_ROMAN_OR_DIGITS_PATTERN = re.compile(r"[0-9\uff10-\uff19IVXLCDMivxlcdm]+")
+_ARABIC_PAGE_NUMBER_PATTERN = re.compile(r"[0-9\uff10-\uff19]+")
+_ROMAN_PAGE_NUMBER_PATTERN = re.compile(
+    r"^(?=[IVXLCDM])M{0,3}(CM|CD|D?C{0,3})"
+    r"(XC|XL|L?X{0,3})(IX|IV|V?I{0,3})$"
+)
 _CHAPTER_HEADING_PATTERN = re.compile(r"^第\s*\d+\s*章")
 _CHAPTER_ENGLISH_PATTERN = re.compile(r"^Chapter\s+\d+\b", re.IGNORECASE)
 _NUMBERED_HEADING_PATTERN = re.compile(
@@ -24,6 +32,7 @@ _SENTENCE_ENDINGS = frozenset("。．…！？；.!?;")
 _CLOSING_CHARACTERS = frozenset(
     "\u3009\u300d\u300f\u201d\u2019\"')\uff09\u3011\u300b]"
 )
+_MAX_INLINE_CONTINUATION_LENGTH = 512
 
 
 def parsed_pdf_to_markdown(document: ParsedDocument) -> str:
@@ -32,24 +41,40 @@ def parsed_pdf_to_markdown(document: ParsedDocument) -> str:
     pages = _remove_repeated_headers_and_footers(document.pages, document.page_count)
     merged_page_numbers = _find_cross_page_continuations(pages)
 
-    output = f"# {document.original_filename}\n\n"
-    for page_index, (page, blocks) in enumerate(zip(document.pages, pages)):
-        page_number = page.page_number
-        if page_index:
-            separator = "\n" if page_number in merged_page_numbers else "\n\n"
-            output += separator
-        output += f"<!--page:{page_number}-->"
+    output = f"# {document.original_filename}"
+    for page, blocks in zip(document.pages, pages):
+        page_median = _median_block_height(blocks)
+        renderable_blocks = [block for block in blocks if block.text.strip()]
+        rendered = [
+            _render_block(block, page_median) for block in renderable_blocks
+        ]
+        if not rendered:
+            continue
 
-        if blocks:
-            page_median = _median_block_height(blocks)
-            rendered = [
-                _render_block(block, page_median)
-                for block in blocks
-                if block.text.strip()
-            ]
-            if rendered:
-                output += "\n\n" if page_index == 0 else "\n"
-                output += "\n\n".join(rendered)
+        page_number = page.page_number
+        if page_number in merged_page_numbers:
+            # Keep the sentinel and both sides of a continued paragraph inline.
+            output += f"<!--page:{page_number}-->{rendered[0]}"
+            if len(rendered) > 1:
+                output += "\n\n" + "\n\n".join(rendered[1:])
+            continue
+
+        leading_heading_count = 0
+        while leading_heading_count < len(renderable_blocks):
+            if not _is_title_candidate(
+                renderable_blocks[leading_heading_count], page_median
+            ):
+                break
+            leading_heading_count += 1
+
+        if leading_heading_count:
+            output += "\n\n" + "\n\n".join(rendered[:leading_heading_count])
+            output += f"\n\n<!--page:{page_number}-->"
+            if leading_heading_count < len(rendered):
+                output += "\n" + "\n\n".join(rendered[leading_heading_count:])
+        else:
+            output += f"\n\n<!--page:{page_number}-->\n"
+            output += "\n\n".join(rendered)
 
     return output.rstrip() + "\n"
 
@@ -113,10 +138,17 @@ def _header_footer_key(text: str) -> str:
 
 def _is_standalone_page_number(text: str) -> bool:
     stripped = text.strip()
-    return (
-        0 < len(stripped) < 10
-        and _ROMAN_OR_DIGITS_PATTERN.fullmatch(stripped) is not None
-    )
+    if 0 < len(stripped) < 10 and _ARABIC_PAGE_NUMBER_PATTERN.fullmatch(stripped):
+        return True
+
+    if not (stripped == stripped.upper() or stripped == stripped.lower()):
+        return False
+
+    upper = stripped.upper()
+    if stripped.islower() and upper.startswith("M"):
+        # Lowercase words such as "mix" are common body text, not page labels.
+        return False
+    return _ROMAN_PAGE_NUMBER_PATTERN.fullmatch(upper) is not None
 
 
 def _find_cross_page_continuations(
@@ -136,6 +168,13 @@ def _find_cross_page_continuations(
         if _ends_with_sentence(previous.text):
             continue
         if _is_title_candidate(current, _median_block_height(current_blocks)):
+            continue
+        if (
+            len(previous.text.strip()) > _MAX_INLINE_CONTINUATION_LENGTH
+            or len(current.text.strip()) > _MAX_INLINE_CONTINUATION_LENGTH
+        ):
+            # Keep oversized blocks in separate chunker blocks so one chunk
+            # cannot claim two pages merely because a hard split crossed them.
             continue
         merged_page_numbers.add(page_index + 1)
 
@@ -179,6 +218,7 @@ def _render_block(block: ParsedTextBlock, page_median: float) -> str:
         return text
 
     depth = _heading_number_depth(text)
+    # 封顶 ###：knowledge_chunker.HEADING_PATTERN 只匹配 #{1,3}，#### 不会被识别为标题。
     level = 2 if depth is None or depth <= 1 else 3
     return f"{'#' * level} {text}"
 

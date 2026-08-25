@@ -74,6 +74,7 @@ class _FallbackBM25:
 @dataclass(frozen=True)
 class _BM25Snapshot:
     fingerprint: str
+    repository_object: object
     repository_identity: int
     entries: list[KnowledgeEntry]
     tokenized_corpus: list[list[str]]
@@ -98,6 +99,7 @@ class BM25IndexCache:
         snapshot = self._snapshots.get(collection_name)
         if (
             snapshot is not None
+            and snapshot.repository_object is repository
             and snapshot.repository_identity == id(repository)
             and snapshot.fingerprint == fingerprint
         ):
@@ -107,6 +109,7 @@ class BM25IndexCache:
         tokenized_corpus = [tokenize_for_bm25(_entry_text(entry)) for entry in entries]
         snapshot = _BM25Snapshot(
             fingerprint=fingerprint,
+            repository_object=repository,
             repository_identity=id(repository),
             entries=entries,
             tokenized_corpus=tokenized_corpus,
