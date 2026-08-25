@@ -1,5 +1,7 @@
 """Tests for PDF-to-pseudo-Markdown conversion."""
 
+import pytest
+
 from app.services.documents.parsed_document import ParsedDocument, ParsedPage, ParsedTextBlock
 from app.services.documents.pdf_markdown_converter import (
     parsed_pdf_to_markdown,
@@ -84,8 +86,8 @@ def test_unfinished_page_tail_and_next_page_head_are_continuous_after_sentinel_s
     markdown = parsed_pdf_to_markdown(document)
     body, _, _ = strip_page_sentinels(markdown)
 
-    assert "这是一个未完的句子\n下一页继续完成。" in body
-    assert "这是一个未完的句子\n\n下一页" not in body
+    assert "这是一个未完的句子下一页继续完成。" in body
+    assert "未完的句子\n" not in body
 
 
 def test_sentence_ending_page_tail_is_not_merged():
@@ -149,3 +151,108 @@ def test_chunks_keep_page_sentinels_and_allow_previous_page_fallback():
         assert page_start is not None and page_end is not None
         previous_page_end = page_end
 
+
+@pytest.mark.parametrize("text", ["DVD", "LCD", "mix", "civil", "vivid", "did"])
+def test_roman_numeral_lookalike_words_are_kept(text):
+    markdown = parsed_pdf_to_markdown(
+        make_document([[make_block(0, text), make_block(1, "正文。")]])
+    )
+
+    assert text in markdown
+
+
+@pytest.mark.parametrize("text", ["1", "12", "iv", "XIV", "３"])
+def test_standalone_page_numbers_are_removed(text):
+    markdown = parsed_pdf_to_markdown(
+        make_document([[make_block(0, text), make_block(1, "正文。")]])
+    )
+    body, _, _ = strip_page_sentinels(markdown)
+
+    assert text not in body
+
+
+def test_empty_page_emits_no_sentinel():
+    pages = [
+        [make_block(0, "重复页眉"), make_block(1, "第一页正文。")],
+        [make_block(0, "重复页眉")],
+        [make_block(0, "重复页眉")],
+        [make_block(0, "重复页眉"), make_block(1, "第四页正文。")],
+    ]
+
+    markdown = parsed_pdf_to_markdown(make_document(pages))
+
+    assert "<!--page:1-->" in markdown
+    assert "<!--page:4-->" in markdown
+    assert "<!--page:2-->" not in markdown
+    assert "<!--page:3-->" not in markdown
+
+
+def test_sentinel_is_placed_after_leading_headings():
+    document = make_document(
+        [
+            [make_block(0, "第一页正文。")],
+            [make_block(0, "第 2 章 概述"), make_block(1, "第二页正文。")],
+        ]
+    )
+
+    markdown = parsed_pdf_to_markdown(document)
+
+    assert markdown.index("## 第 2 章 概述") < markdown.index("<!--page:2-->")
+
+
+def test_cross_page_continuation_is_seamless_after_strip():
+    document = make_document(
+        [
+            [make_block(0, "这是一个未完的句子")],
+            [make_block(0, "下一页继续完成。")],
+        ]
+    )
+
+    body, _, _ = strip_page_sentinels(parsed_pdf_to_markdown(document))
+
+    assert "这是一个未完的句子下一页继续完成。" in body
+    assert "未完的句子\n" not in body
+
+
+def test_chunk_page_attribution_is_exact():
+    document = make_document(
+        [
+            [make_block(0, "甲" * 700)],
+            [make_block(0, "第 2 章 乙章"), make_block(1, "乙" * 700)],
+            [make_block(0, "丙" * 700)],
+        ]
+    )
+    chunks = chunk_markdown(
+        parsed_pdf_to_markdown(document),
+        source="x.pdf",
+    )
+
+    previous_page_end = None
+    chunk_pages = []
+    for chunk in chunks:
+        body, page_start, page_end = strip_page_sentinels(chunk.content)
+        if page_start is None:
+            page_start = page_end = previous_page_end
+        assert page_start is not None and page_end is not None
+        previous_page_end = page_end
+        chunk_pages.append((body, page_start, page_end))
+
+    assert all(
+        page_start == page_end == 1
+        for body, page_start, page_end in chunk_pages
+        if "甲" * 10 in body
+    )
+    assert all(
+        page_start == page_end == 2
+        for body, page_start, page_end in chunk_pages
+        if "乙" * 10 in body
+    )
+    assert all(
+        page_start == page_end == 3
+        for body, page_start, page_end in chunk_pages
+        if "丙" * 10 in body
+    )
+    assert not any(
+        "甲" * 10 in body and page_end >= 2
+        for body, _, page_end in chunk_pages
+    )
