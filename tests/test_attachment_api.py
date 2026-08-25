@@ -567,6 +567,35 @@ def test_unsupported_upload_returns_415(
     assert response.json()["detail"]["error"] == "unsupported_attachment_type"
 
 
+@pytest.mark.parametrize(
+    ("filename", "content_type", "expected_error"),
+    [
+        ("legacy.doc", "application/msword", "attachment_legacy_office_format"),
+        ("archive.zip", "application/zip", "attachment_archive_not_supported"),
+    ],
+)
+def test_special_unsupported_formats_return_actionable_error_codes(
+    monkeypatch,
+    tmp_path,
+    filename,
+    content_type,
+    expected_error,
+):
+    use_temp_database(monkeypatch, tmp_path)
+    session = create_session("alice")
+    service = make_service(tmp_path)
+
+    with api_client_for(service) as client:
+        response = client.post(
+            f"/sessions/{session.id}/attachments",
+            data={"user_id": "alice"},
+            files={"file": (filename, b"unsupported", content_type)},
+        )
+
+    assert response.status_code == 415
+    assert response.json()["detail"]["error"] == expected_error
+
+
 def test_attachment_limit_api_returns_409(monkeypatch, tmp_path):
     use_temp_database(monkeypatch, tmp_path)
     session = create_session("alice")

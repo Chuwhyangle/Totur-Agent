@@ -265,13 +265,19 @@ def _user_safe_message(record: DocumentRecord) -> str | None:
     if record.status is not DocumentStatus.FAILED:
         return None
 
-    messages = {
+    pdf_messages = {
         "ENCRYPTED_PDF_NOT_SUPPORTED": "当前版本不支持加密 PDF。",
         "PDF_PAGE_LIMIT_EXCEEDED": "PDF 页数超过当前限制。",
-        "NO_EXTRACTABLE_TEXT": (
-            "当前版本只支持包含可提取文本层的 PDF，暂不支持扫描件。"
-        ),
         "INVALID_PDF": "PDF 文件损坏或格式无效。",
+    }
+    if record.error_code in pdf_messages:
+        return pdf_messages[record.error_code]
+    if record.error_code == "NO_EXTRACTABLE_TEXT":
+        if record.mime_type == "application/pdf":
+            return "当前版本只支持包含可提取文本层的 PDF，暂不支持扫描件。"
+        return "文件中没有可提取的文本内容。"
+
+    messages = {
         "PROCESSING_SERVICE_UNAVAILABLE": (
             "附件处理服务暂时不可用，请稍后重试。"
         ),
@@ -282,4 +288,9 @@ def _user_safe_message(record: DocumentRecord) -> str | None:
             "附件重新处理准备失败，请稍后重试。"
         ),
     }
-    return messages.get(record.error_code, "PDF 文档解析失败。")
+    fallback = (
+        "PDF 文档解析失败。"
+        if record.mime_type == "application/pdf"
+        else "附件解析失败。"
+    )
+    return messages.get(record.error_code, fallback)
