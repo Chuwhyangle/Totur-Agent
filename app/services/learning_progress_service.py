@@ -8,6 +8,7 @@ from app.db.models import (
     LearningProgressStatus,
 )
 from app.repositories.learning_progress_repository import (
+    delete_learning_progress,
     get_learning_progress,
     list_learning_progress,
     upsert_learning_progress,
@@ -44,6 +45,27 @@ class LearningProgressService:
             user_id=normalized_user_id,
             subject=normalized_subject,
             limit=limit,
+        )
+
+    def delete_manual(
+        self,
+        *,
+        progress_id: int,
+        user_id: str,
+        subject: str,
+    ) -> bool:
+        """删除用户手动维护的一条记录。"""
+
+        if not isinstance(progress_id, int) or isinstance(progress_id, bool) or progress_id < 1:
+            raise InvalidLearningProgressError("progress_id must be a positive integer")
+        normalized_user_id = _normalize_required(
+            user_id, "user_id", MAX_USER_ID_LENGTH
+        )
+        normalized_subject = _normalize_subject(subject)
+        return delete_learning_progress(
+            progress_id=progress_id,
+            user_id=normalized_user_id,
+            subject=normalized_subject,
         )
 
     def save_manual(

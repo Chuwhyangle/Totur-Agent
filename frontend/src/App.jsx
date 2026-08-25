@@ -10,6 +10,7 @@ import {
   getAttachments,
   getHealth,
   getInterviewJDs,
+  getLearningProgress,
   getModels,
   getPersonas,
   updateCustomPersona,
@@ -34,6 +35,8 @@ import {
   restoreWorkspace,
   saveWorkspaceAgentInstructions,
   clearWorkspaceAgentInstructions,
+  deleteLearningProgress,
+  saveLearningProgress,
   API_BASE_URL,
 } from './api/tutorApi.js'
 import ApiStatus from './components/ApiStatus.jsx'
@@ -47,6 +50,7 @@ import PersonaManager from './components/PersonaManager.jsx'
 import SessionSidebar from './components/SessionSidebar.jsx'
 import WorkspacePanel from './components/workspaces/WorkspacePanel.jsx'
 import KnowledgeLibrary from './components/KnowledgeLibrary.jsx'
+import LearningProgressPanel from './components/LearningProgressPanel.jsx'
 import { useAttachmentPolling } from './hooks/useAttachmentPolling.js'
 import {
   addSelectedAttachmentId,
@@ -166,6 +170,10 @@ function App() {
   const [interviewJDs, setInterviewJDs] = useState([])
   const [interviewJDsStatus, setInterviewJDsStatus] = useState('idle')
   const [isSavingInterviewJD, setIsSavingInterviewJD] = useState(false)
+  const [learningProgress, setLearningProgress] = useState([])
+  const [learningProgressStatus, setLearningProgressStatus] = useState('idle')
+  const [learningProgressError, setLearningProgressError] = useState('')
+  const [learningProgressOpen, setLearningProgressOpen] = useState(false)
   const [personas, setPersonas] = useState([])
   const [personasStatus, setPersonasStatus] = useState('idle')
   const [selectedPersonaId, setSelectedPersonaId] = useState(DEFAULT_PERSONA_ID)
@@ -334,6 +342,10 @@ function App() {
     setActiveSessionStatus('idle')
     setInterviewJDs([])
     setInterviewJDsStatus('idle')
+    setLearningProgress([])
+    setLearningProgressStatus('idle')
+    setLearningProgressError('')
+    setLearningProgressOpen(false)
     workspaceRequestIdRef.current += 1
     setWorkspaces([])
     setSelectedWorkspaceId(null)
@@ -599,6 +611,63 @@ function App() {
       return null
     } finally {
       setIsSavingInterviewJD(false)
+    }
+  }
+
+  const loadLearningProgress = useCallback(async ({ silent = false } = {}) => {
+    const trimmedUserId = userId.trim()
+    if (!trimmedUserId) {
+      setLearningProgress([])
+      setLearningProgressStatus('error')
+      setLearningProgressError('请先填写用户 ID。')
+      return []
+    }
+    if (!silent) {
+      setLearningProgressStatus('loading')
+      setLearningProgressError('')
+    }
+
+    try {
+      const { data } = await getLearningProgress(trimmedUserId, 'sql')
+      const nextItems = Array.isArray(data?.items) ? data.items : []
+      setLearningProgress(nextItems)
+      setLearningProgressStatus('success')
+      setLearningProgressError('')
+      return nextItems
+    } catch (error) {
+      setLearningProgress([])
+      setLearningProgressStatus('error')
+      setLearningProgressError(getErrorDisplayMessage(error))
+      return []
+    }
+  }, [userId])
+
+  async function handleSaveLearningProgress(form) {
+    const trimmedUserId = userId.trim()
+    if (!trimmedUserId) throw new Error('请先填写用户 ID。')
+    try {
+      const { data } = await saveLearningProgress({
+        ...form,
+        user_id: trimmedUserId,
+        subject: 'sql',
+      })
+      await loadLearningProgress({ silent: true })
+      return data
+    } catch (error) {
+      setLearningProgressError(getErrorDisplayMessage(error))
+      throw error
+    }
+  }
+
+  async function handleDeleteLearningProgress(item) {
+    const trimmedUserId = userId.trim()
+    if (!trimmedUserId) throw new Error('请先填写用户 ID。')
+    try {
+      await deleteLearningProgress(item.id, trimmedUserId, 'sql')
+      await loadLearningProgress({ silent: true })
+    } catch (error) {
+      setLearningProgressError(getErrorDisplayMessage(error))
+      throw error
     }
   }
 
@@ -1277,6 +1346,9 @@ function App() {
             }}
           />
           <button className="persona-manager-trigger" type="button" onClick={() => setPersonaManagerOpen(true)} aria-label="管理 Persona" title="管理 Persona"><Icon name="user" size={16} /></button>
+          <button className="header-action-button" type="button" onClick={() => { setLearningProgressOpen(true); void loadLearningProgress() }} disabled={!userId.trim()}>
+            <Icon name="check" size={17} /><span>学习进度</span>
+          </button>
           <button className="header-action-button" type="button" onClick={() => setIsTargetPanelOpen(true)}>
             <Icon name="target" size={17} /><span>学习目标</span>
           </button>
@@ -1377,6 +1449,17 @@ function App() {
         </section>
       </div>
 
+      <LearningProgressPanel
+        open={learningProgressOpen}
+        userId={userId.trim()}
+        items={learningProgress}
+        status={learningProgressStatus}
+        error={learningProgressError}
+        onRefresh={() => loadLearningProgress()}
+        onSave={handleSaveLearningProgress}
+        onDelete={handleDeleteLearningProgress}
+        onClose={() => setLearningProgressOpen(false)}
+      />
       <InterviewJDPanel
         userId={userId}
         items={interviewJDs}

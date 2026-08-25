@@ -51,6 +51,31 @@ def test_learning_progress_can_be_created_and_updated_without_duplicates():
     assert listed.json()["items"][0]["evidence"] == "已经能够写出基础连接"
 
 
+def test_learning_progress_can_be_deleted_only_by_owner():
+    created = client.put(
+        "/learning-progress",
+        json={
+            "user_id": "alice",
+            "subject": "sql",
+            "topic": "NULL",
+            "level": 1,
+            "status": "needs_practice",
+        },
+    )
+    progress_id = created.json()["id"]
+
+    forbidden = client.delete(
+        f"/learning-progress/{progress_id}?user_id=bob&subject=sql"
+    )
+    assert forbidden.status_code == 404
+
+    deleted = client.delete(
+        f"/learning-progress/{progress_id}?user_id=alice&subject=sql"
+    )
+    assert deleted.status_code == 204
+    assert client.get("/learning-progress?user_id=alice&subject=sql").json()["items"] == []
+
+
 def test_learning_progress_isolated_by_user_and_subject():
     client.put(
         "/learning-progress",

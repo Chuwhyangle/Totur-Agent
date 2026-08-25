@@ -24,6 +24,7 @@ const PERSONAS_URL = `${API_BASE_URL}/personas`
 const SESSIONS_URL = `${API_BASE_URL}/sessions`
 const JOURNAL_URL = `${API_BASE_URL}/api/journal`
 const WORKSPACES_URL = `${API_BASE_URL}/workspaces`
+const LEARNING_PROGRESS_URL = `${API_BASE_URL}/learning-progress`
 const KNOWLEDGE_DOCUMENTS_URL = `${API_BASE_URL}/knowledge/documents`
 
 export class TutorApiError extends Error {
@@ -155,6 +156,31 @@ export async function getHealth(options = {}) {
     'Health check failed',
   )
   return data
+}
+
+export function getLearningProgress(userId, subject = 'sql', options = {}) {
+  const searchParams = new URLSearchParams({ user_id: userId, subject })
+  return requestJson(`${LEARNING_PROGRESS_URL}?${searchParams.toString()}`, {
+    signal: options.signal,
+  }, 'Learning progress request failed')
+}
+
+export function saveLearningProgress(requestBody, options = {}) {
+  return requestJson(LEARNING_PROGRESS_URL, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(requestBody),
+    debugRequestBody: requestBody,
+    signal: options.signal,
+  }, 'Save learning progress failed')
+}
+
+export function deleteLearningProgress(progressId, userId, subject = 'sql', options = {}) {
+  const searchParams = new URLSearchParams({ user_id: userId, subject })
+  return requestJson(`${LEARNING_PROGRESS_URL}/${encodeURIComponent(progressId)}?${searchParams.toString()}`, {
+    method: 'DELETE',
+    signal: options.signal,
+  }, 'Delete learning progress failed')
 }
 
 export function postChat(requestBody, options = {}) {

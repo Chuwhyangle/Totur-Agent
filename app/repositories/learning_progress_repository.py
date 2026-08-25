@@ -150,6 +150,28 @@ def upsert_learning_progress(
     )
 
 
+def delete_learning_progress(
+    *,
+    progress_id: int,
+    user_id: str,
+    subject: str,
+) -> bool:
+    """删除属于指定用户和主题的一条学习进度。"""
+
+    query = text(
+        f"""
+        DELETE FROM {LEARNING_PROGRESS_TABLE}
+        WHERE id = :id AND user_id = :user_id AND subject = :subject
+        """
+    )
+    with get_engine().begin() as connection:
+        result = connection.execute(
+            query,
+            {"id": progress_id, "user_id": user_id, "subject": subject},
+        )
+    return result.rowcount > 0
+
+
 def _record_from_row(row) -> LearningProgressRecord:
     """把数据库结果转换为领域记录。"""
 

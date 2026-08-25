@@ -10,6 +10,7 @@ const api = vi.hoisted(() => ({
   getAttachments: vi.fn(),
   getHealth: vi.fn(),
   getInterviewJDs: vi.fn(),
+  getLearningProgress: vi.fn(),
   getPersonas: vi.fn(),
   getSessionConversations: vi.fn(),
   getSessions: vi.fn(),
@@ -19,6 +20,8 @@ const api = vi.hoisted(() => ({
   getWorkspaceArtifacts: vi.fn(),
   postChat: vi.fn(),
   postChatStream: vi.fn(),
+  saveLearningProgress: vi.fn(),
+  deleteLearningProgress: vi.fn(),
   retryAttachment: vi.fn(),
   uploadAttachment: vi.fn(),
 }))
@@ -75,6 +78,7 @@ function mockAppBootstrap() {
   api.getSessions.mockResolvedValue({ data: { items: sessions } })
   api.getWorkspaces.mockResolvedValue({ data: { items: [] } })
   api.getInterviewJDs.mockResolvedValue({ data: { items: [] } })
+  api.getLearningProgress.mockResolvedValue({ data: { items: [] } })
   api.getSessionConversations.mockResolvedValue({ data: { items: [] } })
   api.createSession.mockResolvedValue({ data: sessions[0] })
   api.postChat.mockResolvedValue({

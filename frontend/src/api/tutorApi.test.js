@@ -10,6 +10,9 @@ import {
   getWorkspaceAssets,
   getWorkspaceTasks,
   getWorkspaces,
+  getLearningProgress,
+  saveLearningProgress,
+  deleteLearningProgress,
   createWorkspace,
   uploadWorkspaceAsset,
   retryWorkspaceAsset,
@@ -139,6 +142,38 @@ describe('tutorApi attachment API', () => {
     const [, options] = fetch.mock.calls[0]
     expect(options.headers).toEqual({ 'Content-Type': 'application/json' })
     expect(JSON.parse(options.body)).toEqual(requestBody)
+  })
+})
+
+describe('tutorApi learning progress API', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('uses the learning progress list, save, and delete routes', async () => {
+    fetch
+      .mockResolvedValueOnce(jsonResponse({ items: [] }))
+      .mockResolvedValueOnce(jsonResponse({ id: 3, topic: 'JOIN' }))
+      .mockResolvedValueOnce({ ok: true, status: 204, json: vi.fn() })
+
+    await getLearningProgress('user one', 'sql')
+    await saveLearningProgress({ user_id: 'user one', subject: 'sql', topic: 'JOIN' })
+    await deleteLearningProgress(3, 'user one', 'sql')
+
+    expect(fetch.mock.calls[0][0]).toBe(
+      `${API_BASE_URL}/learning-progress?user_id=user+one&subject=sql`,
+    )
+    expect(fetch.mock.calls[1][0]).toBe(`${API_BASE_URL}/learning-progress`)
+    expect(fetch.mock.calls[1][1].method).toBe('PUT')
+    expect(JSON.parse(fetch.mock.calls[1][1].body).topic).toBe('JOIN')
+    expect(fetch.mock.calls[2][0]).toBe(
+      `${API_BASE_URL}/learning-progress/3?user_id=user+one&subject=sql`,
+    )
+    expect(fetch.mock.calls[2][1].method).toBe('DELETE')
   })
 })
 

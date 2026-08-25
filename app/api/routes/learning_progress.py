@@ -1,6 +1,6 @@
 """用户级学习进度 API。"""
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, Path, Query, status
 
 from app.db.models import LearningProgressRecord
 from app.schemas.learning_progress import (
@@ -43,6 +43,29 @@ def list_progress(
         subject=subject.strip().lower(),
         items=[_item_from_record(record) for record in records],
     )
+
+
+@router.delete("/{progress_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_progress(
+    progress_id: int = Path(..., ge=1),
+    user_id: str = Query(..., min_length=1, max_length=64),
+    subject: str = Query(default="sql", min_length=1, max_length=64),
+) -> None:
+    """删除属于当前用户的一条学习进度。"""
+
+    try:
+        deleted = learning_progress_service.delete_manual(
+            progress_id=progress_id,
+            user_id=user_id,
+            subject=subject,
+        )
+    except InvalidLearningProgressError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={"error": "invalid_learning_progress", "message": str(error)},
+        ) from error
+    if not deleted:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="学习进度不存在")
 
 
 @router.put("", response_model=LearningProgressItem)
