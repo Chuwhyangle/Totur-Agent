@@ -21,6 +21,7 @@ export default function KnowledgeLibrary({ userId, onClose }) {
   const [documents, setDocuments] = useState([])
   const [status, setStatus] = useState('idle')
   const [notice, setNotice] = useState('')
+  const [isUploading, setIsUploading] = useState(false)
   const inputRef = useRef(null)
 
   const refresh = useCallback(async () => {
@@ -31,7 +32,9 @@ export default function KnowledgeLibrary({ userId, onClose }) {
       setDocuments(data?.items ?? [])
       setStatus('ready')
     } catch (error) {
-      setNotice(error.message || '文档列表读取失败')
+      setNotice(error.status === 404
+        ? '文档库接口未加载，请重启后端服务后再试。'
+        : error.message || '文档列表读取失败')
       setStatus('error')
     }
   }, [userId])
@@ -44,17 +47,36 @@ export default function KnowledgeLibrary({ userId, onClose }) {
     return () => window.clearInterval(timer)
   }, [documents, refresh])
 
+  useEffect(() => {
+    function handleKeyDown(event) {
+      if (event.key === 'Escape') onClose?.()
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [onClose])
+
   async function handleUpload(file) {
+    if (isUploading) return
     const extension = `.${file.name.split('.').pop()?.toLowerCase()}`
     if (!ACCEPTED.includes(extension)) { setNotice('只支持 PDF、Markdown 文件'); return }
     if (file.size > 50 * 1024 * 1024) { setNotice('文件不能超过 50MB'); return }
     const sameName = documents.find((item) => item.original_filename === file.name && item.status !== 'DELETED')
     if (sameName && !window.confirm(`文档库中已有同名文件《${file.name}》,继续上传将替换旧版本`)) return
+    setIsUploading(true)
+    setStatus('uploading')
+    setNotice('正在上传并处理文档，请稍候…')
     try {
       const { data } = await uploadKnowledgeDocument(userId.trim(), file)
       setNotice(data?.duplicate ? '该文件已在文档库中' : '文档已加入处理队列')
       await refresh()
-    } catch (error) { setNotice(error.message || '上传失败') }
+    } catch (error) {
+      setNotice(error.status === 404
+        ? '文档库接口未加载，请重启后端服务后再试。'
+        : error.message || '上传失败')
+      setStatus('error')
+    } finally {
+      setIsUploading(false)
+    }
   }
 
   async function handleDelete(item) {
@@ -67,15 +89,16 @@ export default function KnowledgeLibrary({ userId, onClose }) {
   }
 
   return (
-    <div className="workspace-panel-overlay" role="dialog" aria-label="文档库">
-      <section className="workspace-panel">
-        <div className="workspace-panel-header"><div><span className="workspace-eyebrow">Knowledge</span><h2>文档库</h2></div><button className="icon-button" type="button" onClick={onClose} aria-label="关闭文档库"><Icon name="x" size={18} /></button></div>
-        <div className="workspace-section-heading"><span className="workspace-muted">PDF / Markdown · 最大 50MB</span><button className="workspace-small-button" type="button" onClick={() => inputRef.current?.click()}><Icon name="upload" size={14} /> 上传</button><input ref={inputRef} hidden type="file" accept={ACCEPTED.join(',')} onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void handleUpload(file) }} /></div>
+    <>
+      <button className="drawer-scrim workspace-scrim" type="button" aria-label="关闭文档库（点击遮罩）" onClick={onClose} />
+      <aside className="workspace-panel" role="dialog" aria-modal="true" aria-label="文档库">
+        <div className="workspace-panel-header"><div><span className="workspace-eyebrow">Knowledge</span><h2>文档库</h2></div><button className="icon-button" type="button" onClick={onClose} aria-label="关闭文档库" title="关闭"><Icon name="close" size={18} /></button></div>
+        <div className="workspace-section-heading"><span className="workspace-muted">PDF / Markdown · 最大 50MB</span><button className="workspace-small-button" type="button" disabled={isUploading || !userId?.trim()} onClick={() => inputRef.current?.click()}><Icon name="upload" size={14} /> {isUploading ? '处理中…' : '上传'}</button><input ref={inputRef} hidden type="file" accept={ACCEPTED.join(',')} onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void handleUpload(file) }} /></div>
         {notice ? <p className="workspace-muted" role="status">{notice}</p> : null}
         {status === 'loading' && documents.length === 0 ? <p className="workspace-muted">正在读取文档…</p> : null}
-        {documents.length === 0 && status !== 'loading' ? <p className="workspace-empty">还没有上传文档。</p> : null}
+        {documents.length === 0 && status !== 'loading' && status !== 'uploading' ? <p className="workspace-empty">还没有上传文档。</p> : null}
         <ul className="workspace-asset-list">{documents.filter((item) => item.status !== 'DELETED').map((item) => <li className="workspace-asset-item" key={item.id}><div className="workspace-asset-main"><span className="workspace-file-icon"><Icon name="file" size={15} /></span><div className="workspace-list-copy"><strong>{item.original_filename}{item.version_no > 1 ? ` v${item.version_no}` : ''}</strong><small>{formatSize(item.size_bytes)} · {item.page_count ?? '-'} 页 · {item.chunk_count ?? '-'} chunks</small></div></div><span className={`workspace-status workspace-status-${String(item.status).toLowerCase()}`}>{item.status}</span><div className="workspace-item-actions">{item.status === 'FAILED' ? <button className="icon-button" type="button" onClick={() => void handleRetry(item)} aria-label={`重试 ${item.original_filename}`} title="重试"><Icon name="refresh" size={14} /></button> : null}<button className="icon-button" type="button" onClick={() => void handleDelete(item)} aria-label={`删除 ${item.original_filename}`} title="删除"><Icon name="trash" size={14} /></button></div>{item.user_safe_message ? <p className="workspace-item-error">{item.user_safe_message}</p> : null}</li>)}</ul>
-      </section>
-    </div>
+      </aside>
+    </>
   )
 }
