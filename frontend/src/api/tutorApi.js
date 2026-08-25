@@ -24,6 +24,7 @@ const PERSONAS_URL = `${API_BASE_URL}/personas`
 const SESSIONS_URL = `${API_BASE_URL}/sessions`
 const JOURNAL_URL = `${API_BASE_URL}/api/journal`
 const WORKSPACES_URL = `${API_BASE_URL}/workspaces`
+const KNOWLEDGE_DOCUMENTS_URL = `${API_BASE_URL}/knowledge/documents`
 
 export class TutorApiError extends Error {
   constructor(message, { status = null, detail = null, responseBody = null, debug = null, cause = null } = {}) {
@@ -415,6 +416,27 @@ export function uploadWorkspaceAsset(workspaceId, userId, file, options = {}) {
     body: formData,
     signal: options.signal,
   }, 'Workspace Asset upload failed')
+}
+
+export function getKnowledgeDocuments(userId, options = {}) {
+  const params = new URLSearchParams({ user_id: userId, limit: String(options.limit ?? 100) })
+  if (options.status) params.set('status', options.status)
+  return requestJson(`${KNOWLEDGE_DOCUMENTS_URL}?${params.toString()}`, { signal: options.signal }, 'Knowledge document list request failed')
+}
+
+export function uploadKnowledgeDocument(userId, file, options = {}) {
+  const formData = new FormData()
+  formData.append('user_id', userId)
+  formData.append('file', file)
+  return requestJson(KNOWLEDGE_DOCUMENTS_URL, { method: 'POST', body: formData, signal: options.signal }, 'Knowledge document upload failed')
+}
+
+export function retryKnowledgeDocument(documentId, userId, options = {}) {
+  return requestJson(`${KNOWLEDGE_DOCUMENTS_URL}/${encodeURIComponent(documentId)}/retry?user_id=${encodeURIComponent(userId)}`, { method: 'POST', signal: options.signal }, 'Knowledge document retry failed')
+}
+
+export function deleteKnowledgeDocument(documentId, userId, options = {}) {
+  return requestJson(`${KNOWLEDGE_DOCUMENTS_URL}/${encodeURIComponent(documentId)}?user_id=${encodeURIComponent(userId)}`, { method: 'DELETE', signal: options.signal }, 'Knowledge document delete failed')
 }
 
 export function getWorkspaceAssets(workspaceId, userId, options = {}) {

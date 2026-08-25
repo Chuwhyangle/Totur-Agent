@@ -61,6 +61,12 @@ ENABLE_HYBRID_RETRIEVAL = True
 # v0.4 FR4.6 种子检索实验默认关闭，避免未经生成层评测就改变 /chat 主链路。
 ENABLE_RAG_SEED_CONTEXT = False
 
+# 用户上传文档的独立集合。与 learning_notes 物理隔离，避免离线重建学习笔记时删除用户数据。
+USER_DOCUMENT_COLLECTION_NAME = "user_documents"
+USER_DOCUMENT_SIMILARITY_THRESHOLD = 0.45
+# Phase 6 才打开。关闭时 search_learning_notes 行为与现在完全一致。
+ENABLE_USER_DOCUMENT_RETRIEVAL = True
+
 # 进入 ReAct 循环前预检索的种子块数量和注入上下文字符上限。
 RAG_SEED_TOP_K = 2
 RAG_SEED_MAX_CHARS = 900

@@ -46,6 +46,7 @@ import PersonaSelector from './components/PersonaSelector.jsx'
 import PersonaManager from './components/PersonaManager.jsx'
 import SessionSidebar from './components/SessionSidebar.jsx'
 import WorkspacePanel from './components/workspaces/WorkspacePanel.jsx'
+import KnowledgeLibrary from './components/KnowledgeLibrary.jsx'
 import { useAttachmentPolling } from './hooks/useAttachmentPolling.js'
 import {
   addSelectedAttachmentId,
@@ -168,6 +169,7 @@ function App() {
   const [modelsStatus, setModelsStatus] = useState('idle')
   const [selectedModelId, setSelectedModelId] = useState(() => localStorage.getItem('tutor-model') ?? null)
   const [isTargetPanelOpen, setIsTargetPanelOpen] = useState(false)
+  const [knowledgeLibraryOpen, setKnowledgeLibraryOpen] = useState(false)
   const [theme, setTheme] = useState(() => localStorage.getItem('tutor-theme') ?? 'light')
   const [attachments, setAttachments] = useState([])
   const [attachmentStatus, setAttachmentStatus] = useState('idle')
@@ -1208,6 +1210,9 @@ function App() {
           <button className="header-action-button" type="button" onClick={() => setIsTargetPanelOpen(true)}>
             <Icon name="target" size={17} /><span>学习目标</span>
           </button>
+          <button className="header-action-button" type="button" onClick={() => setKnowledgeLibraryOpen(true)}>
+            <Icon name="file" size={17} /><span>文档库</span>
+          </button>
           <button className="theme-button" type="button" onClick={() => setTheme((current) => current === 'dark' ? 'light' : 'dark')} aria-label="切换明暗主题">
             <Icon name={theme === 'dark' ? 'sun' : 'moon'} size={18} />
           </button>
@@ -1310,6 +1315,7 @@ function App() {
         onClose={() => setIsTargetPanelOpen(false)}
       />
       {personaManagerOpen ? <PersonaManager userId={userId.trim()} personas={personas} onCreate={handleCreatePersona} onUpdate={handleUpdatePersona} onDisable={handleDisablePersona} onClose={() => setPersonaManagerOpen(false)} /> : null}
+      {knowledgeLibraryOpen ? <KnowledgeLibrary userId={userId} onClose={() => setKnowledgeLibraryOpen(false)} /> : null}
       <WorkspacePanel
         open={workspacePanelOpen}
         featureStatus={workspaceFeatureStatus}

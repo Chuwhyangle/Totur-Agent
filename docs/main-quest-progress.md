@@ -38,7 +38,7 @@
 - [ ] 记忆层级 3：滚动摘要（已接入 `/chat`）
 - [ ] 记忆层级 4：长期记忆（TODO）
 - [ ] 记忆层级 5：语义检索记忆（TODO）
-- [ ] 记忆层级 6：RAG 学习资料（TODO）
+- [x] 记忆层级 6：RAG 学习资料（DONE）
 - [x] 面试工具 1：`interview_jd_search` 检索已保存 JD
 - [x] 面试工具 2：`score_jd_skill_fit` 对 LLM 的技能判断做确定性算分
 
@@ -584,7 +584,7 @@ LLM 判断，工具算分。
 | 3. 滚动摘要 | 长对话不会越聊越贵 | 过了很多轮也能保持主线 | 保存 `summary`，只带摘要 + 最近几轮 | 已接入 `/chat` |
 | 4. 长期记忆 | 记住用户水平、偏好、薄弱点 | “你上次 SQL 卡在 JOIN” | `user_profile` / `learning_memories` 表 | TODO |
 | 5. 语义检索记忆 | 从很多历史或资料里找相关内容 | “找回以前相似问题/学习资料” | `embedding` + 向量数据库 | TODO |
-| 6. RAG 学习资料 | 基于课程文档、项目文档或学习材料答疑 | 回答能引用资料来源，不只靠模型记忆 | 文档导入、切片、向量检索、引用来源 | TODO |
+| 6. RAG 学习资料 | 基于课程文档、项目文档或学习材料答疑 | 回答能引用资料来源，不只靠模型记忆 | 文档导入、切片、向量检索、引用来源 | DONE |
 
 文档导入 Phase 1 技术债：暂不支持扫描件 OCR、复杂表格版面还原和语义近重复去重。
 
@@ -765,29 +765,29 @@ SUMMARY_TRIGGER_COUNT = 8
 - [ ] 根据当前问题检索相关旧对话
 - [ ] 把检索结果和最近几轮一起放进 prompt
 
-### 层级 6：RAG 学习资料（TODO）
+### 层级 6：RAG 学习资料（DONE）
 
 目标：让 Tutor Agent 能基于课程文档、项目文档和学习材料答疑。
 
 可能要做：
 
-- [ ] 设计学习资料导入方式
-- [ ] 文档切片并保存来源信息
-- [ ] 为文档片段生成 embedding
-- [ ] 根据问题检索相关资料片段
-- [ ] 回答时附带引用来源
+- [x] 设计学习资料导入方式
+- [x] 文档切片并保存来源信息
+- [x] 为文档片段生成 embedding
+- [x] 根据问题检索相关资料片段
+- [x] 回答时附带引用来源
 
-### 知识库文档导入（进行中）
+### 知识库文档导入（已完成）
 
 - [x] Phase 1：PDF 解析结果转换为带标题推断和页码哨兵的伪 Markdown
 - [x] Phase 1.5：修复罗马数字误删、空页哨兵和标题页码归属问题
 - [x] Phase 2：knowledge_documents 表 + Repository（0005 迁移，SQLite/MySQL 双方言）
 - [x] Phase 2.5：0005 已在 MySQL 契约库验证通过，契约测试已补充新表 collation 断言
-- [ ] Phase 3：user_documents 独立 Chroma 集合 Repository
-- [ ] Phase 4：摄入编排 Service（状态机 + 三层去重 + 补偿删除）
-- [ ] Phase 5：API 路由 + 启动恢复
-- [ ] Phase 6：检索接入（feature flag + 多集合融合）
-- [ ] Phase 7：前端文档库面板
+- [x] Phase 3：user_documents 独立 Chroma 集合 Repository
+- [x] Phase 4：摄入编排 Service（状态机 + 三层去重 + 补偿删除）
+- [x] Phase 5：API 路由 + 启动恢复
+- [x] Phase 6：检索接入（feature flag + 多集合融合）
+- [x] Phase 7：前端文档库面板
 
 完整任务书见 `docs/superpowers/plans/2026-08-25-knowledge-doc-import.md`。
 
@@ -796,6 +796,31 @@ SUMMARY_TRIGGER_COUNT = 8
 
 契约测试维护注意事项：`test_business_schema_has_workspace_foundation_tables` 使用精确表集合；
 以后每新增一张业务表，都必须在该测试中显式追加表名，不能改成子集断言。
+
+知识库文档导入数据流：上传文件先落盘并计算文件 sha256，解析 PDF/Markdown 后规范化正文，
+按标题路径切块并记录页码范围，批量生成 embedding，写入独立 `user_documents` 集合，
+最后更新 `knowledge_documents` 的 chunk 数和 READY 状态。检索时 notes 与 user_documents
+可按 feature flag 并行融合，命中结果携带来源和页码范围。
+
+三层去重策略：L1 按用户和文件字节 sha256 拦截完全重复上传；L2 按去空白正文 sha256
+避免重复 embedding；L3 在同一文档内按 chunk 正文 sha256 去除重复块。独立集合的原因是
+`build_knowledge_index.py` 的 `KnowledgeRepository.rebuild()` 会删除整个学习笔记集合，
+用户文档若共用该集合会在离线重建时被不可恢复地删除。
+
+知识库导入技术债：
+
+- PDF 双栏版面未处理，双栏论文的块顺序会左右串行
+- 未提取真实字号，标题推断依赖 bbox 高度启发式
+- 不支持扫描件（无文本层），依赖 `PdfParser` 的 `NO_EXTRACTABLE_TEXT` 拦截
+- 未做语义近重复去重（仅精确 sha256）
+- `DVD` 等合法罗马数字词仍可能被当作页码删除
+- user_documents 的 BM25 指纹是弱指纹（仅基于 chunk 总数）
+- `BackgroundTasks` 单进程，多副本部署下并发入库无协调
+- `SIMILARITY_THRESHOLD` 仍是纯笔记语料校准值，混入 PDF 后需重新扫描校准
+- 解析预览确认流程未实现（需要暂停在 CHUNKING 等待确认的中间态）
+- `public_jd_repository.py:61` 使用 `ON CONFLICT ... DO UPDATE`，MySQL 需改为 `ON DUPLICATE KEY UPDATE`
+- 全库 `_now()` 返回 ISO 字符串（带 `T` 和 `+00:00`），MySQL `DATETIME(6)` 严格模式下会拒绝，割接前需统一改为 datetime 对象
+- 无 SQLite → MySQL 数据搬迁脚本（需按外键依赖排序并做行数/内容校验）
 
 ---
 

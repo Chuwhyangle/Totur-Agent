@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
 from pathlib import Path
 import time
 from typing import Any
@@ -10,6 +12,10 @@ from typing import Any
 from app.clients.embedding_client import EmbeddingClient, EmbeddingError
 from app.db import trace_db
 from app.repositories.knowledge_repository import KnowledgeHit, KnowledgeRepository
+from app.repositories.user_document_vector_repository import (
+    UserDocumentHit,
+    UserDocumentVectorRepository,
+)
 from app.services import timings
 from app.services.shard_router import ShardRouter
 from app.services.hybrid_retriever import hybrid_search
@@ -23,6 +29,7 @@ from app.services.rag_settings import (
     RAG_TOP_K,
     RERANK_CANDIDATE_K,
     SIMILARITY_THRESHOLD,
+    ENABLE_USER_DOCUMENT_RETRIEVAL,
 )
 
 
@@ -37,6 +44,7 @@ _repository: KnowledgeRepository | None = None
 _router: ShardRouter | None = None
 _embedding_client: EmbeddingClient | None = None
 _reranking_service: RerankingService | None = None
+_user_document_repository: UserDocumentVectorRepository | None = None
 # Cache (mtime_ns, fingerprint) so a rebuilt index is picked up without restart.
 _manifest_cache: tuple[int, str] | None = None
 
@@ -62,11 +70,12 @@ def search_learning_notes(
         index_count = sum(shard.repository.count() for shard in router.handles)
     else:
         index_count = repository.count()
-    if index_count == 0:
+    user_document_count = _get_user_document_repository().count() if ENABLE_USER_DOCUMENT_RETRIEVAL else 0
+    if index_count == 0 and user_document_count == 0:
         trace_db.save_retrieval_event(
             trace_id=timings.get_trace_id(),
             query=query.strip(),
-            collection="notes",
+            collection=_trace_collection_name(),
             top_k=_clamp_limit(limit),
             hit_count=0,
             top_score=0.0,
@@ -91,7 +100,7 @@ def search_learning_notes(
         trace_db.save_retrieval_event(
             trace_id=timings.get_trace_id(),
             query=stripped_query,
-            collection="notes",
+            collection=_trace_collection_name(),
             passed=0,
             cost_ms=int((time.perf_counter() - retrieval_started_at) * 1000),
             rerank_fallback="embedding_failed",
@@ -160,7 +169,7 @@ def search_learning_notes(
     trace_db.save_retrieval_event(
         trace_id=timings.get_trace_id(),
         query=stripped_query,
-        collection="notes",
+        collection=_trace_collection_name(),
         embed_ms=embed_ms,
         search_ms=search_ms,
         rerank_ms=rerank_ms,
@@ -205,6 +214,16 @@ def _retrieve_hits(
 ) -> list[KnowledgeHit]:
     """Route through subject shards when enabled, otherwise preserve single-index behavior."""
 
+    if ENABLE_USER_DOCUMENT_RETRIEVAL:
+        return _retrieve_notes_and_user_documents(
+            repository=repository,
+            query=query,
+            query_embedding=query_embedding,
+            top_k=top_k,
+            subject=subject,
+            router=router,
+        )
+
     if router is not None:
         return router.search(
             query=query,
@@ -225,6 +244,97 @@ def _retrieve_hits(
             )
 
     return repository.search(query_embedding=query_embedding, top_k=top_k)
+
+
+def _retrieve_notes_and_user_documents(
+    *,
+    repository: KnowledgeRepository,
+    query: str,
+    query_embedding: list[float],
+    top_k: int,
+    subject: str | None,
+    router: ShardRouter | None,
+) -> list[KnowledgeHit]:
+    """Search both isolated collections; either branch may fail independently."""
+
+    def notes_search() -> list[KnowledgeHit]:
+        if router is not None:
+            return router.search(
+                query=query,
+                query_embedding=query_embedding,
+                top_k=top_k,
+                subject=subject,
+            )
+        if ENABLE_HYBRID_RETRIEVAL:
+            fingerprint = _get_manifest_fingerprint()
+            if fingerprint is not None:
+                return hybrid_search(
+                    repository=repository,
+                    query=query,
+                    query_embedding=query_embedding,
+                    top_k=top_k,
+                    fingerprint=fingerprint,
+                )
+        return repository.search(query_embedding=query_embedding, top_k=top_k)
+
+    def user_documents_search() -> list[KnowledgeHit]:
+        user_repository = _get_user_document_repository()
+        if user_repository.count() == 0:
+            return []
+        # Weak fingerprint: document count only. Content changes with a stable count
+        # do not rebuild BM25; acceptable for the single-user MVP and a known debt.
+        fingerprint = f"userdocs:{user_repository.count()}"
+        if ENABLE_HYBRID_RETRIEVAL:
+            return [
+                _hit_from_user_document(hit)
+                for hit in hybrid_search(
+                    repository=user_repository,
+                    query=query,
+                    query_embedding=query_embedding,
+                    top_k=top_k,
+                    fingerprint=fingerprint,
+                )
+            ]
+        return [
+            _hit_from_user_document(hit)
+            for hit in user_repository.search(query_embedding, "default", top_k)
+        ]
+
+    results: list[KnowledgeHit] = []
+    jobs = (notes_search, user_documents_search)
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [executor.submit(job) for job in jobs]
+        for future in as_completed(futures):
+            try:
+                results.extend(future.result())
+            except Exception as exc:
+                logger.warning("knowledge_collection_search_failed error_type=%s", type(exc).__name__)
+    return sorted(
+        results,
+        key=lambda hit: (-hit.similarity, hit.source, hit.title_path, hit.content),
+    )[:top_k]
+
+
+@dataclass(frozen=True, slots=True)
+class _UserDocumentKnowledgeHit:
+    content: str
+    source: str
+    title_path: str
+    similarity: float
+    doc_type: str = "user_upload"
+    page_start: int | None = None
+    page_end: int | None = None
+
+
+def _hit_from_user_document(hit: UserDocumentHit) -> _UserDocumentKnowledgeHit:
+    return _UserDocumentKnowledgeHit(
+        content=hit.content,
+        source=hit.source,
+        title_path=hit.title_path,
+        similarity=hit.similarity,
+        page_start=hit.page_start,
+        page_end=hit.page_end,
+    )
 
 
 def _get_router() -> ShardRouter | None:
@@ -303,6 +413,15 @@ def _item_from_hit(
     }
     if rerank_score is not None:
         item["rerank_score"] = round(rerank_score, 6)
+    if getattr(hit, "doc_type", None) == "user_upload":
+        item["doc_type"] = "user_upload"
+        page_start = getattr(hit, "page_start", None)
+        page_end = getattr(hit, "page_end", None)
+        if page_start is not None:
+            item["page_range"] = (
+                f"p.{page_start}" if page_end in {None, page_start}
+                else f"p.{page_start}-{page_end}"
+            )
     return item
 
 
@@ -345,6 +464,17 @@ def _get_embedding_client() -> EmbeddingClient:
         _embedding_client = EmbeddingClient()
 
     return _embedding_client
+
+
+def _get_user_document_repository() -> UserDocumentVectorRepository:
+    global _user_document_repository
+    if _user_document_repository is None:
+        _user_document_repository = UserDocumentVectorRepository()
+    return _user_document_repository
+
+
+def _trace_collection_name() -> str:
+    return "notes+userdocs" if ENABLE_USER_DOCUMENT_RETRIEVAL else "notes"
 
 
 def _get_reranking_service() -> RerankingService:
