@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import inspect
 import json
+import logging
 import time
 from collections.abc import Generator
 from dataclasses import dataclass, field
@@ -22,6 +23,7 @@ from app.services import timings
 from app.services.memory_settings import (
     MAX_TOOL_FAILURES,
     MAX_TOOL_ROUNDS,
+    MCP_CODE_OBSERVATION_MAX_CHARS,
     TOOL_OBSERVATION_MAX_CHARS,
 )
 from app.services.agent.tools.executor import ToolExecutor
@@ -35,6 +37,8 @@ RAG_TOOL_NAME = "search_learning_notes"
 JD_TOOL_NAME = "search_job_descriptions"
 ATTACHMENT_TOOL_NAME = "search_attachments"
 PROGRESS_UPDATE_TOOL_NAME = "update_learning_progress"
+
+logger = logging.getLogger(__name__)
 
 
 def _tool_schema_name(tool: Any) -> str:
@@ -71,6 +75,7 @@ class _ModelRuntime:
     client: OpenAI
     api_model: str
     trace_model: str
+    provider: str
     request_params: dict[str, Any]
 
 
@@ -115,6 +120,7 @@ class ReactOrchestrator:
         max_steps: int = MAX_TOOL_ROUNDS,
         max_failures: int = MAX_TOOL_FAILURES,
         max_observation_chars: int = TOOL_OBSERVATION_MAX_CHARS,
+        max_mcp_code_observation_chars: int = MCP_CODE_OBSERVATION_MAX_CHARS,
     ) -> None:
         """保存模型客户端、工具注册表、工具执行器和最大 ReAct 步数。"""
 
@@ -125,6 +131,7 @@ class ReactOrchestrator:
         self.max_steps = max_steps
         self.max_failures = max_failures
         self.max_observation_chars = max_observation_chars
+        self.max_mcp_code_observation_chars = max_mcp_code_observation_chars
 
     def run(
         self,
@@ -537,7 +544,6 @@ class ReactOrchestrator:
                 "tools": tools,
                 "tool_choice": active_tool_choice,
                 "stream": True,
-                "stream_options": {"include_usage": True},
             }
         )
 
@@ -635,6 +641,17 @@ class ReactOrchestrator:
         )
 
         if stream_error is not None:
+            logger.warning(
+                "llm_stream_failed model=%s provider=%s error_type=%s",
+                runtime.trace_model,
+                runtime.provider,
+                type(stream_error).__name__,
+            )
+            logger.warning(
+                "stream_fallback_to_non_stream model=%s provider=%s",
+                runtime.trace_model,
+                runtime.provider,
+            )
             timings.bump("llm_calls")
             fallback_started_at = time.perf_counter()
             with timings.track("llm"):
@@ -761,7 +778,10 @@ class ReactOrchestrator:
             {
                 "role": "tool",
                 "tool_call_id": tool_call_id,
-                "content": self._tool_observation_content(tool_result),
+                "content": self._tool_observation_content(
+                    tool_result,
+                    tool_name=WEB_SEARCH_TOOL_NAME,
+                ),
             },
         ]
         trace = self._tool_call_trace(
@@ -809,7 +829,10 @@ class ReactOrchestrator:
             {
                 "role": "tool",
                 "tool_call_id": tool_call_id,
-                "content": self._tool_observation_content(tool_result),
+                "content": self._tool_observation_content(
+                    tool_result,
+                    tool_name=RAG_TOOL_NAME,
+                ),
             },
         ]
         trace = self._tool_call_trace(
@@ -849,6 +872,7 @@ class ReactOrchestrator:
                 client=get_llm_client(spec.provider),
                 api_model=spec.api_model,
                 trace_model=spec.model_id,
+                provider=spec.provider,
                 request_params=request_params,
             )
 
@@ -859,6 +883,7 @@ class ReactOrchestrator:
             client=self.client,
             api_model=self.config.model,
             trace_model=self.config.model,
+            provider="legacy",
             request_params={},
         )
 
@@ -1119,7 +1144,10 @@ class ReactOrchestrator:
                 {
                     "role": "tool",
                     "tool_call_id": self._tool_call_id(tool_call, index),
-                    "content": self._tool_observation_content(tool_result),
+                    "content": self._tool_observation_content(
+                        tool_result,
+                        tool_name=tool_name,
+                    ),
                 }
             )
             traces.append(
@@ -1515,19 +1543,30 @@ class ReactOrchestrator:
         )
         return normalized_url, domain
 
-    def _tool_observation_content(self, tool_result: dict[str, Any]) -> str:
+    def _tool_observation_content(
+        self,
+        tool_result: dict[str, Any],
+        *,
+        tool_name: str | None = None,
+    ) -> str:
         """把工具结果序列化成 observation，并按配置截断超长内容。"""
 
         serialized = json.dumps(tool_result, ensure_ascii=False)
-        if len(serialized) <= self.max_observation_chars:
+        is_github_mcp = isinstance(tool_name, str) and tool_name.startswith("mcp_github_")
+        max_chars = (
+            self.max_mcp_code_observation_chars
+            if is_github_mcp
+            else self.max_observation_chars
+        )
+        if len(serialized) <= max_chars:
             return serialized
 
-        return self._truncated_observation(serialized)
+        return self._truncated_observation(serialized, max_chars=max_chars)
 
-    def _truncated_observation(self, serialized: str) -> str:
+    def _truncated_observation(self, serialized: str, *, max_chars: int) -> str:
         """生成带截断标记的 observation 文本，并尽量保持在长度上限内。"""
 
-        max_chars = max(0, self.max_observation_chars)
+        max_chars = max(0, max_chars)
         if max_chars == 0:
             return ""
 

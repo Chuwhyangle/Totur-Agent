@@ -5,6 +5,7 @@ from app.services.agent.context import AgentContext
 from app.services.agent.personas import (
     ATTACHMENT_EVIDENCE_POLICY,
     BUILTIN_PERSONAS,
+    GITHUB_CODE_ANALYSIS_PROMPT,
     KNOWLEDGE_TOOL_PROMPT,
     MARKDOWN_REPLY_PROMPT,
     WEB_SEARCH_TOOL_PROMPT,
@@ -85,6 +86,24 @@ def test_web_search_rules_are_shared_by_all_personas():
         assert WEB_SEARCH_TOOL_PROMPT in prompt
         assert prompt.index(KNOWLEDGE_TOOL_PROMPT) < prompt.index(WEB_SEARCH_TOOL_PROMPT)
         assert prompt.index(WEB_SEARCH_TOOL_PROMPT) < prompt.index(MARKDOWN_REPLY_PROMPT)
+
+
+def test_github_code_analysis_prompt_requires_tool_grounded_repository_analysis():
+    expected_rules = [
+        "Chuwhyangle/Totur-Agent",
+        "[github MCP]",
+        "不得只依靠模型参数记忆",
+        "第一轮先搜索",
+        "再读取最相关的源文件",
+        "truncated=true",
+        "不得声称已经修改",
+        "无法读取代码",
+    ]
+
+    for rule in expected_rules:
+        assert rule in GITHUB_CODE_ANALYSIS_PROMPT
+    for persona in BUILTIN_PERSONAS:
+        assert GITHUB_CODE_ANALYSIS_PROMPT in build_system_prompt(persona)
 
 
 def test_web_search_prompt_contains_routing_and_safety_guidance():

@@ -85,11 +85,16 @@ function ToolTraceSummary({ trace }) {
               <div className="tool-trace-title">
                 {call.round != null ? <span className="tool-trace-round">第 {call.round} 轮</span> : null}
                 <span className="tool-trace-name">{call.name}</span>
+                {call.name?.startsWith('mcp_github_') ? (
+                  <span className="tool-trace-channel">GitHub MCP · 只读</span>
+                ) : null}
               </div>
               <span className={call.ok ? 'tool-trace-ok' : 'tool-trace-error'}>{call.ok ? '完成' : call.error || '错误'}</span>
             </div>
             <p className="tool-trace-line">参数：{JSON.stringify(call.arguments ?? {})}</p>
-            <p className="tool-trace-line">返回：{call.returned_count ?? 0} 条</p>
+            {call.returned_count != null ? (
+              <p className="tool-trace-line">返回：{call.returned_count} 条</p>
+            ) : null}
             <ToolResultPreview items={call.result_preview} topTitles={call.top_titles} />
           </section>
         ))}

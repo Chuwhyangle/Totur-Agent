@@ -133,6 +133,7 @@ def test_tool_observation_max_chars_lives_in_central_settings():
 
     assert hasattr(memory_settings, "TOOL_OBSERVATION_MAX_CHARS")
     assert memory_settings.TOOL_OBSERVATION_MAX_CHARS > 0
+    assert memory_settings.MCP_CODE_OBSERVATION_MAX_CHARS == 12000
 
 
 def test_max_tool_failures_lives_in_central_settings():
@@ -239,6 +240,82 @@ def test_react_loop_can_execute_a_second_tool_after_observing_the_first_result()
     assert [call.round for call in tool_trace.calls] == [1, 2]
     assert tool_trace.calls[1].arguments == {"topic": "agent"}
     assert tool_trace.calls[1].ok is True
+
+
+def test_react_loop_can_search_github_then_read_file_then_answer():
+    """代码分析链路应把搜索和文件读取 observation 逐轮回填。"""
+
+    search_result = {
+        "ok": True,
+        "items": [{"path": "app/services/agent/react_orchestrator.py"}],
+    }
+    file_result = {
+        "ok": True,
+        "path": "app/services/agent/react_orchestrator.py",
+        "content": "class ReactOrchestrator:\n    ...",
+    }
+    registry = StubToolRegistry({
+        "mcp_github_search_code": lambda **_: search_result,
+        "mcp_github_get_file_contents": lambda **_: file_result,
+    })
+    orchestrator = make_orchestrator(registry)
+    model_calls: list[list[dict[str, Any]]] = []
+
+    def fake_call_model_with_tools(messages):
+        model_calls.append(messages)
+        if len(model_calls) == 1:
+            return tool_call_message(
+                tool_call(
+                    "mcp_github_search_code",
+                    {"owner": "Chuwhyangle", "repo": "Totur-Agent", "query": "ReactOrchestrator"},
+                    "search_1",
+                )
+            )
+        if len(model_calls) == 2:
+            return tool_call_message(
+                tool_call(
+                    "mcp_github_get_file_contents",
+                    {"owner": "Chuwhyangle", "repo": "Totur-Agent", "path": "app/services/agent/react_orchestrator.py"},
+                    "read_1",
+                )
+            )
+        return final_message("基于真实代码完成分析。")
+
+    orchestrator._call_model_with_tools = fake_call_model_with_tools
+
+    raw_reply, tool_trace = orchestrator.run(
+        [{"role": "user", "content": "分析当前仓库的 ReactOrchestrator。"}]
+    )
+
+    assert raw_reply == "基于真实代码完成分析。"
+    assert len(model_calls) == 3
+    assert any(message["role"] == "tool" and "react_orchestrator.py" in message["content"] for message in model_calls[1])
+    assert any(message["role"] == "tool" and "class ReactOrchestrator" in message["content"] for message in model_calls[2])
+    assert tool_trace.used is True
+    assert len(tool_trace.calls) == 2
+    assert [call.name for call in tool_trace.calls] == [
+        "mcp_github_search_code",
+        "mcp_github_get_file_contents",
+    ]
+    assert [call.round for call in tool_trace.calls] == [1, 2]
+
+
+def test_github_mcp_observation_uses_larger_bounded_limit():
+    orchestrator = make_orchestrator()
+    orchestrator.max_observation_chars = 100
+    orchestrator.max_mcp_code_observation_chars = 300
+    result = {"ok": True, "content": "x" * 500}
+
+    ordinary = orchestrator._tool_observation_content(result, tool_name="lookup")
+    github = orchestrator._tool_observation_content(
+        result,
+        tool_name="mcp_github_get_file_contents",
+    )
+
+    assert len(ordinary) <= 100
+    assert len(github) <= 300
+    assert len(github) > len(ordinary)
+    assert all(marker in github for marker in ("truncated", "original_chars", "preview"))
 
 
 def test_react_loop_uses_no_tools_final_call_when_max_steps_is_reached():
@@ -1145,6 +1222,68 @@ def test_run_stream_separator_tokens_match_final_reply_exactly():
     assert "".join(token_text) == "我先查一下\n\n## 结论\n\n查到了。"
     assert raw_reply == "".join(token_text)
     assert tool_trace.used is True
+
+
+def test_stream_round_emits_multiple_token_events_for_multiple_model_chunks():
+    """模型的多个内容 chunk 应分别转换为多个 token 事件。"""
+
+    calls = []
+
+    class Chunks:
+        def __iter__(self):
+            return iter([
+                SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(content="第一"))]),
+                SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(content="部分"))]),
+            ])
+
+    def create(**kwargs):
+        calls.append(kwargs)
+        return Chunks()
+
+    orchestrator = make_orchestrator()
+    orchestrator.client = SimpleNamespace(
+        chat=SimpleNamespace(
+            completions=SimpleNamespace(create=create),
+        ),
+    )
+
+    stream = orchestrator._stream_round([])
+    events = list(stream)
+
+    assert [event.type for event in events] == ["token", "token"]
+    assert [event.data["text"] for event in events] == ["第一", "部分"]
+    assert calls[0]["stream"] is True
+    assert "stream_options" not in calls[0]
+
+
+def test_stream_round_logs_stream_failure_before_non_stream_fallback(caplog):
+    """流式失败后保留兜底时，必须留下可定位且不含正文的日志。"""
+
+    def create(**kwargs):
+        if kwargs.get("stream") is True:
+            raise RuntimeError("provider rejected stream")
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=final_message("fallback reply"))],
+            usage=None,
+        )
+
+    orchestrator = make_orchestrator()
+    orchestrator.client = SimpleNamespace(
+        chat=SimpleNamespace(
+            completions=SimpleNamespace(create=create),
+        ),
+    )
+
+    with caplog.at_level("WARNING"):
+        events = list(orchestrator._stream_round([]))
+
+    assert [event.data["text"] for event in events] == ["fallback reply"]
+    assert "llm_stream_failed" in caplog.text
+    assert "stream_fallback_to_non_stream" in caplog.text
+    assert "model=test-model" in caplog.text
+    assert "provider=legacy" in caplog.text
+    assert "error_type=RuntimeError" in caplog.text
+    assert "provider rejected stream" not in caplog.text
 
 
 def test_stream_round_emits_content_prefix_once_before_first_token():
