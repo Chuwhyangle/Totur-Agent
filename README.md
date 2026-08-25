@@ -14,9 +14,9 @@ AI 学习辅导 Agent 练习项目。后端使用 FastAPI，前端使用 React +
 - `GET /sessions`、`POST /sessions`、`GET /sessions/{session_id}/conversations`：多会话窗口。
 - `GET /conversations/{user_id}`：查询某个用户的最近对话历史。
 - `GET /interview-jds`、`POST /interview-jds`：保存和读取面试 JD，用于工具检索。
-- SQLite 持久化对话、会话、摘要和面试 JD。
+- SQLite 持久化对话、会话、摘要和面试 JD；本地开发数据库位于 `DATA_DIR` 指定的数据根目录，不放在仓库内。
 - Chroma 持久化学习笔记、JD 和附件向量；它不保存业务主表。
-- MySQL（可选）只保存 Agent 可观测性：`agent_traces`、检索、LLM 和工具事件；不会迁移 conversations、sessions、documents 等业务表。
+- MySQL 当前只保存 Agent 可观测性：`agent_traces`、检索、LLM 和工具事件；`conversations`、`sessions`、`documents` 等业务表尚未迁移，业务 API 仍使用 SQLite。
 - OpenAI-compatible 模型客户端配置。
 
 ## 运行后端
@@ -190,7 +190,7 @@ tests/                 自动化测试
 
 ## 本地文件
 
-`tutor_agent.db` 是运行时生成的本地 SQLite 数据库，`chroma_db/` 是运行时生成的本地向量库目录，二者都已在 `.gitignore` 中忽略。
+`DATA_DIR` 是运行时 SQLite 数据库和 Chroma 向量库的数据根目录。当前本地开发使用仓库外的 `E:\AI Project`；仓库内 `tutor_agent.db` 禁止作为运行数据源，相关运行产物都已在 `.gitignore` 中忽略。
 ## Docker 部署
 
 生产环境使用 Docker Compose 启动前端 Nginx、后端 FastAPI 和独立的 MySQL Trace 服务。SQLite、Chroma 与附件统一持久化到 `tutor_data` 卷；MySQL 使用独立的 `trace_mysql_data` 卷。API 使用 `mysql:3306`，MySQL 不可用时 API 仍可启动并后台重连。

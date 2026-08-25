@@ -73,3 +73,30 @@ def test_empty_pages_and_blank_blocks_do_not_create_chunks():
     assert len(chunks) == 1
     assert chunks[0].text == "usable"
     assert chunks[0].page_start == 3
+
+
+def test_chunker_uses_virtual_page_locator_range_and_unit():
+    parsed = ParsedDocument(
+        schema_version=2,
+        document_id="text-doc",
+        original_filename="notes.txt",
+        page_count=1,
+        extracted_char_count=11,
+        pages=(
+            ParsedPage(
+                1,
+                0.0,
+                0.0,
+                (block(0, "line content"),),
+                locator_start=120,
+                locator_end=240,
+            ),
+        ),
+        content_kind="text",
+        locator_unit="line",
+    )
+
+    chunk = AttachmentChunker().chunk(parsed)[0]
+
+    assert (chunk.page_start, chunk.page_end) == (120, 240)
+    assert chunk.locator_unit == "line"

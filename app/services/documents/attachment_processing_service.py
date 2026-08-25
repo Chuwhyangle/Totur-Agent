@@ -3,17 +3,11 @@
 import logging
 import time
 
-from app.clients.embedding_client import EmbeddingClient
 from app.db.models import DocumentRecord, DocumentScope, DocumentStatus
 import app.repositories.document_repository as document_repository
-from app.repositories.attachment_vector_repository import AttachmentVectorRepository
-from app.services.documents.attachment_chunker import AttachmentChunker
-from app.services.documents.attachment_indexing_service import (
-    AttachmentIndexingService,
-)
+from app.services.documents.attachment_parsers import AttachmentParserDispatch
 from app.services.documents.parsed_document_storage import ParsedDocumentStorage
-from app.services.documents.pdf_parser import PdfParser
-from app.services.documents.pdf_parsing_service import PdfParsingService
+from app.services.documents.attachment_parsing_service import AttachmentParsingService
 from app.services.documents.settings import load_temporary_document_settings
 from app.services.documents.temporary_file_storage import TemporaryFileStorage
 
@@ -45,8 +39,8 @@ class AttachmentProcessingService:
 
     def __init__(
         self,
-        parsing_service: PdfParsingService,
-        indexing_service: AttachmentIndexingService,
+        parsing_service: AttachmentParsingService,
+        indexing_service: object | None = None,
     ) -> None:
         self.parsing_service = parsing_service
         self.indexing_service = indexing_service
@@ -112,7 +106,22 @@ class AttachmentProcessingService:
                 DocumentStatus.PARTIAL,
             }:
                 return parsed_record
-            return self.indexing_service.index_attachment(document_id)
+            # Parsed JSON is the source used by chat now.  Keep the optional
+            # indexer only for compatibility with older callers and recovery
+            # data; production assembly does not create embedding/Chroma deps.
+            if self.indexing_service is not None:
+                index_attachment = getattr(self.indexing_service, "index_attachment")
+                return index_attachment(document_id)
+            ready = document_repository.update_document_status(
+                document_id,
+                DocumentStatus.READY,
+                expected_status=DocumentStatus.INDEXING,
+            )
+            if ready is None:
+                raise AttachmentProcessingServiceError(
+                    "Attachment disappeared before READY update"
+                )
+            return ready
         finally:
             current = document_repository.get_document(document_id)
             logger.info(
@@ -132,24 +141,13 @@ def get_attachment_processing_service() -> AttachmentProcessingService:
         settings.write_chunk_bytes,
     )
     parsed_storage = ParsedDocumentStorage(file_storage)
-    vector_repository = AttachmentVectorRepository()
-    parsing_service = PdfParsingService(
+    parsing_service = AttachmentParsingService(
         settings,
-        parser=PdfParser(),
+        parser=AttachmentParserDispatch(),
         file_storage=file_storage,
         parsed_storage=parsed_storage,
     )
-    indexing_service = AttachmentIndexingService(
-        settings,
-        parsed_storage,
-        vector_repository,
-        chunker=AttachmentChunker(
-            settings.chunk_chars,
-            settings.chunk_overlap_chars,
-        ),
-        embedding_client=EmbeddingClient(),
-    )
-    return AttachmentProcessingService(parsing_service, indexing_service)
+    return AttachmentProcessingService(parsing_service)
 
 
 def process_attachment_background(

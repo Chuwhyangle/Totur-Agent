@@ -85,6 +85,16 @@ def test_processing_runs_parsing_then_indexing_to_ready(monkeypatch, tmp_path):
     assert indexing.calls == [record.id]
 
 
+def test_processing_marks_parsed_attachment_ready_without_indexer(monkeypatch, tmp_path):
+    record = create_record(monkeypatch, tmp_path)
+    parsing = SuccessfulParsingService()
+
+    ready = AttachmentProcessingService(parsing).process_attachment(record.id)
+
+    assert ready.status is DocumentStatus.READY
+    assert get_document(record.id).status is DocumentStatus.READY
+
+
 def test_processing_stops_after_stable_parsing_failure(monkeypatch, tmp_path):
     record = create_record(monkeypatch, tmp_path)
     indexing = SuccessfulIndexingService()

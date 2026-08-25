@@ -92,7 +92,9 @@ def test_single_page_text_pdf_parses_to_stable_model(tmp_path):
 
     result = parse(path)
 
-    assert result.schema_version == 1
+    assert result.schema_version == 2
+    assert result.content_kind == "pdf"
+    assert result.locator_unit == "page"
     assert result.document_id == "document-123"
     assert result.original_filename == "paper.pdf"
     assert result.page_count == 1

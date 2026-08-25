@@ -1,6 +1,7 @@
 """聊天 API 路由。"""
 
 import json
+import logging
 
 from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import StreamingResponse
@@ -31,6 +32,7 @@ from app.services.workspaces.workspace_service import (
 router = APIRouter(tags=["chat"])
 
 tutor_agent_service = TutorAgentService()
+logger = logging.getLogger(__name__)
 
 
 def _format_sse_event(event_type: str, data: dict) -> str:
@@ -140,7 +142,17 @@ def chat_stream(request: ChatRequest) -> StreamingResponse:
                 },
             )
         except Exception as exc:
-            yield _format_sse_event("error", {"message": str(exc)})
+            logger.exception("stream_internal_error")
+            yield _format_sse_event(
+                "error",
+                {
+                    "error": "stream_internal_error",
+                    "stage": "stream",
+                    "message": "流式响应处理失败，请重试。",
+                    "debug_message": f"{type(exc).__name__}: {exc}",
+                    "retryable": True,
+                },
+            )
 
     return StreamingResponse(
         event_generator(),

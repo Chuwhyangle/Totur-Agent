@@ -36,6 +36,23 @@ class WorkspaceItem(BaseModel):
     created_at: str
     updated_at: str
     archived_at: str | None
+    agent_instructions: str | None = None
+    agent_instructions_version: int = 0
+
+
+class AgentInstructionsRequest(BaseModel):
+    """PUT /workspaces/{workspace_id}/agent-instructions request body."""
+
+    user_id: str = Field(..., min_length=1, max_length=WORKSPACE_USER_ID_MAX_LENGTH)
+    content: str | None = Field(default=None, max_length=8000)
+
+
+class AgentInstructionsResponse(BaseModel):
+    """Workspace AGENT.md content and version."""
+
+    workspace_id: str
+    content: str | None
+    version: int
 
 
 class WorkspaceListResponse(BaseModel):

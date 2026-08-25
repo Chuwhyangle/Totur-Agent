@@ -5,6 +5,27 @@ import os
 from pathlib import Path
 
 from dotenv import load_dotenv
+from sqlalchemy.engine import make_url
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_DATA_DIR = PROJECT_ROOT.parent
+LEGACY_REPO_DATABASE_PATH = PROJECT_ROOT / "tutor_agent.db"
+
+
+def _reject_legacy_database_path(database_url: str) -> None:
+    """Prevent local startup from silently selecting the repository database."""
+
+    if not database_url.startswith("sqlite"):
+        return
+    database_path = make_url(database_url).database
+    if not database_path:
+        return
+    if Path(database_path).expanduser().resolve() == LEGACY_REPO_DATABASE_PATH.resolve():
+        raise RuntimeError(
+            "禁止使用仓库内 tutor_agent.db；请使用 DATA_DIR=E:/AI Project "
+            "或配置 MySQL DATABASE_URL。"
+        )
 
 
 @dataclass(frozen=True)
@@ -26,6 +47,7 @@ class StorageConfig:
         """
         env_url = os.getenv("DATABASE_URL", "").strip()
         if env_url:
+            _reject_legacy_database_path(env_url)
             return env_url
         return f"sqlite:///{self.database_path.resolve().as_posix()}"
 
@@ -36,7 +58,13 @@ class StorageConfig:
     @staticmethod
     def from_env() -> "StorageConfig":
         load_dotenv()
-        data_dir = Path(os.getenv("DATA_DIR", str(Path(__file__).resolve().parents[2])))
+        raw_data_dir = os.getenv("DATA_DIR", str(DEFAULT_DATA_DIR)).strip()
+        data_dir = Path(raw_data_dir).expanduser().resolve()
+        if data_dir == PROJECT_ROOT.resolve():
+            raise RuntimeError(
+                "禁止将 DATA_DIR 设置为项目目录；仓库内 tutor_agent.db 已停用，"
+                "本地开发请使用 DATA_DIR=E:/AI Project。"
+            )
         return StorageConfig(DATA_DIR=data_dir)
 
 

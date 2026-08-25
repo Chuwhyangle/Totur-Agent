@@ -18,6 +18,8 @@ class AttachmentChunk:
     page_start: int
     page_end: int
     original_filename: str
+    locator_unit: str = "page"
+    locator: str | None = None
 
 
 class AttachmentChunker:
@@ -40,7 +42,7 @@ class AttachmentChunker:
     def chunk(self, document: ParsedDocument) -> list[AttachmentChunk]:
         chunks: list[AttachmentChunk] = []
 
-        def append_chunk(text: str, page_number: int) -> None:
+        def append_chunk(text: str, page) -> None:
             normalized = text.strip()
             if not normalized:
                 return
@@ -51,9 +53,11 @@ class AttachmentChunker:
                     document_id=document.document_id,
                     chunk_index=chunk_index,
                     text=normalized,
-                    page_start=page_number,
-                    page_end=page_number,
+                    page_start=page.locator_start or page.page_number,
+                    page_end=page.locator_end or page.page_number,
                     original_filename=document.original_filename,
+                    locator_unit=document.locator_unit,
+                    locator=page.locator,
                 )
             )
 
@@ -65,20 +69,20 @@ class AttachmentChunker:
                     continue
 
                 if len(text) > self.chunk_chars:
-                    append_chunk(pending, page.page_number)
+                    append_chunk(pending, page)
                     pending = ""
                     for window in self._long_block_windows(text):
-                        append_chunk(window, page.page_number)
+                        append_chunk(window, page)
                     continue
 
                 candidate = f"{pending}\n\n{text}" if pending else text
                 if len(candidate) <= self.chunk_chars:
                     pending = candidate
                 else:
-                    append_chunk(pending, page.page_number)
+                    append_chunk(pending, page)
                     pending = text
 
-            append_chunk(pending, page.page_number)
+            append_chunk(pending, page)
 
         return chunks
 

@@ -1,4 +1,4 @@
-"""Safe filesystem storage for temporary PDF uploads."""
+"""Safe filesystem storage for temporary conversation attachments."""
 
 from dataclasses import dataclass
 import hashlib
@@ -6,6 +6,17 @@ import os
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import BinaryIO
 from uuid import uuid4
+from zipfile import BadZipFile, ZipFile
+
+from app.services.documents.attachment_types import (
+    ArchiveAttachmentNotSupportedError,
+    InvalidAttachmentFilenameError,
+    LegacyOfficeAttachmentError,
+    TEXT_LIKE_EXTENSIONS,
+    UnsupportedAttachmentTypeError,
+    max_bytes_for_extension,
+    validate_filename_and_media_type,
+)
 
 
 PDF_MIME_TYPE = "application/pdf"
@@ -21,7 +32,15 @@ class InvalidAttachmentFilename(TemporaryFileStorageError):
 
 
 class UnsupportedAttachmentType(TemporaryFileStorageError):
-    """The upload is not recognizable as an allowed PDF upload."""
+    """The upload is not recognizable as an allowed attachment type."""
+
+
+class LegacyOfficeAttachment(UnsupportedAttachmentType):
+    """The upload uses a legacy binary Office extension."""
+
+
+class ArchiveAttachmentNotSupported(UnsupportedAttachmentType):
+    """The upload is an archive rather than a supported attachment."""
 
 
 class AttachmentTooLarge(TemporaryFileStorageError):
@@ -50,24 +69,24 @@ class TemporaryFileStorage:
         self.root_path = Path(root_path).expanduser().resolve(strict=False)
         self.write_chunk_bytes = write_chunk_bytes
 
-    def store_pdf(
+    def store_attachment(
         self,
         file_stream: BinaryIO,
         original_filename: str,
         max_bytes: int,
-        mime_type: str = PDF_MIME_TYPE,
+        mime_type: str,
     ) -> StoredTemporaryFile:
-        """Stream one recognizable PDF upload to an atomic random path."""
+        """Stream one validated upload to an atomic random path."""
 
-        self._validate_original_filename(original_filename)
-        if mime_type.strip().lower() != PDF_MIME_TYPE:
-            raise UnsupportedAttachmentType(
-                "The upload is not a recognizable PDF upload"
-            )
+        extension = self._validate_filename_and_media_type(
+            original_filename,
+            mime_type,
+        )
         if max_bytes <= 0:
             raise ValueError("max_bytes must be positive")
 
-        storage_key = f"{uuid4().hex}.pdf"
+        allowed_bytes = min(max_bytes, max_bytes_for_extension(extension))
+        storage_key = f"{uuid4().hex}{extension}"
         final_path = self.resolve(storage_key)
         part_path = final_path.with_name(f"{final_path.name}.part")
         size_bytes = 0
@@ -87,26 +106,26 @@ class TemporaryFileStorage:
                         break
 
                     size_bytes += len(chunk)
-                    if size_bytes > max_bytes:
+                    if size_bytes > allowed_bytes:
                         raise AttachmentTooLarge(
-                            f"The attachment exceeds the {max_bytes}-byte limit"
+                            f"The attachment exceeds the {allowed_bytes}-byte limit"
                         )
 
-                    if len(leading_bytes) < len(PDF_MAGIC_BYTES):
-                        needed = len(PDF_MAGIC_BYTES) - len(leading_bytes)
+                    if len(leading_bytes) < 8:
+                        needed = 8 - len(leading_bytes)
                         leading_bytes.extend(chunk[:needed])
 
                     output.write(chunk)
                     digest.update(chunk)
 
-                if size_bytes == 0 or bytes(leading_bytes) != PDF_MAGIC_BYTES:
-                    raise UnsupportedAttachmentType(
-                        "The upload is not a recognizable PDF upload"
-                    )
-
                 output.flush()
                 os.fsync(output.fileno())
 
+            self._validate_content(
+                extension,
+                bytes(leading_bytes),
+                part_path,
+            )
             os.replace(part_path, final_path)
             return StoredTemporaryFile(
                 storage_key=storage_key,
@@ -132,6 +151,29 @@ class TemporaryFileStorage:
                     raise AttachmentStorageError(
                         "The temporary upload could not be cleaned up"
                     ) from exc
+
+    def store_pdf(
+        self,
+        file_stream: BinaryIO,
+        original_filename: str,
+        max_bytes: int,
+        mime_type: str = PDF_MIME_TYPE,
+    ) -> StoredTemporaryFile:
+        """Store a PDF through the generic attachment validation path."""
+
+        self._validate_original_filename(original_filename)
+        if Path(original_filename.strip()).suffix.lower() != ".pdf":
+            raise UnsupportedAttachmentType("Only .pdf attachments are supported")
+        if mime_type.strip().lower() != PDF_MIME_TYPE:
+            raise UnsupportedAttachmentType(
+                "The upload is not a recognizable PDF upload"
+            )
+        return self.store_attachment(
+            file_stream,
+            original_filename,
+            max_bytes,
+            mime_type=mime_type,
+        )
 
     def delete(self, storage_key: str) -> None:
         """Idempotently delete one file addressed by an internal storage key."""
@@ -196,7 +238,80 @@ class TemporaryFileStorage:
             raise InvalidAttachmentFilename(
                 "The attachment filename is not allowed"
             )
-        if not filename.lower().endswith(".pdf"):
-            raise UnsupportedAttachmentType(
-                "Only .pdf attachments are supported"
+
+    @staticmethod
+    def _validate_filename_and_media_type(
+        original_filename: str,
+        mime_type: str,
+    ) -> str:
+        try:
+            return validate_filename_and_media_type(original_filename, mime_type)
+        except InvalidAttachmentFilenameError as exc:
+            raise InvalidAttachmentFilename(str(exc)) from exc
+        except LegacyOfficeAttachmentError as exc:
+            raise LegacyOfficeAttachment(str(exc)) from exc
+        except ArchiveAttachmentNotSupportedError as exc:
+            raise ArchiveAttachmentNotSupported(str(exc)) from exc
+        except UnsupportedAttachmentTypeError as exc:
+            raise UnsupportedAttachmentType(str(exc)) from exc
+
+    @staticmethod
+    def _validate_content(extension: str, leading: bytes, path: Path) -> None:
+        if extension == ".pdf":
+            if not leading.startswith(PDF_MAGIC_BYTES):
+                raise UnsupportedAttachmentType(
+                    "The upload is not a recognizable PDF upload"
+                )
+            return
+
+        if extension in TEXT_LIKE_EXTENSIONS:
+            try:
+                text = path.read_text(encoding="utf-8")
+            except (UnicodeDecodeError, OSError) as exc:
+                raise UnsupportedAttachmentType(
+                    "Text attachments must be UTF-8"
+                ) from exc
+            control_count = sum(
+                1
+                for character in text
+                if ord(character) < 32 and character not in {"\t", "\n", "\r"}
             )
+            if text and control_count / len(text) >= 0.01:
+                raise UnsupportedAttachmentType(
+                    "Text attachments contain binary control characters"
+                )
+            return
+
+        expected_content_types = {
+            ".docx": "wordprocessingml.document.main+xml",
+            ".xlsx": "spreadsheetml.sheet.main+xml",
+            ".pptx": "presentationml.presentation.main+xml",
+        }
+        expected_content_type = expected_content_types.get(extension)
+        if expected_content_type is None:
+            raise UnsupportedAttachmentType("Unsupported attachment type")
+        if not leading.startswith(b"PK\x03\x04"):
+            raise UnsupportedAttachmentType("Invalid Office document content")
+
+        try:
+            with ZipFile(path) as archive:
+                entries = archive.infolist()
+                if len(entries) > 2_000:
+                    raise UnsupportedAttachmentType("Office document has too many entries")
+                total_uncompressed_bytes = 0
+                for entry in entries:
+                    total_uncompressed_bytes += entry.file_size
+                    if total_uncompressed_bytes > 100 * 1024 * 1024:
+                        raise UnsupportedAttachmentType(
+                            "Office document is too large when decompressed"
+                        )
+                    if entry.file_size and entry.file_size / max(entry.compress_size, 1) > 100:
+                        raise UnsupportedAttachmentType(
+                            "Office document has an unsafe compression ratio"
+                        )
+                content_types = archive.read("[Content_Types].xml")
+        except (BadZipFile, KeyError, OSError) as exc:
+            raise UnsupportedAttachmentType("Invalid Office document content") from exc
+
+        if expected_content_type.encode("ascii") not in content_types:
+            raise UnsupportedAttachmentType("Office document type does not match filename")

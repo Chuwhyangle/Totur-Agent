@@ -33,7 +33,10 @@ export class TutorApiError extends Error {
     this.detail = detail
     this.responseBody = responseBody
     this.debug = debug
-    this.isNetworkError = status == null && cause?.name !== 'AbortError'
+    this.isNetworkError =
+      Boolean(cause) &&
+      status == null &&
+      cause?.name !== 'AbortError'
     this.isAbortError = cause?.name === 'AbortError'
   }
 }
@@ -185,23 +188,38 @@ export async function postChatStream(requestBody, callbacks, options = {}) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(requestBody),
-      signal,
+    signal,
     })
   } catch (cause) {
     if (cause?.name === 'AbortError') return
-    onError?.(cause?.message ?? 'Network request failed')
-    throw new TutorApiError('Chat stream request failed', { debug: { url: CHAT_STREAM_URL, method: 'POST' }, cause })
+    const message = cause?.message ?? 'Network request failed'
+    const debug = {
+      url: CHAT_STREAM_URL,
+      method: 'POST',
+      requestBody,
+      status: null,
+      error: message,
+    }
+    onError?.(message)
+    throw new TutorApiError(message, { debug, cause })
   }
 
   if (!response.ok) {
     const errorBody = await readJsonSafely(response)
-    const message = errorBody?.detail ?? `HTTP ${response.status}`
-    onError?.(message)
-    throw createHttpError('Chat stream request failed', response, errorBody, {
+    const message = errorBody?.detail?.message
+      ?? errorBody?.detail
+      ?? errorBody?.message
+      ?? `HTTP ${response.status}`
+    const debug = {
       url: CHAT_STREAM_URL,
       method: 'POST',
+      requestBody,
       status: response.status,
-    })
+      error: message,
+      responseBody: errorBody,
+    }
+    onError?.(message)
+    throw createHttpError('Chat stream request failed', response, errorBody, debug)
   }
 
   const reader = response.body.getReader()
@@ -239,11 +257,20 @@ export async function postChatStream(requestBody, callbacks, options = {}) {
               onDone?.(data)
               return
             } else if (currentEvent === 'error') {
-              const message = data.message ?? 'Unknown error'
+              const message = data.message ?? data.error ?? '流式请求失败'
               onError?.(message)
               throw new TutorApiError('Chat stream failed', {
+                status: response.status,
                 detail: data,
-                debug: { url: CHAT_STREAM_URL, method: 'POST' },
+                responseBody: data,
+                debug: {
+                  url: CHAT_STREAM_URL,
+                  method: 'POST',
+                  requestBody,
+                  status: response.status,
+                  error: message,
+                  responseBody: data,
+                },
               })
             }
           } catch (cause) {
@@ -257,17 +284,59 @@ export async function postChatStream(requestBody, callbacks, options = {}) {
     if (!terminalEventReceived) {
       const message = 'Chat stream ended unexpectedly'
       onError?.(message)
-      throw new TutorApiError(message, { debug: { url: CHAT_STREAM_URL, method: 'POST' } })
+      throw new TutorApiError(message, {
+        status: response.status,
+        debug: {
+          url: CHAT_STREAM_URL,
+          method: 'POST',
+          requestBody,
+          status: response.status,
+          error: message,
+        },
+      })
     }
   } catch (cause) {
     if (cause?.name === 'AbortError') return
     if (cause instanceof TutorApiError) throw cause
-    onError?.(cause?.message ?? 'Stream read failed')
+    const message = cause?.message ?? 'Stream read failed'
+    onError?.(message)
+    throw new TutorApiError(message, {
+      status: response.status,
+      debug: {
+        url: CHAT_STREAM_URL,
+        method: 'POST',
+        requestBody,
+        status: response.status,
+        error: message,
+      },
+      cause,
+    })
   }
 }
 
 export function getPersonas(options = {}) {
-  return requestJson(PERSONAS_URL, { signal: options.signal }, 'Persona list request failed')
+  const query = options.userId ? `?user_id=${encodeURIComponent(options.userId)}` : ''
+  return requestJson(`${PERSONAS_URL}${query}`, { signal: options.signal }, 'Persona list request failed')
+}
+
+export function createCustomPersona(requestBody, options = {}) {
+  return requestJson(`${PERSONAS_URL}/custom`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(requestBody),
+    debugRequestBody: requestBody, signal: options.signal,
+  }, 'Create Persona failed')
+}
+
+export function updateCustomPersona(personaId, requestBody, options = {}) {
+  return requestJson(`${PERSONAS_URL}/custom/${encodeURIComponent(personaId)}`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(requestBody),
+    debugRequestBody: requestBody, signal: options.signal,
+  }, 'Update Persona failed')
+}
+
+export function disableCustomPersona(personaId, userId, options = {}) {
+  return requestJson(`${PERSONAS_URL}/custom/${encodeURIComponent(personaId)}?user_id=${encodeURIComponent(userId)}`, {
+    method: 'DELETE', signal: options.signal,
+  }, 'Disable Persona failed')
 }
 
 export function getModels(options = {}) {
@@ -318,6 +387,23 @@ export function archiveWorkspace(workspaceId, userId, options = {}) {
 
 export function restoreWorkspace(workspaceId, userId, options = {}) {
   return updateWorkspace(workspaceId, 'restore', userId, options)
+}
+
+export function getWorkspaceAgentInstructions(workspaceId, userId, options = {}) {
+  return requestJson(`${WORKSPACES_URL}/${encodeURIComponent(workspaceId)}/agent-instructions?user_id=${encodeURIComponent(userId)}`, { signal: options.signal }, 'Workspace instructions request failed')
+}
+
+export function saveWorkspaceAgentInstructions(workspaceId, requestBody, options = {}) {
+  return requestJson(`${WORKSPACES_URL}/${encodeURIComponent(workspaceId)}/agent-instructions`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(requestBody),
+    debugRequestBody: requestBody, signal: options.signal,
+  }, 'Save Workspace instructions failed')
+}
+
+export function clearWorkspaceAgentInstructions(workspaceId, userId, options = {}) {
+  return requestJson(`${WORKSPACES_URL}/${encodeURIComponent(workspaceId)}/agent-instructions?user_id=${encodeURIComponent(userId)}`, {
+    method: 'DELETE', signal: options.signal,
+  }, 'Clear Workspace instructions failed')
 }
 
 export function uploadWorkspaceAsset(workspaceId, userId, file, options = {}) {

@@ -141,6 +141,10 @@ function ChatMessage({ role, text, reply, debug, isStreaming, streamingTool }) {
         ) : <p className="user-text">{text}</p>}
         {!showStreaming && toolTrace ? <ToolTraceSummary trace={toolTrace} /> : null}
         {!showStreaming && debug ? <DebugDetails data={debug} /> : null}
+        {!showStreaming ? <div className="message-actions" aria-label="消息操作">
+          <button type="button" aria-label="复制消息" title="复制" onClick={() => navigator.clipboard?.writeText(rawAnswer)}><Icon name="copy" size={13} /></button>
+          {isAssistant ? <button type="button" aria-label="重新生成" title="重新生成"><Icon name="refresh" size={13} /></button> : null}
+        </div> : null}
       </div>
     </article>
   )

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import {
   createInterviewJD,
+  createCustomPersona,
   createSession,
   createWorkspace,
   deleteAttachment,
@@ -11,6 +12,8 @@ import {
   getInterviewJDs,
   getModels,
   getPersonas,
+  updateCustomPersona,
+  disableCustomPersona,
   getSessionConversations,
   getSessions,
   getWorkspaceArtifactContent,
@@ -19,6 +22,7 @@ import {
   getWorkspaceAssetDownloadUrl,
   getWorkspaceAssets,
   getWorkspaceTasks,
+  getWorkspaceAgentInstructions,
   getWorkspaces,
   postChat,
   postChatStream,
@@ -28,18 +32,19 @@ import {
   uploadWorkspaceAsset,
   archiveWorkspace,
   restoreWorkspace,
+  saveWorkspaceAgentInstructions,
+  clearWorkspaceAgentInstructions,
   API_BASE_URL,
 } from './api/tutorApi.js'
 import ApiStatus from './components/ApiStatus.jsx'
-import AttachmentPanel from './components/AttachmentPanel.jsx'
 import ChatInput from './components/ChatInput.jsx'
 import ChatMessage from './components/ChatMessage.jsx'
 import InterviewJDPanel from './components/InterviewJDPanel.jsx'
 import Icon from './components/Icon.jsx'
 import ModelSelector from './components/ModelSelector.jsx'
 import PersonaSelector from './components/PersonaSelector.jsx'
+import PersonaManager from './components/PersonaManager.jsx'
 import SessionSidebar from './components/SessionSidebar.jsx'
-import UserIdInput from './components/UserIdInput.jsx'
 import WorkspacePanel from './components/workspaces/WorkspacePanel.jsx'
 import { useAttachmentPolling } from './hooks/useAttachmentPolling.js'
 import {
@@ -51,8 +56,7 @@ import {
   getSendableAttachmentIds,
   isAttachmentPending,
   reconcileSelectedAttachmentIds,
-  shouldMarkApiOffline,
-  validatePdfFile,
+  validateAttachmentFile,
 } from './utils/attachments.js'
 
 const DEFAULT_PERSONA_ID = 'tutor'
@@ -75,14 +79,43 @@ const WEB_SEARCH_MODE_REQUEST_FIELDS = {
   force: { web_search_enabled: true, force_web_search: true },
 }
 
+function getErrorDisplayMessage(error) {
+  if (typeof error?.detail?.message === 'string') {
+    return error.detail.message
+  }
+
+  if (typeof error?.detail === 'string') {
+    return error.detail
+  }
+
+  if (typeof error?.responseBody?.detail?.message === 'string') {
+    return error.responseBody.detail.message
+  }
+
+  if (typeof error?.responseBody?.detail === 'string') {
+    return error.responseBody.detail
+  }
+
+  if (typeof error?.responseBody?.message === 'string') {
+    return error.responseBody.message
+  }
+
+  if (typeof error?.message === 'string' && error.message.trim()) {
+    return error.message
+  }
+
+  if (typeof error?.detail?.error === 'string') {
+    return `请求失败：${error.detail.error}`
+  }
+
+  return '请求失败，请稍后重试。'
+}
+
 function createErrorReply(error) {
-  const errorCode = attachmentErrorCode(error)
-  const answer = errorCode
-    ? errorCode === 'attachment_no_relevant_evidence'
-      ? '在所选附件中没有检索到与当前问题足够相关的内容。你可以换一种问法，或取消附件后继续普通提问。'
-      : attachmentErrorMessage(error)
-    : `这次请求后端失败了，但页面没有崩溃。\n\n**排查建议：**\n\n- 先确认后端是否运行在 ${API_BASE_URL}\n- 观察顶部 API 状态，在服务恢复后重试\n- 展开调试详情查看失败信息`
-  return { answer, sources: [] }
+  return {
+    answer: getErrorDisplayMessage(error),
+    sources: [],
+  }
 }
 
 function createProtocolErrorReply() {
@@ -120,6 +153,7 @@ function App() {
   const [streamingTool, setStreamingTool] = useState(null) // Currently running tool
   const [sessions, setSessions] = useState([])
   const [sessionsStatus, setSessionsStatus] = useState('idle')
+  const [sessionCreateError, setSessionCreateError] = useState('')
   const [activeSessionId, setActiveSessionId] = useState(null)
   const [activeSessionStatus, setActiveSessionStatus] = useState('idle')
   const [isCreatingSession, setIsCreatingSession] = useState(false)
@@ -129,6 +163,7 @@ function App() {
   const [personas, setPersonas] = useState([])
   const [personasStatus, setPersonasStatus] = useState('idle')
   const [selectedPersonaId, setSelectedPersonaId] = useState(DEFAULT_PERSONA_ID)
+  const [personaManagerOpen, setPersonaManagerOpen] = useState(false)
   const [models, setModels] = useState([])
   const [modelsStatus, setModelsStatus] = useState('idle')
   const [selectedModelId, setSelectedModelId] = useState(() => localStorage.getItem('tutor-model') ?? null)
@@ -138,6 +173,7 @@ function App() {
   const [attachmentStatus, setAttachmentStatus] = useState('idle')
   const [selectedAttachmentIds, setSelectedAttachmentIds] = useState([])
   const [attachmentError, setAttachmentError] = useState('')
+  const [composerNotice, setComposerNotice] = useState('')
   const [attachmentActionStates, setAttachmentActionStates] = useState({})
   const [attachmentActionErrors, setAttachmentActionErrors] = useState({})
   const [isUploadingAttachment, setIsUploadingAttachment] = useState(false)
@@ -145,6 +181,9 @@ function App() {
   const [workspaces, setWorkspaces] = useState([])
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState(null)
   const [workspacePanelOpen, setWorkspacePanelOpen] = useState(false)
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => localStorage.getItem('tutor-sidebar-collapsed') === 'true')
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false)
+  const [workspaceInstructions, setWorkspaceInstructions] = useState({ content: '', version: 0 })
   const [workspaceAssets, setWorkspaceAssets] = useState([])
   const [workspaceAssetsStatus, setWorkspaceAssetsStatus] = useState('idle')
   const [workspaceAssetsError, setWorkspaceAssetsError] = useState('')
@@ -168,20 +207,17 @@ function App() {
   const workspaceRequestIdRef = useRef(0)
 
   const activeSession = sessions.find((session) => session.id === activeSessionId)
+  const activeSessionWorkspace = workspaces.find((workspace) => workspace.id === activeSession?.workspace_id)
   const attachmentSendBlockReason = getAttachmentSendBlockReason(
     attachments,
     selectedAttachmentIds,
   )
-  const activeSessionWorkspace = workspaces.find((workspace) => workspace.id === activeSession?.workspace_id)
   const canSend = draftMessage.trim().length > 0
     && userId.trim().length > 0
     && !isSending
+    && activeSessionStatus !== 'loading'
     && !attachmentSendBlockReason
     && activeSessionWorkspace?.status !== 'ARCHIVED'
-
-  function updateApiStatusAfterError(error) {
-    setApiStatus(shouldMarkApiOffline(error) ? 'offline' : 'online')
-  }
 
   function activateAttachmentScope(
     nextSessionId,
@@ -209,11 +245,10 @@ function App() {
   const loadPersonas = useCallback(async () => {
     setPersonasStatus('loading')
     try {
-      const { data } = await getPersonas()
+      const { data } = await getPersonas({ userId: userId.trim() })
       const nextPersonas = Array.isArray(data) ? data : []
       setPersonas(nextPersonas)
       setPersonasStatus('success')
-      setApiStatus('online')
       setSelectedPersonaId((currentPersonaId) => {
         const stillAvailable = nextPersonas.some(
           (persona) => persona.persona_id === currentPersonaId,
@@ -223,13 +258,29 @@ function App() {
           : nextPersonas[0]?.persona_id ?? DEFAULT_PERSONA_ID
       })
       return nextPersonas
-    } catch (error) {
+    } catch {
       setPersonas([])
       setPersonasStatus('error')
-      updateApiStatusAfterError(error)
       return []
     }
-  }, [])
+  }, [userId])
+
+  async function handleCreatePersona(payload) {
+    const { data } = await createCustomPersona(payload)
+    setPersonas((current) => [...current, data])
+    setSelectedPersonaId(data.persona_id)
+  }
+
+  async function handleUpdatePersona(personaId, payload) {
+    const { data } = await updateCustomPersona(personaId, payload)
+    setPersonas((current) => current.map((item) => item.persona_id === personaId ? data : item))
+  }
+
+  async function handleDisablePersona(personaId) {
+    await disableCustomPersona(personaId, userId.trim())
+    setPersonas((current) => current.filter((item) => item.persona_id !== personaId))
+    setSelectedPersonaId((current) => current === personaId ? DEFAULT_PERSONA_ID : current)
+  }
 
   const loadModels = useCallback(async () => {
     setModelsStatus('loading')
@@ -238,16 +289,14 @@ function App() {
       const nextModels = Array.isArray(data) ? data : []
       setModels(nextModels)
       setModelsStatus('success')
-      setApiStatus('online')
       setSelectedModelId((currentModelId) => {
         const stillAvailable = nextModels.some((model) => model.model_id === currentModelId)
         return stillAvailable ? currentModelId : (nextModels[0]?.model_id ?? null)
       })
       return nextModels
-    } catch (error) {
+    } catch {
       setModels([])
       setModelsStatus('error')
-      updateApiStatusAfterError(error)
       return []
     }
   }, [])
@@ -269,6 +318,7 @@ function App() {
     setMessages([])
     setSessions([])
     setSessionsStatus('idle')
+    setSessionCreateError('')
     setActiveSessionId(null)
     setActiveSessionStatus('idle')
     setInterviewJDs([])
@@ -300,21 +350,24 @@ function App() {
     if (!trimmedUserId) {
       setSessions([])
       setSessionsStatus('error')
+      setSessionCreateError('请先填写用户 ID。')
       return []
     }
-    if (!silent) setSessionsStatus('loading')
+    if (!silent) {
+      setSessionsStatus('loading')
+      setSessionCreateError('')
+    }
 
     try {
       const { data } = await getSessions(trimmedUserId)
       const nextSessions = Array.isArray(data?.items) ? data.items : []
       setSessions(nextSessions)
       setSessionsStatus('success')
-      setApiStatus('online')
+      setSessionCreateError('')
       return nextSessions
-    } catch (error) {
+    } catch {
       setSessions([])
       setSessionsStatus('error')
-      updateApiStatusAfterError(error)
       return []
     }
   }, [userId])
@@ -391,9 +444,29 @@ function App() {
     }
   }
 
+  async function loadWorkspaceInstructions(workspaceId) {
+    const trimmedUserId = userId.trim()
+    if (!trimmedUserId || !workspaceId) return
+    try {
+      const { data } = await getWorkspaceAgentInstructions(workspaceId, trimmedUserId)
+      setWorkspaceInstructions({ content: data?.content ?? '', version: data?.version ?? 0 })
+    } catch { setWorkspaceInstructions({ content: '', version: 0 }) }
+  }
+
+  async function saveWorkspaceInstructions(content) {
+    const { data } = await saveWorkspaceAgentInstructions(selectedWorkspaceId, { user_id: userId.trim(), content })
+    setWorkspaceInstructions({ content: data?.content ?? '', version: data?.version ?? 0 })
+  }
+
+  async function clearWorkspaceInstructions() {
+    const { data } = await clearWorkspaceAgentInstructions(selectedWorkspaceId, userId.trim())
+    setWorkspaceInstructions({ content: data?.content ?? '', version: data?.version ?? 0 })
+  }
+
   async function selectWorkspace(workspaceId) {
     workspaceRequestIdRef.current += 1
     setSelectedWorkspaceId(workspaceId)
+    void loadWorkspaceInstructions(workspaceId)
     setSelectedArtifact(null)
     setArtifactContent('')
     setWorkspaceAssets([])
@@ -493,12 +566,10 @@ function App() {
       const nextJDs = Array.isArray(data?.items) ? data.items : []
       setInterviewJDs(nextJDs)
       setInterviewJDsStatus('success')
-      setApiStatus('online')
       return nextJDs
-    } catch (error) {
+    } catch {
       setInterviewJDs([])
       setInterviewJDsStatus('error')
-      updateApiStatusAfterError(error)
       return []
     }
   }, [userId])
@@ -511,11 +582,9 @@ function App() {
       const { data } = await createInterviewJD(requestBody)
       setInterviewJDs((currentJDs) => [data, ...currentJDs])
       setInterviewJDsStatus('success')
-      setApiStatus('online')
       return data
-    } catch (error) {
+    } catch {
       setInterviewJDsStatus('error')
-      updateApiStatusAfterError(error)
       return null
     } finally {
       setIsSavingInterviewJD(false)
@@ -531,8 +600,9 @@ function App() {
     setActiveSessionStatus('loading')
     setMessages([])
     workspaceRequestIdRef.current += 1
-    if (session.workspace_id) {
-      setSelectedWorkspaceId(session.workspace_id)
+      if (session.workspace_id) {
+        setSelectedWorkspaceId(session.workspace_id)
+        void loadWorkspaceInstructions(session.workspace_id)
       setWorkspaceAssets([])
       setWorkspaceTasks([])
       setWorkspaceArtifacts([])
@@ -551,22 +621,24 @@ function App() {
       const items = Array.isArray(data?.items) ? data.items : []
       setMessages(buildMessagesFromHistoryItems(items))
       setActiveSessionStatus('success')
-      setApiStatus('online')
     } catch (error) {
       if (requestId !== sessionMessageRequestIdRef.current || error?.isAbortError) return
       setMessages([])
       setActiveSessionStatus('error')
-      updateApiStatusAfterError(error)
     }
   }
 
-  async function handleCreateSession(workspaceId = null) {
+  async function handleCreateSession(workspaceIdInput = null) {
+    const workspaceId = typeof workspaceIdInput === 'string' && workspaceIdInput.trim()
+      ? workspaceIdInput
+      : null
     const trimmedUserId = userId.trim()
     if (!trimmedUserId || isCreatingSession) return null
 
     const requestId = sessionCreateRequestIdRef.current + 1
     sessionCreateRequestIdRef.current = requestId
     setIsCreatingSession(true)
+    setSessionCreateError('')
 
     try {
       const { data } = await createSession({
@@ -578,6 +650,7 @@ function App() {
 
       upsertSession(data)
       setSessionsStatus('success')
+      setSessionCreateError('')
       activateAttachmentScope(data.id, trimmedUserId, selectedPersonaId, {
         preserveSessionCreation: true,
       })
@@ -586,6 +659,7 @@ function App() {
       setMessages([])
       setSelectedWorkspaceId(data.workspace_id ?? null)
       if (data.workspace_id) {
+        void loadWorkspaceInstructions(data.workspace_id)
         workspaceRequestIdRef.current += 1
         setWorkspaceAssets([])
         setWorkspaceTasks([])
@@ -593,12 +667,16 @@ function App() {
         void loadWorkspaceAssets({ workspaceId: data.workspace_id })
         void loadWorkspaceData(data.workspace_id)
       }
-      setApiStatus('online')
       return data
     } catch (error) {
       if (requestId !== sessionCreateRequestIdRef.current || error?.isAbortError) return null
+      console.error('createSession failed', error)
       setSessionsStatus('error')
-      updateApiStatusAfterError(error)
+      setSessionCreateError(
+        error?.status
+          ? `创建会话失败（HTTP ${error.status}）：${error?.detail?.error ?? error.message}`
+          : `创建会话失败：${error.message}`,
+      )
       return null
     } finally {
       if (requestId === sessionCreateRequestIdRef.current) setIsCreatingSession(false)
@@ -640,7 +718,6 @@ function App() {
       })
       setAttachmentStatus('success')
       setAttachmentError('')
-      setApiStatus('online')
       return listedItems
     } catch (error) {
       if (
@@ -650,7 +727,6 @@ function App() {
       ) return []
       setAttachmentStatus('error')
       setAttachmentError(attachmentErrorMessage(error, '附件列表读取失败，请稍后重试。'))
-      updateApiStatusAfterError(error)
       return []
     }
   }, [activeSessionId, selectedPersonaId, userId])
@@ -685,7 +761,7 @@ function App() {
 
   async function handleUploadAttachment(file) {
     if (isUploadingAttachment) return
-    const validationMessage = validatePdfFile(file)
+    const validationMessage = validateAttachmentFile(file)
     if (validationMessage) {
       setAttachmentError(validationMessage)
       return
@@ -722,11 +798,9 @@ function App() {
       setSelectedAttachmentIds((currentIds) => addSelectedAttachmentId(currentIds, data.id))
       setAttachmentStatus('success')
       setAttachmentError('')
-      setApiStatus('online')
     } catch (error) {
       if (error?.isAbortError || operationScopeKey !== attachmentScopeKeyRef.current) return
-      setAttachmentError(attachmentErrorMessage(error, 'PDF 上传失败，请稍后重试。'))
-      updateApiStatusAfterError(error)
+      setAttachmentError(attachmentErrorMessage(error, '附件上传失败，请稍后重试。'))
     } finally {
       setIsUploadingAttachment(false)
     }
@@ -765,14 +839,12 @@ function App() {
       ))
       setAttachmentStatus('success')
       setAttachmentError('')
-      setApiStatus('online')
     } catch (error) {
       if (scopeKey !== attachmentScopeKeyRef.current || error?.isAbortError) return
       setAttachmentActionErrors((current) => ({
         ...current,
         [attachmentId]: attachmentErrorMessage(error, '附件重试失败，请稍后再试。'),
       }))
-      updateApiStatusAfterError(error)
     } finally {
       if (scopeKey === attachmentScopeKeyRef.current) {
         setAttachmentActionStates((current) => ({ ...current, [attachmentId]: '' }))
@@ -802,14 +874,12 @@ function App() {
       ))
       setAttachmentStatus('success')
       setAttachmentError('')
-      setApiStatus('online')
     } catch (error) {
       if (scopeKey !== attachmentScopeKeyRef.current || error?.isAbortError) return
       setAttachmentActionErrors((current) => ({
         ...current,
         [attachmentId]: attachmentErrorMessage(error, '附件删除失败，请稍后再试。'),
       }))
-      updateApiStatusAfterError(error)
     } finally {
       if (scopeKey === attachmentScopeKeyRef.current) {
         setAttachmentActionStates((current) => ({ ...current, [attachmentId]: '' }))
@@ -822,7 +892,20 @@ function App() {
 
     const trimmedMessage = draftMessage.trim()
     const trimmedUserId = userId.trim()
-    if (!trimmedMessage || !trimmedUserId || isSending) return
+    if (!trimmedMessage) return
+    if (!trimmedUserId) {
+      setComposerNotice('用户 ID 为空，请先填写。')
+      return
+    }
+    if (isSending) {
+      setComposerNotice('正在生成中，请等待当前回复完成。')
+      return
+    }
+    if (activeSessionStatus === 'loading') {
+      setComposerNotice('正在加载历史消息，请稍候。')
+      return
+    }
+    setComposerNotice('')
     if (attachmentSendBlockReason) {
       setAttachmentError(attachmentSendBlockReason)
       return
@@ -857,6 +940,8 @@ function App() {
 
     setStreamingTool(null)
 
+    let accumulatedText = ''
+
     try {
       const activeSession = await ensureActiveSession()
       if (!activeSession) throw new Error('没有可用的会话')
@@ -874,7 +959,6 @@ function App() {
       if (streamingEnabled) {
         // Streaming mode
         const messageId = `message-assistant-${Date.now()}`
-        let accumulatedText = ''
         let finalData = null
 
         // 流开始时就创建 assistant 流式消息区域：
@@ -949,7 +1033,6 @@ function App() {
         setStreamingTool(null)
         setActiveSessionId(finalData?.session_id ?? activeSession.id)
         setActiveSessionStatus('success')
-        setApiStatus('online')
         void loadSessions({ silent: true })
         if (activeSession.workspace_id) void loadWorkspaceData(activeSession.workspace_id)
       } else {
@@ -966,7 +1049,6 @@ function App() {
         setMessages((currentMessages) => [...currentMessages, assistantMessage])
         setActiveSessionId(data?.session_id ?? activeSession.id)
         setActiveSessionStatus('success')
-        setApiStatus('online')
         void loadSessions({ silent: true })
         if (activeSession.workspace_id) void loadWorkspaceData(activeSession.workspace_id)
       }
@@ -977,17 +1059,34 @@ function App() {
         id: `message-error-${Date.now()}`,
         role: 'assistant',
         reply: createErrorReply(error),
-        debug: error.debug ?? {
+        debug: {
           url: `${API_BASE_URL}/${streamingEnabled ? 'chat/stream' : 'chat'}`,
           method: 'POST',
           requestBody: baseRequestBody,
+          ...error.debug,
+          status: error.status ?? error.debug?.status ?? null,
           error: error.message,
+          detail: error.detail,
+          responseBody:
+            error.responseBody
+            ?? error.debug?.responseBody
+            ?? null,
         },
       }
-      setMessages((currentMessages) => [...currentMessages, errorMessage])
+      const partialMessage = streamingEnabled && accumulatedText
+        ? {
+            id: `message-partial-${Date.now()}`,
+            role: 'assistant',
+            reply: { answer: accumulatedText, sources: [] },
+          }
+        : null
+      setMessages((currentMessages) => [
+        ...currentMessages,
+        ...(partialMessage ? [partialMessage] : []),
+        errorMessage,
+      ])
       setStreamingMessage(null)
       setStreamingTool(null)
-      updateApiStatusAfterError(error)
       if (ATTACHMENT_ERRORS_REQUIRING_REFRESH.has(attachmentErrorCode(error))) {
         await refreshAttachments()
       }
@@ -1026,6 +1125,18 @@ function App() {
   }, [theme])
 
   useEffect(() => {
+    localStorage.setItem('tutor-sidebar-collapsed', String(isSidebarCollapsed))
+  }, [isSidebarCollapsed])
+
+  useEffect(() => {
+    function handleEscape(event) {
+      if (event.key === 'Escape') setIsMobileSidebarOpen(false)
+    }
+    window.addEventListener('keydown', handleEscape)
+    return () => window.removeEventListener('keydown', handleEscape)
+  }, [])
+
+  useEffect(() => {
     threadRef.current?.scrollTo({ top: threadRef.current.scrollHeight, behavior: 'smooth' })
   }, [messages, isSending, streamingMessage])
 
@@ -1053,45 +1164,50 @@ function App() {
     { title: '模拟面试练习', text: '请围绕我的目标岗位，开始一轮循序渐进的模拟面试。', icon: 'message' },
   ]
 
-  const attachmentPanel = (
-    <AttachmentPanel
-      attachments={attachments}
-      selectedAttachmentIds={selectedAttachmentIds}
-      status={attachmentStatus}
-      error={attachmentError}
-      actionErrors={attachmentActionErrors}
-      actionStates={attachmentActionStates}
-      sendBlockReason={attachmentSendBlockReason}
-      disabled={isSending || isUploadingAttachment || !userId.trim()}
-      onUpload={handleUploadAttachment}
-      onToggle={handleToggleAttachment}
-      onRetry={handleRetryAttachment}
-      onDelete={handleDeleteAttachment}
-    />
-  )
+  const attachmentProps = {
+    attachments,
+    selectedAttachmentIds,
+    status: attachmentStatus,
+    error: attachmentError,
+    actionErrors: attachmentActionErrors,
+    actionStates: attachmentActionStates,
+    sendBlockReason: attachmentSendBlockReason,
+    disabled: isSending || isUploadingAttachment || !userId.trim(),
+    onUpload: handleUploadAttachment,
+    onToggle: handleToggleAttachment,
+    onRetry: handleRetryAttachment,
+    onDelete: handleDeleteAttachment,
+  }
 
   return (
-    <main className="app-shell">
+    <main className={`app-shell${isSidebarCollapsed ? ' sidebar-collapsed' : ''}`}>
       <header className="app-header">
-        <div className="brand-block">
-          <span className="brand-mark"><Icon name="sparkles" size={18} strokeWidth={1.6} /></span>
-          <div><strong>Tutor Agent</strong><span>专注学习 · 清晰推进</span></div>
+        <div className="header-leading">
+          <button className="icon-button menu-button" type="button" onClick={() => setIsMobileSidebarOpen(true)} aria-label="打开会话侧栏" title="打开会话侧栏"><Icon name="menu" size={19} /></button>
+          {isSidebarCollapsed ? <button className="icon-button sidebar-expand-button" type="button" onClick={() => setIsSidebarCollapsed(false)} aria-label="展开会话侧栏" title="展开会话侧栏"><Icon name="panel" size={18} /></button> : null}
+          <span className="active-session-title">{activeSession?.title || '未命名会话'}</span>
         </div>
         <div className="header-center">
-          <span className="active-session-title">{activeSession?.title || '未命名会话'}</span>
-          <ApiStatus status={apiStatus} />
+          <ApiStatus status={apiStatus} onRefresh={checkApiHealth} />
         </div>
         <div className="header-controls">
           <ModelSelector models={models} selectedModelId={selectedModelId} status={modelsStatus} onModelChange={handleModelChange} />
-          <PersonaSelector personas={personas} selectedPersonaId={selectedPersonaId} status={personasStatus} onPersonaChange={handlePersonaChange} />
+          <PersonaSelector
+            personas={personas}
+            selectedPersonaId={selectedPersonaId}
+            status={personasStatus}
+            onPersonaChange={(nextPersonaId) => {
+              if (nextPersonaId === '__manage_custom__') {
+                setPersonaManagerOpen(true)
+                return
+              }
+              handlePersonaChange(nextPersonaId)
+            }}
+          />
+          <button className="persona-manager-trigger" type="button" onClick={() => setPersonaManagerOpen(true)} aria-label="管理 Persona" title="管理 Persona"><Icon name="user" size={16} /></button>
           <button className="header-action-button" type="button" onClick={() => setIsTargetPanelOpen(true)}>
             <Icon name="target" size={17} /><span>学习目标</span>
           </button>
-          {workspaceFeatureStatus !== 'error' ? (
-            <button className="header-action-button" type="button" onClick={() => setWorkspacePanelOpen(true)}>
-              <Icon name="panel" size={17} /><span>{activeSessionWorkspace?.name || 'Workspace'}</span>
-            </button>
-          ) : null}
           <button className="theme-button" type="button" onClick={() => setTheme((current) => current === 'dark' ? 'light' : 'dark')} aria-label="切换明暗主题">
             <Icon name={theme === 'dark' ? 'sun' : 'moon'} size={18} />
           </button>
@@ -1099,22 +1215,32 @@ function App() {
       </header>
 
       <div className="workspace-layout">
+        {isMobileSidebarOpen ? <button className="drawer-scrim sidebar-scrim" type="button" aria-label="关闭会话侧栏" onClick={() => setIsMobileSidebarOpen(false)} /> : null}
         <SessionSidebar
           userId={userId}
           sessions={sessions}
           personas={personas}
+          workspaces={workspaces}
+          selectedWorkspaceId={selectedWorkspaceId}
           activeSessionId={activeSessionId}
           status={sessionsStatus}
+          sessionCreateError={sessionCreateError}
           isCreating={isCreatingSession}
+          isSidebarCollapsed={isSidebarCollapsed}
+          isMobileOpen={isMobileSidebarOpen}
+          onToggleCollapsed={() => setIsSidebarCollapsed((value) => !value)}
           onCreateSession={handleCreateSession}
           onRefreshSessions={loadSessions}
           onSelectSession={loadSessionMessages}
+          onSelectWorkspace={selectWorkspace}
+          onCreateWorkspace={() => setWorkspacePanelOpen(true)}
+          onArchiveWorkspace={(workspaceId) => handleWorkspaceLifecycle(workspaceId, 'archive')}
+          onRestoreWorkspace={(workspaceId) => handleWorkspaceLifecycle(workspaceId, 'restore')}
+          onOpenWorkspaceDetail={(workspaceId) => { void selectWorkspace(workspaceId); setWorkspacePanelOpen(true) }}
+          onUserIdChange={handleUserIdChange}
         />
 
         <section className="chat-surface" aria-label="聊天工作区">
-          <div className="mobile-chat-toolbar">
-            <UserIdInput userId={userId} onUserIdChange={handleUserIdChange} />
-          </div>
           <div className="thread-preview" ref={threadRef}>
             {messages.length === 0 && activeSessionStatus !== 'loading' ? (
               <div className="welcome-state">
@@ -1167,12 +1293,12 @@ function App() {
             streamingEnabled={streamingEnabled}
             onStreamingEnabledChange={handleStreamingToggle}
             onStopStreaming={streamingEnabled ? handleStopStreaming : undefined}
-            attachmentPanel={attachmentPanel}
+            attachmentProps={attachmentProps}
+            notice={composerNotice}
           />
         </section>
       </div>
 
-      <div className="desktop-user-control"><UserIdInput userId={userId} onUserIdChange={handleUserIdChange} /></div>
       <InterviewJDPanel
         userId={userId}
         items={interviewJDs}
@@ -1183,6 +1309,7 @@ function App() {
         isOpen={isTargetPanelOpen}
         onClose={() => setIsTargetPanelOpen(false)}
       />
+      {personaManagerOpen ? <PersonaManager userId={userId.trim()} personas={personas} onCreate={handleCreatePersona} onUpdate={handleUpdatePersona} onDisable={handleDisablePersona} onClose={() => setPersonaManagerOpen(false)} /> : null}
       <WorkspacePanel
         open={workspacePanelOpen}
         featureStatus={workspaceFeatureStatus}
@@ -1190,6 +1317,9 @@ function App() {
         workspaces={workspaces}
         selectedWorkspaceId={selectedWorkspaceId}
         selectedWorkspace={workspaces.find((workspace) => workspace.id === selectedWorkspaceId)}
+        workspaceInstructions={workspaceInstructions}
+        onSaveInstructions={saveWorkspaceInstructions}
+        onClearInstructions={clearWorkspaceInstructions}
         assets={workspaceAssets}
         assetsStatus={workspaceAssetsStatus}
         assetsError={workspaceAssetsError}

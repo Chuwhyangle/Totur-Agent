@@ -1,4 +1,4 @@
-"""Temporary PDF attachment API routes."""
+"""Temporary conversation attachment API routes."""
 
 from typing import Annotated, NoReturn
 
@@ -39,9 +39,11 @@ from app.services.documents.temporary_document_service import (
     get_temporary_document_service,
 )
 from app.services.documents.temporary_file_storage import (
+    ArchiveAttachmentNotSupported,
     AttachmentStorageError,
     AttachmentTooLarge,
     InvalidAttachmentFilename,
+    LegacyOfficeAttachment,
     UnsupportedAttachmentType,
 )
 
@@ -53,6 +55,8 @@ _HANDLED_ATTACHMENT_ERRORS = (
     AttachmentLimitExceeded,
     AttachmentTooLarge,
     InvalidAttachmentFilename,
+    LegacyOfficeAttachment,
+    ArchiveAttachmentNotSupported,
     UnsupportedAttachmentType,
     AttachmentStorageError,
     AttachmentCreationError,
@@ -75,7 +79,7 @@ def upload_attachment(
         Depends(get_temporary_document_service),
     ],
 ) -> AttachmentItem:
-    """Upload one temporary PDF using the current user_id identity bridge."""
+    """Upload one temporary attachment using the current user_id identity bridge."""
 
     try:
         record = service.create_attachment(user_id, session_id, file)
@@ -206,6 +210,16 @@ def _raise_attachment_http_error(error: Exception) -> NoReturn:
             status_code=status.HTTP_413_CONTENT_TOO_LARGE,
             detail={"error": "attachment_too_large"},
         ) from error
+    if isinstance(error, LegacyOfficeAttachment):
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail={"error": "attachment_legacy_office_format"},
+        ) from error
+    if isinstance(error, ArchiveAttachmentNotSupported):
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail={"error": "attachment_archive_not_supported"},
+        ) from error
     if isinstance(
         error,
         (InvalidAttachmentFilename, UnsupportedAttachmentType),
@@ -251,13 +265,19 @@ def _user_safe_message(record: DocumentRecord) -> str | None:
     if record.status is not DocumentStatus.FAILED:
         return None
 
-    messages = {
+    pdf_messages = {
         "ENCRYPTED_PDF_NOT_SUPPORTED": "当前版本不支持加密 PDF。",
         "PDF_PAGE_LIMIT_EXCEEDED": "PDF 页数超过当前限制。",
-        "NO_EXTRACTABLE_TEXT": (
-            "当前版本只支持包含可提取文本层的 PDF，暂不支持扫描件。"
-        ),
         "INVALID_PDF": "PDF 文件损坏或格式无效。",
+    }
+    if record.error_code in pdf_messages:
+        return pdf_messages[record.error_code]
+    if record.error_code == "NO_EXTRACTABLE_TEXT":
+        if record.mime_type == "application/pdf":
+            return "当前版本只支持包含可提取文本层的 PDF，暂不支持扫描件。"
+        return "文件中没有可提取的文本内容。"
+
+    messages = {
         "PROCESSING_SERVICE_UNAVAILABLE": (
             "附件处理服务暂时不可用，请稍后重试。"
         ),
@@ -268,4 +288,9 @@ def _user_safe_message(record: DocumentRecord) -> str | None:
             "附件重新处理准备失败，请稍后重试。"
         ),
     }
-    return messages.get(record.error_code, "PDF 文档解析失败。")
+    fallback = (
+        "PDF 文档解析失败。"
+        if record.mime_type == "application/pdf"
+        else "附件解析失败。"
+    )
+    return messages.get(record.error_code, fallback)

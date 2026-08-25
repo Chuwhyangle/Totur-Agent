@@ -1,8 +1,10 @@
 """Tutor Agent 聊天业务服务。"""
 
 from collections.abc import Callable, Generator
+import logging
 import re
 import time
+from typing import Any
 
 from openai import OpenAI
 from app.db import trace_db
@@ -19,8 +21,8 @@ from app.services.agent.memory_manager import MemoryManager
 from app.services.agent.model_registry import resolve_model
 from app.services.agent.personas import (
     DEFAULT_PERSONA_ID,
-    get_persona,
 )
+from app.services.agent.persona_service import PersonaService
 from app.services.agent.prompt_builder import PromptBuilder
 from app.services.agent.react_orchestrator import ReactOrchestrator, StreamEvent
 from app.services.agent.response_parser import ResponseParser
@@ -28,9 +30,13 @@ from app.services.agent.tools.executor import ToolExecutor
 from app.services.agent.tools.registry import ToolRegistry
 from app.services.agent.workspace import AgentExecutionContext, WorkspaceTaskRecorder
 from app.services.documents.attachment_retrieval_service import (
+    AttachmentNotFoundError,
+    AttachmentNotReadyError,
+    AttachmentProcessingFailedError,
     AttachmentRetrievalFailedError,
     AttachmentRetrievalService,
 )
+from app.services.documents.attachment_content_service import AttachmentContentService
 from app.repositories.interview_jd_repository import list_all_interview_jds
 from app.services.private_jd_context import format_private_jd_context
 from app.services.rag_seed_context import retrieve_seed_knowledge_context
@@ -47,6 +53,8 @@ from app.services.workspaces.workspace_service import (
 _CITATION_PATTERN = re.compile(r"\[(web|attachment|note|jd)_(\d+)\]")
 _RAW_HTTP_URL_PATTERN = re.compile(r"https?://[^\s<>\"']+", re.IGNORECASE)
 _UNVERIFIED_LINK_REPLACEMENT = "[已移除未验证链接]"
+
+logger = logging.getLogger(__name__)
 
 
 def _citation_ids_from_answer(answer: str) -> list[str]:
@@ -99,6 +107,7 @@ class TutorAgentService:
         seed_context_enabled: bool = ENABLE_RAG_SEED_CONTEXT,
         seed_context_provider: Callable[[str], str | None] | None = None,
         attachment_retrieval_service: AttachmentRetrievalService | None = None,
+        attachment_content_service: AttachmentContentService | None = None,
         attachment_context_max_chars: int | None = None,
     ) -> None:
         """初始化模型配置、模型客户端和 Agent 辅助组件。"""
@@ -123,8 +132,10 @@ class TutorAgentService:
         # Keep attachment dependencies lazy so ordinary chat never opens Chroma or
         # initializes an embedding client.
         self.attachment_retrieval_service = attachment_retrieval_service
+        self.attachment_content_service = attachment_content_service
         self.attachment_context_max_chars = attachment_context_max_chars
         self.workspace_service = WorkspaceService()
+        self.persona_service = PersonaService()
 
     def validate_chat_request(self, request: ChatRequest) -> None:
         """Validate an existing Session before a streaming response starts."""
@@ -173,7 +184,10 @@ class TutorAgentService:
                 trace_id=trace_id,
                 current_goal=message,
             )
-            persona = get_persona(session.persona_id)
+            persona = self.persona_service.resolve(
+                user_id=user_id,
+                persona_id=session.persona_id,
+            )
 
             # 先准备模型上下文；具体怎么读历史和摘要交给 MemoryManager。
             context = self.memory_manager.load_context(
@@ -181,25 +195,20 @@ class TutorAgentService:
                 session_id=session.id,
                 current_message=message,
             )
+            self._attach_workspace_instructions(context, user_id=user_id, session=session)
             if self.seed_context_enabled:
                 context.seed_knowledge_context = self.seed_context_provider(message)
 
             private_jd_records = list_all_interview_jds()
             context.private_jd_context = format_private_jd_context(private_jd_records)
 
-            # FR-3: 附件不再预注入上下文，改为工具化 + tool_choice 强制。
-            # 通过 executor 默认参数注入权限上下文（不进 schema）。
             if request.attachment_ids:
-                self._set_attachment_tool_defaults(
+                context.attachment_context = self._build_attachment_context(
                     user_id=user_id,
                     session_id=session.id,
                     attachment_ids=request.attachment_ids,
-                    subject=session.subject,
                 )
-            else:
-                set_defaults = getattr(self.tool_executor, "set_default_tool_kwargs", None)
-                if callable(set_defaults):
-                    set_defaults({"search_learning_notes": {"subject": session.subject}})
+            self._set_learning_note_defaults(session.subject)
 
             if not context.recent_history and session.title == DEFAULT_SESSION_TITLE:
                 # 新会话第一条消息发出后，用这条消息生成一个更自然的会话标题。
@@ -212,7 +221,7 @@ class TutorAgentService:
                 web_search_enabled=request.web_search_enabled,
                 rag_enabled=request.rag_enabled,
                 force_rag=request.force_rag,
-                attachment_ids=request.attachment_ids,
+                attachment_ids=[],
                 model_spec=model_spec,
                 execution_context=execution_context,
             )
@@ -315,31 +324,30 @@ class TutorAgentService:
                 trace_id=trace_id,
                 current_goal=message,
             )
-            persona = get_persona(session.persona_id)
+            persona = self.persona_service.resolve(
+                user_id=user_id,
+                persona_id=session.persona_id,
+            )
 
             context = self.memory_manager.load_context(
                 user_id=user_id,
                 session_id=session.id,
                 current_message=message,
             )
+            self._attach_workspace_instructions(context, user_id=user_id, session=session)
             if self.seed_context_enabled:
                 context.seed_knowledge_context = self.seed_context_provider(message)
 
             private_jd_records = list_all_interview_jds()
             context.private_jd_context = format_private_jd_context(private_jd_records)
 
-            # FR-3: 附件工具化，权限参数经 executor 注入。
             if request.attachment_ids:
-                self._set_attachment_tool_defaults(
+                context.attachment_context = self._build_attachment_context(
                     user_id=user_id,
                     session_id=session.id,
                     attachment_ids=request.attachment_ids,
-                    subject=session.subject,
                 )
-            else:
-                set_defaults = getattr(self.tool_executor, "set_default_tool_kwargs", None)
-                if callable(set_defaults):
-                    set_defaults({"search_learning_notes": {"subject": session.subject}})
+            self._set_learning_note_defaults(session.subject)
 
             if not context.recent_history and session.title == DEFAULT_SESSION_TITLE:
                 update_session_title(session.id, make_title_from_message(message))
@@ -353,7 +361,7 @@ class TutorAgentService:
                 web_search_enabled=request.web_search_enabled,
                 rag_enabled=request.rag_enabled,
                 force_rag=request.force_rag,
-                attachment_ids=request.attachment_ids,
+                attachment_ids=[],
                 model_spec=model_spec,
                 execution_context=execution_context,
             )
@@ -364,8 +372,18 @@ class TutorAgentService:
                     raw_reply, tool_trace = stop.value
                     break
                 except Exception as exc:
+                    logger.exception("stream_internal_error")
                     status = "ERROR"
-                    yield {"event": "error", "data": {"message": str(exc)}}
+                    yield {
+                        "event": "error",
+                        "data": {
+                            "error": "stream_internal_error",
+                            "stage": "stream",
+                            "message": "流式响应处理失败，请重试。",
+                            "debug_message": f"{type(exc).__name__}: {exc}",
+                            "retryable": True,
+                        },
+                    }
                     return
 
                 if event.type == "token":
@@ -385,13 +403,38 @@ class TutorAgentService:
                 note_references_allowed=request.rag_enabled,
             )
 
-            self.memory_manager.save_turn_and_update_summary(
-                user_id=user_id,
-                session_id=session.id,
-                message=message,
-                reply=reply,
-            )
-            self._complete_execution_context(execution_context)
+            try:
+                self.memory_manager.save_turn_and_update_summary(
+                    user_id=user_id,
+                    session_id=session.id,
+                    message=message,
+                    reply=reply,
+                )
+            except Exception as exc:
+                logger.exception("conversation_persistence_failed")
+                status = "ERROR"
+                yield {
+                    "event": "error",
+                    "data": {
+                        "error": "conversation_persistence_failed",
+                        "stage": "persistence",
+                        "message": "回答已生成，但对话保存失败。",
+                        "debug_message": f"{type(exc).__name__}: {exc}",
+                        "retryable": True,
+                    },
+                }
+                return
+
+            warnings = []
+            try:
+                self._complete_execution_context(execution_context)
+            except Exception as exc:
+                logger.exception("workspace_task_completion_failed")
+                warnings.append({
+                    "error": "workspace_task_completion_failed",
+                    "message": "回答已保存，但 Workspace Task 状态更新失败。",
+                    "debug_message": f"{type(exc).__name__}: {exc}",
+                })
 
             status = "OK"
             yield {
@@ -402,6 +445,7 @@ class TutorAgentService:
                     "session_id": session.id,
                     "model_id": model_spec.model_id,
                     "sources": [s.model_dump() for s in reply.sources],
+                    "warnings": warnings,
                 },
             }
         except GeneratorExit:
@@ -430,9 +474,31 @@ class TutorAgentService:
                     "workspace_id": exc.workspace_id,
                 },
             }
-        except Exception as exc:
+        except AttachmentNotFoundError:
             status = "ERROR"
-            yield {"event": "error", "data": {"message": str(exc)}}
+            yield {"event": "error", "data": {"error": "attachment_not_found", "retryable": False}}
+        except AttachmentNotReadyError:
+            status = "ERROR"
+            yield {"event": "error", "data": {"error": "attachment_not_ready", "retryable": False}}
+        except AttachmentProcessingFailedError:
+            status = "ERROR"
+            yield {"event": "error", "data": {"error": "attachment_processing_failed", "retryable": False}}
+        except AttachmentRetrievalFailedError:
+            status = "ERROR"
+            yield {"event": "error", "data": {"error": "attachment_retrieval_failed", "retryable": True}}
+        except Exception as exc:
+            logger.exception("stream_internal_error")
+            status = "ERROR"
+            yield {
+                "event": "error",
+                "data": {
+                    "error": "stream_internal_error",
+                    "stage": "stream",
+                    "message": "流式响应处理失败，请重试。",
+                    "debug_message": f"{type(exc).__name__}: {exc}",
+                    "retryable": True,
+                },
+            }
         finally:
             if status != "OK":
                 self._fail_execution_context(execution_context, "PROCESS_INTERRUPTED")
@@ -573,6 +639,35 @@ class TutorAgentService:
                 raise AttachmentRetrievalFailedError from exc
         return self.attachment_retrieval_service
 
+    def _get_attachment_content_service(self) -> AttachmentContentService:
+        if self.attachment_content_service is None:
+            self.attachment_content_service = AttachmentContentService(
+                context_max_chars=self.attachment_context_max_chars,
+            )
+        return self.attachment_content_service
+
+    def _build_attachment_context(
+        self,
+        *,
+        user_id: str,
+        session_id: int,
+        attachment_ids: list[str],
+    ) -> str:
+        return self._get_attachment_content_service().build_context(
+            user_id=user_id,
+            session_id=session_id,
+            attachment_ids=attachment_ids,
+            max_chars=self.attachment_context_max_chars,
+        )
+
+    def _set_learning_note_defaults(self, subject: str | None) -> None:
+        set_defaults = getattr(self.tool_executor, "set_default_tool_kwargs", None)
+        if callable(set_defaults):
+            defaults: dict[str, dict[str, Any]] = {}
+            if subject:
+                defaults["search_learning_notes"] = {"subject": subject}
+            set_defaults(defaults)
+
     def _set_attachment_tool_defaults(
         self,
         *,
@@ -611,7 +706,8 @@ class TutorAgentService:
         """确定这次聊天要写入哪个会话。"""
 
         request_persona = (
-            get_persona(request_persona_id) if request_persona_id is not None else None
+            self.persona_service.resolve(user_id=user_id, persona_id=request_persona_id)
+            if request_persona_id is not None else None
         )
         if session_id is None:
             # 兼容旧版前端：不传 session_id 时仍然使用默认会话，但默认会话按 persona 隔离。
@@ -645,3 +741,15 @@ class TutorAgentService:
             self.workspace_service.ensure_active_workspace(session.workspace_id)
 
         return session
+
+    def _attach_workspace_instructions(self, context, *, user_id: str, session) -> None:
+        """Load current Workspace rules without letting PromptBuilder access storage."""
+
+        if session.workspace_id is None:
+            return
+        workspace = self.workspace_service.get_agent_instructions(
+            user_id=user_id,
+            workspace_id=session.workspace_id,
+        )
+        context.workspace_agent_instructions = workspace.agent_instructions
+        context.workspace_agent_instructions_version = workspace.agent_instructions_version

@@ -4,7 +4,7 @@ Tutor Agent 是一个训练型项目：通过开发 AI 学习辅导 Agent 来学
 
 ## 技术栈（声明式，勿凭路径猜测）
 
-- 后端：Python + FastAPI + uvicorn，SQLite 持久化（`tutor_agent.db`），Chroma 向量库（`chroma_db/`），OpenAI-compatible 模型客户端。依赖见 `requirements.txt`。
+- 后端：Python + FastAPI + uvicorn。本地业务数据唯一使用 `E:\AI Project\tutor_agent.db`（由 `DATA_DIR=E:\AI Project` 指定），Chroma 使用同一数据根目录；仓库内的 `E:\AI Project\Totur-Agent\tutor_agent.db` 已停用。MySQL 当前只用于 Agent Trace，业务库尚未切换。依赖见 `requirements.txt`。
 - 前端：React 19 + Vite，lint 用 oxlint，测试用 vitest。见 `frontend/package.json`。
 - 本项目不是 django、不是 rails。`app/mcp/settings.py` 等只是普通模块，不是框架信号。
 
@@ -12,7 +12,8 @@ Tutor Agent 是一个训练型项目：通过开发 AI 学习辅导 Agent 来学
 
 ```powershell
 .\.venv\Scripts\activate                                 # 激活虚拟环境
-python -m uvicorn app.main:app --reload --port 8001      # 启动后端（文档在 /docs）
+$env:DATA_DIR = 'E:\AI Project'; $env:DATABASE_URL = ''  # 本地业务库固定在仓库外
+.\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --port 8002 # 启动后端（文档在 /docs）
 .\.venv\Scripts\python.exe -m pytest tests -q            # 后端全量测试
 cd frontend; npm run dev -- --host 127.0.0.1             # 前端开发（5173，占用时换 5175）
 cd frontend; npm run build; npm run lint                 # 前端构建与 lint
@@ -20,6 +21,13 @@ cd frontend; npm run build; npm run lint                 # 前端构建与 lint
 ```
 
 测试使用临时 SQLite 数据库，不写入本地 `tutor_agent.db`。
+
+### 数据库启动规则
+
+- 本地开发只允许使用 `E:\AI Project\tutor_agent.db`；禁止启动或连接 `E:\AI Project\Totur-Agent\tutor_agent.db`。
+- 启动后端前先检查：`.\.venv\Scripts\python.exe -c "from app.config import StorageConfig; print(StorageConfig.from_env().database_url)"`。输出必须是仓库外数据库或明确的 MySQL URL。
+- `TRACE_DB_*` 配置只指向观测库，不得当作业务库；未完成正式迁移前，不设置业务 `DATABASE_URL` 到 Trace 数据库。
+- 业务库迁移到 MySQL 前，必须先备份 SQLite、建立字段映射和导入校验，再切换 API；不得在启动命令中临时切库。
 
 ## 目录速览
 

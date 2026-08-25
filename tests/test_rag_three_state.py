@@ -201,9 +201,10 @@ class TestRagDisabledMode:
         orchestrator.client = SimpleNamespace(
             chat=SimpleNamespace(completions=SimpleNamespace(create=fake_create))
         )
-        orchestrator._active_rag_enabled = False
-
-        orchestrator._call_model_with_tools([{"role": "user", "content": "hi"}])
+        orchestrator._call_model_with_tools(
+            [{"role": "user", "content": "hi"}],
+            rag_enabled=False,
+        )
 
         names = [
             tool["function"]["name"]
@@ -228,9 +229,10 @@ class TestRagDisabledMode:
         orchestrator.client = SimpleNamespace(
             chat=SimpleNamespace(completions=SimpleNamespace(create=fake_create))
         )
-        orchestrator._active_rag_enabled = True
-
-        orchestrator._call_model_with_tools([{"role": "user", "content": "hi"}])
+        orchestrator._call_model_with_tools(
+            [{"role": "user", "content": "hi"}],
+            rag_enabled=True,
+        )
 
         names = [
             tool["function"]["name"]
@@ -300,10 +302,11 @@ class TestWebSearchThreeState:
         orchestrator.client = SimpleNamespace(
             chat=SimpleNamespace(completions=SimpleNamespace(create=fake_create))
         )
-        orchestrator._active_rag_enabled = True
-        orchestrator._active_web_search_enabled = False
-
-        orchestrator._call_model_with_tools([{"role": "user", "content": "hi"}])
+        orchestrator._call_model_with_tools(
+            [{"role": "user", "content": "hi"}],
+            rag_enabled=True,
+            web_search_enabled=False,
+        )
 
         names = [
             tool["function"]["name"]
@@ -760,7 +763,16 @@ class TestStreamingMode:
         orchestrator = make_orchestrator(registry)
         orchestrator._call_model_with_tools = lambda _messages: final_message()
 
-        def fake_stream_round(messages, *, tool_choice=None, content_prefix=""):
+        def fake_stream_round(
+            messages,
+            *,
+            tool_choice=None,
+            content_prefix="",
+            model_spec=None,
+            execution_context=None,
+            rag_enabled=True,
+            web_search_enabled=True,
+        ):
             yield SimpleNamespace(type="token", data={"text": "streamed "})
             yield SimpleNamespace(type="token", data={"text": "reply"})
             return SimpleNamespace(content="streamed reply", reasoning="", tool_calls=[])

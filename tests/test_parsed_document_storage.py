@@ -28,7 +28,7 @@ def make_document():
         document_id="2e4d8b95-7ea3-4ea3-9c03-57ecdd906871",
         original_filename="private-resume.pdf",
         page_count=1,
-        extracted_char_count=6,
+        extracted_char_count=4,
         pages=(
             ParsedPage(
                 page_number=1,
@@ -66,6 +66,46 @@ def test_json_uses_utf8_and_preserves_chinese(tmp_path):
     assert "中文内容" in raw_text
     assert r"\u4e2d" not in raw_text
     assert storage.read_json(key)["pages"][0]["blocks"][0]["text"] == "中文内容"
+
+
+def test_schema_v1_payload_defaults_to_pdf_page_locators():
+    parsed = ParsedDocument.from_dict(make_document().to_dict())
+
+    assert parsed.schema_version == 1
+    assert parsed.content_kind == "pdf"
+    assert parsed.locator_unit == "page"
+    assert parsed.pages[0].locator_start is None
+
+
+def test_schema_v2_round_trips_virtual_page_locator_data():
+    document = ParsedDocument(
+        schema_version=2,
+        document_id="document-2",
+        original_filename="notes.txt",
+        page_count=1,
+        extracted_char_count=11,
+        pages=(
+            ParsedPage(
+                page_number=1,
+                width=0.0,
+                height=0.0,
+                blocks=(ParsedTextBlock(0, "first\nsecond", (0.0, 0.0, 0.0, 0.0)),),
+                locator_start=1,
+                locator_end=120,
+            ),
+        ),
+        content_kind="text",
+        locator_unit="line",
+    )
+
+    parsed = ParsedDocument.from_dict(document.to_dict())
+
+    assert parsed.content_kind == "text"
+    assert parsed.locator_unit == "line"
+    assert parsed.pages[0].width == 0.0
+    assert parsed.pages[0].blocks[0].bbox == (0.0, 0.0, 0.0, 0.0)
+    assert parsed.pages[0].locator_start == 1
+    assert parsed.pages[0].locator_end == 120
 
 
 def test_storage_key_never_contains_original_filename_or_absolute_path(tmp_path):

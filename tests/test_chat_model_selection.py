@@ -94,8 +94,8 @@ def test_same_session_can_switch_models_without_losing_history(monkeypatch, tmp_
     selected_models: list[str] = []
     messages_by_call: list[list[dict]] = []
 
-    def fake_call_model_with_tools(messages):
-        spec = chat_route.tutor_agent_service.react_orchestrator._model_spec_var.get()
+    def fake_call_model_with_tools(messages, *, model_spec=None, **_kwargs):
+        spec = model_spec
         selected_models.append(spec.model_id)
         messages_by_call.append(messages)
         return {"content": FINAL_REPLY, "tool_calls": []}

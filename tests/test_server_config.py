@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+import pytest
 from fastapi import FastAPI
 
 from app.api.routes.journal import router as journal_router
@@ -52,3 +53,21 @@ def test_data_dir_keeps_sqlite_and_chroma_layout(monkeypatch, tmp_path):
 
     assert config.database_path == Path(tmp_path) / "tutor_agent.db"
     assert config.chroma_persist_dir == Path(tmp_path) / "chroma_db"
+
+
+def test_data_dir_rejects_repository_root(monkeypatch):
+    repository_root = Path(__file__).resolve().parents[1]
+    monkeypatch.setenv("DATA_DIR", str(repository_root))
+
+    with pytest.raises(RuntimeError, match="禁止将 DATA_DIR 设置为项目目录"):
+        StorageConfig.from_env()
+
+
+def test_database_url_rejects_repository_database(monkeypatch):
+    repository_database = Path(__file__).resolve().parents[1] / "tutor_agent.db"
+    monkeypatch.setenv("DATA_DIR", str(repository_database.parent.parent))
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{repository_database.as_posix()}")
+
+    config = StorageConfig.from_env()
+    with pytest.raises(RuntimeError, match="禁止使用仓库内 tutor_agent.db"):
+        _ = config.database_url

@@ -5,11 +5,14 @@ from fastapi import APIRouter, HTTPException, Query, status
 from app.db.models import WorkspaceRecord
 from app.schemas.workspaces import (
     CreateWorkspaceRequest,
+    AgentInstructionsRequest,
+    AgentInstructionsResponse,
     WorkspaceItem,
     WorkspaceListResponse,
 )
 from app.services.workspaces.workspace_service import (
     InvalidWorkspaceError,
+    WorkspaceArchivedError,
     WorkspaceNotFoundError,
     WorkspaceService,
 )
@@ -112,6 +115,84 @@ def restore_workspace(
     return _workspace_item_from_record(record)
 
 
+@router.get(
+    "/workspaces/{workspace_id}/agent-instructions",
+    response_model=AgentInstructionsResponse,
+)
+def get_agent_instructions(
+    workspace_id: str,
+    user_id: str = Query(..., min_length=1),
+) -> AgentInstructionsResponse:
+    try:
+        record = workspace_service.get_agent_instructions(
+            user_id=user_id,
+            workspace_id=workspace_id,
+        )
+    except WorkspaceNotFoundError as error:
+        raise _workspace_not_found() from error
+    except WorkspaceArchivedError as error:
+        raise HTTPException(status_code=409, detail={"error": "workspace_archived", "workspace_id": error.workspace_id}) from error
+    return AgentInstructionsResponse(
+        workspace_id=record.id,
+        content=record.agent_instructions,
+        version=record.agent_instructions_version,
+    )
+
+
+@router.put(
+    "/workspaces/{workspace_id}/agent-instructions",
+    response_model=AgentInstructionsResponse,
+)
+def save_agent_instructions(
+    workspace_id: str,
+    request: AgentInstructionsRequest,
+) -> AgentInstructionsResponse:
+    try:
+        record = workspace_service.save_agent_instructions(
+            user_id=request.user_id,
+            workspace_id=workspace_id,
+            instructions=request.content,
+        )
+    except WorkspaceNotFoundError as error:
+        raise _workspace_not_found() from error
+    except WorkspaceArchivedError as error:
+        raise HTTPException(status_code=409, detail={"error": "workspace_archived", "workspace_id": error.workspace_id}) from error
+    except InvalidWorkspaceError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={"error": "invalid_agent_instructions", "message": str(error)},
+        ) from error
+    return AgentInstructionsResponse(
+        workspace_id=record.id,
+        content=record.agent_instructions,
+        version=record.agent_instructions_version,
+    )
+
+
+@router.delete(
+    "/workspaces/{workspace_id}/agent-instructions",
+    response_model=AgentInstructionsResponse,
+)
+def delete_agent_instructions(
+    workspace_id: str,
+    user_id: str = Query(..., min_length=1),
+) -> AgentInstructionsResponse:
+    try:
+        record = workspace_service.clear_agent_instructions(
+            user_id=user_id,
+            workspace_id=workspace_id,
+        )
+    except WorkspaceNotFoundError as error:
+        raise _workspace_not_found() from error
+    except WorkspaceArchivedError as error:
+        raise HTTPException(status_code=409, detail={"error": "workspace_archived", "workspace_id": error.workspace_id}) from error
+    return AgentInstructionsResponse(
+        workspace_id=record.id,
+        content=record.agent_instructions,
+        version=record.agent_instructions_version,
+    )
+
+
 def _workspace_not_found() -> HTTPException:
     return HTTPException(
         status_code=status.HTTP_404_NOT_FOUND,
@@ -129,4 +210,6 @@ def _workspace_item_from_record(record: WorkspaceRecord) -> WorkspaceItem:
         created_at=record.created_at,
         updated_at=record.updated_at,
         archived_at=record.archived_at,
+        agent_instructions=record.agent_instructions,
+        agent_instructions_version=record.agent_instructions_version,
     )

@@ -24,6 +24,7 @@ def make_service(monkeypatch, *, run=None, run_stream=None):
         persona_id="tutor",
         subject="",
         title="Existing session",
+        workspace_id=None,
     )
     service.memory_manager = SimpleNamespace(
         load_context=lambda **kwargs: SimpleNamespace(recent_history=["prior"]),
@@ -116,6 +117,13 @@ def test_chat_stream_model_exception_finishes_as_error(monkeypatch):
     events = list(service.chat_stream(REQUEST))
 
     assert [event["event"] for event in events] == ["token", "error"]
+    assert events[1]["data"] == {
+        "error": "stream_internal_error",
+        "stage": "stream",
+        "message": "流式响应处理失败，请重试。",
+        "debug_message": "RuntimeError: stream failed",
+        "retryable": True,
+    }
     assert calls[1][1]["status"] == "ERROR"
 
 
@@ -135,6 +143,59 @@ def test_chat_stream_generator_close_finishes_as_cancelled(monkeypatch):
     assert first_event["event"] == "token"
     assert [kind for kind, _ in calls] == ["start", "finish"]
     assert calls[1][1]["status"] == "CANCELLED"
+
+
+def test_chat_stream_persistence_failure_is_a_structured_business_error(monkeypatch):
+    calls = capture_trace_calls(monkeypatch)
+
+    def run_stream(*args, **kwargs):
+        if False:
+            yield None
+        return "answer", ToolTrace(used=False)
+
+    service = make_service(monkeypatch, run_stream=run_stream)
+
+    def fail_save(**_kwargs):
+        raise RuntimeError("database is locked")
+
+    service.memory_manager.save_turn_and_update_summary = fail_save
+    events = list(service.chat_stream(REQUEST))
+
+    assert [event["event"] for event in events] == ["error"]
+    assert events[0]["data"] == {
+        "error": "conversation_persistence_failed",
+        "stage": "persistence",
+        "message": "回答已生成，但对话保存失败。",
+        "debug_message": "RuntimeError: database is locked",
+        "retryable": True,
+    }
+    assert calls[1][1]["status"] == "ERROR"
+
+
+def test_chat_stream_workspace_completion_failure_still_sends_done(monkeypatch):
+    calls = capture_trace_calls(monkeypatch)
+
+    def run_stream(*args, **kwargs):
+        if False:
+            yield None
+        return "answer", ToolTrace(used=False)
+
+    service = make_service(monkeypatch, run_stream=run_stream)
+
+    def fail_completion(_context):
+        raise RuntimeError("task update failed")
+
+    service._complete_execution_context = fail_completion
+    events = list(service.chat_stream(REQUEST))
+
+    assert [event["event"] for event in events] == ["done"]
+    assert events[0]["data"]["reply"]["answer"] == "answer"
+    assert events[0]["data"]["warnings"] == [{
+        "error": "workspace_task_completion_failed",
+        "message": "回答已保存，但 Workspace Task 状态更新失败。",
+        "debug_message": "RuntimeError: task update failed",
+    }]
+    assert calls[1][1]["status"] == "OK"
 
 
 def test_stream_starts_request_timing_before_agent_work(monkeypatch):

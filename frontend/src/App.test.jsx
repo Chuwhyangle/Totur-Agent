@@ -93,6 +93,52 @@ async function openSession(user, title = 'Session One') {
   await user.click(await screen.findByText(title))
 }
 
+describe('App session creation', () => {
+  beforeEach(() => {
+    Object.values(api).forEach((mock) => typeof mock === 'function' && mock.mockReset())
+    localStorage.clear()
+    mockAppBootstrap()
+  })
+
+  it('creates a top-level session without passing a click event as workspace_id', async () => {
+    const user = userEvent.setup()
+    api.getSessions.mockResolvedValue({ data: { items: [] } })
+    render(<App />)
+
+    await user.click(await screen.findByRole('button', { name: '开始新对话' }))
+
+    await waitFor(() => expect(api.createSession).toHaveBeenCalledWith({
+      user_id: 'demo-user',
+      persona_id: 'tutor',
+    }))
+    expect(api.createSession.mock.calls[0][0]).not.toHaveProperty('workspace_id')
+  })
+
+  it('shows a concrete creation error instead of reporting a connection failure', async () => {
+    const user = userEvent.setup()
+    api.createSession.mockRejectedValue(new Error('create session failed'))
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    render(<App />)
+
+    await user.click(await screen.findByRole('button', { name: '开始新对话' }))
+
+    expect(await screen.findByText(/创建会话失败：create session failed/)).not.toBeNull()
+    expect(screen.getByText(/会话操作失败/)).not.toBeNull()
+    consoleError.mockRestore()
+  })
+
+  it('keeps a desktop expand control available when the sidebar starts collapsed', async () => {
+    const user = userEvent.setup()
+    localStorage.setItem('tutor-sidebar-collapsed', 'true')
+    render(<App />)
+
+    await user.click(await screen.findByRole('button', { name: '展开会话侧栏' }))
+
+    await waitFor(() => expect(localStorage.getItem('tutor-sidebar-collapsed')).toBe('false'))
+    expect(screen.queryByRole('button', { name: '展开会话侧栏' })).toBeNull()
+  })
+})
+
 describe('App attachment scope and sending', () => {
   beforeEach(() => {
     Object.values(api).forEach((mock) => typeof mock === 'function' && mock.mockReset())
@@ -127,6 +173,32 @@ describe('App attachment scope and sending', () => {
 
     expect(screen.queryByText('first.pdf')).toBeNull()
     expect(screen.getByText('second.pdf')).not.toBeNull()
+  })
+
+  it('keeps the first message when session history finishes after sending', async () => {
+    const user = userEvent.setup()
+    const history = deferred()
+    api.getSessionConversations.mockReturnValue(history.promise)
+    api.getAttachments.mockResolvedValue({ data: { items: [] } })
+
+    render(<App />)
+    await openSession(user)
+    await user.type(
+      screen.getByPlaceholderText('写下你的问题，或让导师帮你拆解下一步…'),
+      'first question',
+    )
+    expect(screen.getByRole('button', { name: '发送消息' }).disabled).toBe(true)
+
+    await act(async () => {
+      history.resolve({ data: { items: [] } })
+      await history.promise
+    })
+
+    await user.click(screen.getByRole('button', { name: '发送消息' }))
+
+    await waitFor(() => expect(api.postChat).toHaveBeenCalledTimes(1))
+
+    expect(screen.getByText('first question')).not.toBeNull()
   })
 
   it('clears attachment state and ignores stale responses after persona changes', async () => {
@@ -176,6 +248,7 @@ describe('App attachment scope and sending', () => {
     render(<App />)
     await openSession(user)
     expect(await screen.findByText('resume.pdf')).not.toBeNull()
+    await user.click(screen.getByRole('button', { name: /^附件/ }))
     expect(screen.getByRole('checkbox', { name: '选择附件 resume.pdf' }).checked).toBe(true)
 
     await user.type(
@@ -220,13 +293,14 @@ describe('App attachment scope and sending', () => {
     render(<App />)
     await openSession(user)
     expect(await screen.findByText('resume.pdf')).not.toBeNull()
+    await user.click(screen.getByRole('button', { name: /^附件/ }))
 
     const input = screen.getByPlaceholderText('写下你的问题，或让导师帮你拆解下一步…')
     await user.type(input, '总结附件')
     await user.click(screen.getByRole('button', { name: '发送消息' }))
 
     await waitFor(() => expect(api.getAttachments).toHaveBeenCalledTimes(2))
-    expect(await screen.findByText('处理失败')).not.toBeNull()
+    expect((await screen.findAllByText('处理失败')).length).toBeGreaterThan(0)
     expect(screen.getByText('附件索引缺失，请重试处理。')).not.toBeNull()
     expect(screen.getByRole('button', { name: '重试附件 resume.pdf' })).not.toBeNull()
     expect(screen.getByRole('status').textContent).toContain('所选附件处理失败')
@@ -250,6 +324,8 @@ describe('App attachment scope and sending', () => {
 
     render(<App />)
     await openSession(user)
+    await screen.findByText('processing.pdf')
+    await user.click(screen.getByRole('button', { name: /^附件/ }))
     const checkbox = await screen.findByRole('checkbox', { name: '选择附件 processing.pdf' })
     await user.click(checkbox)
     await user.type(
@@ -607,7 +683,110 @@ describe('App SSE sending', () => {
     await user.click(document.querySelector('.send-button'))
 
     await waitFor(() => expect(document.querySelector('.streaming-toggle').disabled).toBe(false))
-    expect(screen.queryByText('partial answer')).toBeNull()
+    expect(screen.getByText('partial answer')).not.toBeNull()
+    expect(screen.getByText('stream failed')).not.toBeNull()
+    expect(screen.queryByText('这次请求后端失败了，但页面没有崩溃')).toBeNull()
+    expect(screen.getByText('API 在线')).not.toBeNull()
+  })
+
+  it('shows the real stream error and preserves complete debug details', async () => {
+    const user = userEvent.setup()
+    api.getAttachments.mockResolvedValue({ data: { items: [] } })
+    api.postChatStream.mockImplementation(async (_request, callbacks) => {
+      callbacks.onToken('partial answer')
+      throw {
+        message: 'Chat stream failed',
+        status: 200,
+        detail: {
+          error: 'conversation_persistence_failed',
+          message: '回答已生成，但对话保存失败。',
+          debug_message: 'RuntimeError: database is locked',
+        },
+        responseBody: {
+          error: 'conversation_persistence_failed',
+          message: '回答已生成，但对话保存失败。',
+        },
+        debug: { error: '回答已生成，但对话保存失败。' },
+      }
+    })
+
+    render(<App />)
+    await openSession(user)
+    await user.type(document.querySelector('.chat-input'), 'save this')
+    await user.click(document.querySelector('.send-button'))
+
+    expect(await screen.findByText('回答已生成，但对话保存失败。')).not.toBeNull()
+    expect(screen.getByText('partial answer')).not.toBeNull()
+    expect(screen.queryByText(/排查建议/)).toBeNull()
+    await user.click(screen.getByText('调试详情'))
+    expect(screen.getByText(/"status": 200/)).not.toBeNull()
+    expect(screen.getByText(/"conversation_persistence_failed"/)).not.toBeNull()
+    expect(screen.getByText(/"responseBody"/)).not.toBeNull()
+    expect(screen.getByText('API 在线')).not.toBeNull()
+  })
+
+  it('keeps internal stream errors out of the visible reply', async () => {
+    const user = userEvent.setup()
+    api.getAttachments.mockResolvedValue({ data: { items: [] } })
+    api.postChatStream.mockRejectedValue({
+      message: '流式响应处理失败，请重试。',
+      status: 200,
+      detail: {
+        error: 'stream_internal_error',
+        stage: 'stream',
+        message: '流式响应处理失败，请重试。',
+        debug_message: 'ValueError: Token was created in a different Context',
+      },
+      responseBody: {
+        error: 'stream_internal_error',
+        message: '流式响应处理失败，请重试。',
+        debug_message: 'ValueError: Token was created in a different Context',
+      },
+    })
+
+    render(<App />)
+    await openSession(user)
+    await user.type(document.querySelector('.chat-input'), 'internal failure')
+    await user.click(document.querySelector('.send-button'))
+
+    expect(await screen.findByText('流式响应处理失败，请重试。')).not.toBeNull()
+    const debugDetails = document.querySelector('.debug-details')
+    expect(debugDetails.open).toBe(false)
+    await user.click(screen.getByText('调试详情'))
+    expect(screen.getByText(/Token was created in a different Context/)).not.toBeNull()
+    expect(screen.getByText('API 在线')).not.toBeNull()
+  })
+
+  it('keeps the API status unchanged after a chat HTTP error', async () => {
+    const user = userEvent.setup()
+    localStorage.setItem('tutor-streaming', 'false')
+    api.getAttachments.mockResolvedValue({ data: { items: [] } })
+    api.postChat.mockRejectedValue({
+      message: 'Chat request failed: 422',
+      status: 422,
+      detail: { message: '请求参数无效' },
+      responseBody: { detail: { message: '请求参数无效' } },
+    })
+
+    render(<App />)
+    await openSession(user)
+    await user.type(document.querySelector('.chat-input'), 'invalid request')
+    await user.click(document.querySelector('.send-button'))
+
+    expect(await screen.findByText('请求参数无效')).not.toBeNull()
+    expect(screen.getByText('API 在线')).not.toBeNull()
+  })
+
+  it('refreshes API status only through the health check', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+
+    await waitFor(() => expect(api.getHealth).toHaveBeenCalledTimes(1))
+    api.getHealth.mockRejectedValueOnce(new Error('health unavailable'))
+    await user.click(screen.getByRole('button', { name: '刷新 API 状态' }))
+
+    expect(await screen.findByText('API 离线')).not.toBeNull()
+    expect(api.getHealth).toHaveBeenCalledTimes(2)
   })
 
   it('aborts an active stream and removes transient output when stopped', async () => {

@@ -150,7 +150,7 @@ class PdfParser:
                 )
 
             return ParsedDocument(
-                schema_version=1,
+                schema_version=2,
                 document_id=document_id,
                 original_filename=original_filename,
                 page_count=page_count,

@@ -11,6 +11,7 @@ from app.db.models import WorkspaceRecord, WorkspaceStatus
 from app.repositories import workspace_repository
 from app.services.workspaces.settings import (
     WORKSPACE_DESCRIPTION_MAX_LENGTH,
+    WORKSPACE_AGENT_INSTRUCTIONS_MAX_LENGTH,
     WORKSPACE_NAME_MAX_LENGTH,
     WORKSPACE_USER_ID_MAX_LENGTH,
 )
@@ -209,6 +210,69 @@ class WorkspaceService:
 
         if not is_workspaces_enabled():
             raise WorkspaceDisabledError(workspace_id)
+
+    def get_agent_instructions(
+        self,
+        *,
+        user_id: str,
+        workspace_id: str,
+        conn: Connection | None = None,
+    ) -> WorkspaceRecord:
+        """Return an owned active Workspace including its AGENT.md content."""
+
+        return self.require_active_owned_workspace(
+            user_id=user_id,
+            workspace_id=workspace_id,
+            conn=conn,
+        )
+
+    def save_agent_instructions(
+        self,
+        *,
+        user_id: str,
+        workspace_id: str,
+        instructions: str | None,
+        conn: Connection | None = None,
+    ) -> WorkspaceRecord:
+        """Replace AGENT.md content and increment its version."""
+
+        if conn is None:
+            with get_engine().begin() as connection:
+                return self.save_agent_instructions(
+                    user_id=user_id,
+                    workspace_id=workspace_id,
+                    instructions=instructions,
+                    conn=connection,
+                )
+        record = self.require_active_owned_workspace(
+            user_id=user_id,
+            workspace_id=workspace_id,
+            conn=conn,
+        )
+        normalized = (instructions or "").strip() or None
+        if normalized is not None and len(normalized) > WORKSPACE_AGENT_INSTRUCTIONS_MAX_LENGTH:
+            raise InvalidWorkspaceError(
+                f"agent_instructions must be at most {WORKSPACE_AGENT_INSTRUCTIONS_MAX_LENGTH} characters"
+            )
+        record.agent_instructions = normalized
+        record.agent_instructions_version += 1
+        return workspace_repository.update_workspace(record, conn=conn)
+
+    def clear_agent_instructions(
+        self,
+        *,
+        user_id: str,
+        workspace_id: str,
+        conn: Connection | None = None,
+    ) -> WorkspaceRecord:
+        """Clear AGENT.md content while preserving version history semantics."""
+
+        return self.save_agent_instructions(
+            user_id=user_id,
+            workspace_id=workspace_id,
+            instructions=None,
+            conn=conn,
+        )
 
 
 def _normalize_whitespace(value: str) -> str:

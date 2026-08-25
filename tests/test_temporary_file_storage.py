@@ -4,6 +4,7 @@ from hashlib import sha256
 from io import BytesIO
 from pathlib import Path
 from uuid import UUID
+from zipfile import ZIP_DEFLATED, ZipFile
 
 import pytest
 
@@ -13,9 +14,11 @@ from app.services.documents.settings import (
     load_temporary_document_settings,
 )
 from app.services.documents.temporary_file_storage import (
+    ArchiveAttachmentNotSupported,
     AttachmentStorageError,
     AttachmentTooLarge,
     InvalidAttachmentFilename,
+    LegacyOfficeAttachment,
     TemporaryFileStorage,
     UnsupportedAttachmentType,
 )
@@ -38,6 +41,16 @@ class TrackingStream(BytesIO):
 
 def make_storage(tmp_path: Path, chunk_bytes: int = 7) -> TemporaryFileStorage:
     return TemporaryFileStorage(tmp_path / "attachments", chunk_bytes)
+
+
+def make_office_package(content_type: str) -> bytes:
+    output = BytesIO()
+    with ZipFile(output, "w") as archive:
+        archive.writestr(
+            "[Content_Types].xml",
+            f'<Types><Override ContentType="application/vnd.openxmlformats-officedocument.{content_type}" /></Types>',
+        )
+    return output.getvalue()
 
 
 def test_store_pdf_streams_fixed_size_chunks(tmp_path):
@@ -151,6 +164,135 @@ def test_store_pdf_returns_exact_size_and_sha256(tmp_path):
     assert stored.size_bytes == len(PDF_BYTES)
     assert stored.sha256 == sha256(PDF_BYTES).hexdigest()
     assert storage.resolve(stored.storage_key).read_bytes() == PDF_BYTES
+
+
+def test_store_attachment_accepts_utf8_text_and_preserves_extension(tmp_path):
+    storage = make_storage(tmp_path)
+
+    stored = storage.store_attachment(
+        BytesIO(b"study notes\n"),
+        "notes.txt",
+        max_bytes=4096,
+        mime_type="text/plain",
+    )
+
+    assert stored.storage_key.endswith(".txt")
+    assert storage.resolve(stored.storage_key).read_bytes() == b"study notes\n"
+
+
+def test_store_attachment_rejects_binary_renamed_as_text_and_cleans_part(tmp_path):
+    storage = make_storage(tmp_path)
+
+    with pytest.raises(UnsupportedAttachmentType):
+        storage.store_attachment(
+            BytesIO(b"MZ\x90\x00binary"),
+            "malware.txt",
+            max_bytes=4096,
+            mime_type="text/plain",
+        )
+
+    assert list(tmp_path.rglob("*.txt")) == []
+    assert list(tmp_path.rglob("*.part")) == []
+
+
+def test_text_attachment_uses_its_own_two_megabyte_limit(tmp_path):
+    storage = make_storage(tmp_path, chunk_bytes=64 * 1024)
+
+    with pytest.raises(AttachmentTooLarge):
+        storage.store_attachment(
+            BytesIO(b"a" * (2 * 1024 * 1024 + 1)),
+            "large.txt",
+            max_bytes=4 * 1024 * 1024,
+            mime_type="text/plain",
+        )
+
+    assert list(tmp_path.rglob("*.txt")) == []
+    assert list(tmp_path.rglob("*.part")) == []
+
+
+@pytest.mark.parametrize(
+    ("filename", "mime_type", "content_type"),
+    [
+        (
+            "notes.docx",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "wordprocessingml.document.main+xml",
+        ),
+        (
+            "notes.xlsx",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "spreadsheetml.sheet.main+xml",
+        ),
+        (
+            "notes.pptx",
+            "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            "presentationml.presentation.main+xml",
+        ),
+    ],
+)
+def test_store_attachment_accepts_valid_office_packages(
+    tmp_path,
+    filename,
+    mime_type,
+    content_type,
+):
+    storage = make_storage(tmp_path)
+
+    stored = storage.store_attachment(
+        BytesIO(make_office_package(content_type)),
+        filename,
+        max_bytes=4096,
+        mime_type=mime_type,
+    )
+
+    assert stored.storage_key.endswith(Path(filename).suffix)
+    assert storage.exists(stored.storage_key)
+
+
+def test_store_attachment_rejects_office_zip_bomb(tmp_path):
+    storage = make_storage(tmp_path)
+    bomb = BytesIO()
+    with ZipFile(bomb, "w", compression=ZIP_DEFLATED) as archive:
+        archive.writestr(
+            "[Content_Types].xml",
+            '<Types><Override ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml" /></Types>',
+        )
+        archive.writestr("word/document.xml", b"x" * (1024 * 1024))
+
+    with pytest.raises(UnsupportedAttachmentType, match="compression ratio"):
+        storage.store_attachment(
+            BytesIO(bomb.getvalue()),
+            "bomb.docx",
+            max_bytes=4096,
+            mime_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        )
+
+    assert list(tmp_path.rglob("*.docx")) == []
+    assert list(tmp_path.rglob("*.part")) == []
+
+
+@pytest.mark.parametrize(
+    ("filename", "mime_type", "error_type"),
+    [
+        ("legacy.doc", "application/msword", LegacyOfficeAttachment),
+        ("archive.zip", "application/zip", ArchiveAttachmentNotSupported),
+    ],
+)
+def test_store_attachment_reports_legacy_and_archive_formats(
+    tmp_path,
+    filename,
+    mime_type,
+    error_type,
+):
+    storage = make_storage(tmp_path)
+
+    with pytest.raises(error_type):
+        storage.store_attachment(
+            BytesIO(b"unsupported"),
+            filename,
+            max_bytes=4096,
+            mime_type=mime_type,
+        )
 
 
 def test_delete_is_idempotent_for_missing_files(tmp_path):

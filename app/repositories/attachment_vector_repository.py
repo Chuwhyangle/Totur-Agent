@@ -26,6 +26,8 @@ class AttachmentVectorHit:
     page_start: int
     page_end: int
     similarity: float
+    locator_unit: str = "page"
+    locator: str | None = None
 
 
 class AttachmentVectorRepository:
@@ -82,8 +84,10 @@ class AttachmentVectorRepository:
                         "chunk_index": chunk.chunk_index,
                         "page_start": chunk.page_start,
                         "page_end": chunk.page_end,
+                        "locator_unit": chunk.locator_unit,
                         "created_at": created_at,
                         "expires_at": normalized_expires_at,
+                        **({"locator": chunk.locator} if chunk.locator else {}),
                     }
                     for chunk in batch
                 ],
@@ -142,6 +146,12 @@ class AttachmentVectorRepository:
                     page_start=int(metadata.get("page_start") or 0),
                     page_end=int(metadata.get("page_end") or 0),
                     similarity=1.0 - distance,
+                    locator_unit=str(metadata.get("locator_unit") or "page"),
+                    locator=(
+                        str(metadata["locator"])
+                        if metadata.get("locator") is not None
+                        else None
+                    ),
                 )
             )
         hits.sort(key=lambda item: item.similarity, reverse=True)
