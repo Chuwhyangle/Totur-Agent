@@ -1473,6 +1473,7 @@ button:disabled { cursor: not-allowed; opacity: 0.48; }
 .app-header {
   grid-template-columns: minmax(0, 1fr) auto;
 }
+.app-shell.sidebar-collapsed { --sidebar-width: 64px; }
 .header-leading {
   min-width: 0;
   display: flex;
@@ -1511,7 +1512,7 @@ button:disabled { cursor: not-allowed; opacity: 0.48; }
 .sidebar-brand-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 18px; }
 .sidebar-brand-row .brand-block { min-width: 0; }
 .sidebar-collapse-button { flex: 0 0 30px; width: 30px; height: 30px; }
-.session-sidebar.is-collapsed { width: 64px; padding-left: 10px; padding-right: 10px; }
+.session-sidebar.is-collapsed { padding-left: 10px; padding-right: 10px; }
 .session-sidebar.is-collapsed .sidebar-brand-row { justify-content: center; }
 .session-sidebar.is-collapsed .brand-block > div,
 .session-sidebar.is-collapsed .session-primary-button span,
@@ -1570,9 +1571,9 @@ button:disabled { cursor: not-allowed; opacity: 0.48; }
 @media (max-width: 900px) {
   .app-header { grid-template-columns: minmax(0, 1fr) auto; }
   .menu-button { display: grid; }
-  .session-sidebar { display: flex; position: fixed; inset: 0 auto 0 0; z-index: 40; width: min(288px, 86vw); transform: translateX(-100%); box-shadow: var(--shadow-lg); }
+  .session-sidebar { display: flex; position: fixed; inset: 0 auto 0 0; z-index: 40; width: min(var(--sidebar-width), 86vw); transform: translateX(-100%); box-shadow: var(--shadow-lg); }
   .session-sidebar.is-mobile-open { transform: translateX(0); }
-  .session-sidebar.is-collapsed { width: 64px; transform: translateX(-100%); }
+  .session-sidebar.is-collapsed { transform: translateX(-100%); }
   .session-sidebar.is-collapsed.is-mobile-open { transform: translateX(0); }
   .session-sidebar.is-collapsed .session-primary-button span,
   .session-sidebar.is-collapsed .workspace-rail,
@@ -1589,7 +1590,7 @@ button:disabled { cursor: not-allowed; opacity: 0.48; }
   .header-center { display: none; }
   .header-controls { gap: 4px; }
   .header-action-button span { display: none; }
-  .session-sidebar { width: min(288px, 88vw); }
+  .session-sidebar { width: min(var(--sidebar-width), 88vw); }
 }
 
 @media (prefers-reduced-motion: reduce) {
