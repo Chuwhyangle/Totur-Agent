@@ -1,5 +1,6 @@
 """显式学习进度触发、上下文注入和 Agent 工具测试。"""
 
+from app.schemas.chat import ToolCallTrace, ToolTrace, TutorReply
 from app.services.agent.context import AgentContext
 from app.services.agent.prompt_builder import PromptBuilder
 from app.services.agent.response_parser import ResponseParser
@@ -8,6 +9,7 @@ from app.services.agent.tools.registry import ToolRegistry
 from app.services.agent.workspace.context import AgentExecutionContext
 from app.services.learning_progress_service import LearningProgressService
 from app.services.learning_progress_trigger import is_progress_update_request
+from app.services.tutor_agent_service import TutorAgentService
 
 
 def _execution_context(*, requested: bool) -> AgentExecutionContext:
@@ -88,6 +90,32 @@ def test_progress_tool_updates_shared_records_and_preserves_higher_agent_level()
     assert result["updated"][0]["previous_level"] == 3
     assert result["updated"][0]["current_level"] == 3
     assert result["updated"][0]["status"] == "needs_practice"
+
+
+def test_progress_update_reply_is_guarded_when_tool_did_not_succeed():
+    reply = TutorReply(answer="已经更新了学习进度", sources=[])
+    failed_trace = ToolTrace(
+        used=True,
+        calls=[ToolCallTrace(round=1, name="update_learning_progress", arguments={}, ok=False)],
+    )
+    successful_trace = ToolTrace(
+        used=True,
+        calls=[ToolCallTrace(round=1, name="update_learning_progress", arguments={}, ok=True)],
+    )
+
+    guarded = TutorAgentService._guard_progress_update_reply(
+        reply,
+        progress_update_requested=True,
+        tool_trace=failed_trace,
+    )
+    unchanged = TutorAgentService._guard_progress_update_reply(
+        reply,
+        progress_update_requested=True,
+        tool_trace=successful_trace,
+    )
+
+    assert "长期学习记录未修改" in guarded.answer
+    assert unchanged.answer == reply.answer
 
 
 def test_prompt_builder_includes_progress_and_explicit_update_mode():

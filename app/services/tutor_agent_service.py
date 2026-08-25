@@ -258,6 +258,11 @@ class TutorAgentService:
                 tool_trace,
                 note_references_allowed=request.rag_enabled,
             )
+            reply = self._guard_progress_update_reply(
+                reply,
+                progress_update_requested=progress_update_requested,
+                tool_trace=tool_trace,
+            )
 
             # 模型回复已经结构化后，再统一保存本轮对话并尝试推进摘要。
             self.memory_manager.save_turn_and_update_summary(
@@ -455,6 +460,11 @@ class TutorAgentService:
                 tool_trace,
                 note_references_allowed=request.rag_enabled,
             )
+            reply = self._guard_progress_update_reply(
+                reply,
+                progress_update_requested=progress_update_requested,
+                tool_trace=tool_trace,
+            )
 
             try:
                 self.memory_manager.save_turn_and_update_summary(
@@ -616,6 +626,32 @@ class TutorAgentService:
             current_goal=current_goal.strip()[:500],
             task_recorder=recorder,
             progress_update_requested=progress_update_requested,
+        )
+
+    @staticmethod
+    def _guard_progress_update_reply(
+        reply: TutorReply,
+        *,
+        progress_update_requested: bool,
+        tool_trace: ToolTrace,
+    ) -> TutorReply:
+        """Prevent a model from claiming a write that the tool did not perform."""
+
+        if not progress_update_requested:
+            return reply
+        if any(
+            call.name == "update_learning_progress" and call.ok
+            for call in tool_trace.calls
+        ):
+            return reply
+        return reply.model_copy(
+            update={
+                "answer": (
+                    f"{reply.answer.rstrip()}\n\n"
+                    "> **系统校验**：本次没有检测到学习进度工具成功写入，"
+                    "长期学习记录未修改。请重试“更新进度”。"
+                )
+            }
         )
 
     @staticmethod
