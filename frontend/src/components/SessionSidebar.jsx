@@ -77,7 +77,7 @@ function SessionSidebar({
           <div><strong>Tutor Agent</strong><span>专注学习 · 清晰推进</span></div>
         </div>
         <button className="icon-button sidebar-collapse-button" type="button" onClick={() => onToggleCollapsed()} aria-label={isSidebarCollapsed ? '展开侧栏' : '收起侧栏'} title={isSidebarCollapsed ? '展开侧栏' : '收起侧栏'}>
-          <Icon name="chevron" size={15} className={isSidebarCollapsed ? 'is-open' : ''} />
+          <Icon name={isSidebarCollapsed ? 'chevron' : 'chevron-left'} size={15} />
         </button>
       </div>
 

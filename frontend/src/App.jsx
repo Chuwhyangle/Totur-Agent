@@ -1184,6 +1184,7 @@ function App() {
       <header className="app-header">
         <div className="header-leading">
           <button className="icon-button menu-button" type="button" onClick={() => setIsMobileSidebarOpen(true)} aria-label="打开会话侧栏" title="打开会话侧栏"><Icon name="menu" size={19} /></button>
+          {isSidebarCollapsed ? <button className="icon-button sidebar-expand-button" type="button" onClick={() => setIsSidebarCollapsed(false)} aria-label="展开会话侧栏" title="展开会话侧栏"><Icon name="panel" size={18} /></button> : null}
           <span className="active-session-title">{activeSession?.title || '未命名会话'}</span>
         </div>
         <div className="header-center">

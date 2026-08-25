@@ -126,6 +126,17 @@ describe('App session creation', () => {
     expect(screen.getByText(/会话操作失败/)).not.toBeNull()
     consoleError.mockRestore()
   })
+
+  it('keeps a desktop expand control available when the sidebar starts collapsed', async () => {
+    const user = userEvent.setup()
+    localStorage.setItem('tutor-sidebar-collapsed', 'true')
+    render(<App />)
+
+    await user.click(await screen.findByRole('button', { name: '展开会话侧栏' }))
+
+    await waitFor(() => expect(localStorage.getItem('tutor-sidebar-collapsed')).toBe('false'))
+    expect(screen.queryByRole('button', { name: '展开会话侧栏' })).toBeNull()
+  })
 })
 
 describe('App attachment scope and sending', () => {

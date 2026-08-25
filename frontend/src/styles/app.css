@@ -1511,11 +1511,9 @@ button:disabled { cursor: not-allowed; opacity: 0.48; }
 .sidebar-brand-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 18px; }
 .sidebar-brand-row .brand-block { min-width: 0; }
 .sidebar-collapse-button { flex: 0 0 30px; width: 30px; height: 30px; }
-.sidebar-collapse-button .is-open { transform: rotate(180deg); }
 .session-sidebar.is-collapsed { width: 64px; padding-left: 10px; padding-right: 10px; }
 .session-sidebar.is-collapsed .sidebar-brand-row { justify-content: center; }
 .session-sidebar.is-collapsed .brand-block > div,
-.session-sidebar.is-collapsed .sidebar-collapse-button,
 .session-sidebar.is-collapsed .session-primary-button span,
 .session-sidebar.is-collapsed .workspace-rail,
 .session-sidebar.is-collapsed .session-list-header,
@@ -1525,6 +1523,8 @@ button:disabled { cursor: not-allowed; opacity: 0.48; }
 .session-sidebar.is-collapsed .session-skeletons,
 .session-sidebar.is-collapsed .sidebar-user-copy,
 .session-sidebar.is-collapsed .online-dot { display: none; }
+.session-sidebar.is-collapsed .sidebar-collapse-button { position: absolute; top: 14px; right: 50%; transform: translateX(50%); }
+.session-sidebar.is-collapsed .sidebar-brand-row .brand-mark { display: none; }
 .session-sidebar.is-collapsed .session-primary-button { width: 42px; margin-inline: auto; }
 .session-sidebar.is-collapsed .sidebar-footer { left: 10px; right: 10px; grid-template-columns: 1fr; justify-items: center; padding: 6px; }
 .workspace-rail { margin: 0 -2px 4px; padding: 0 2px 12px; border-bottom: 1px solid var(--line); }
