@@ -781,6 +781,15 @@ SUMMARY_TRIGGER_COUNT = 8
 
 - [x] Phase 1：PDF 解析结果转换为带标题推断和页码哨兵的伪 Markdown
 - [x] Phase 1.5：修复罗马数字误删、空页哨兵和标题页码归属问题
+- [x] Phase 2：knowledge_documents 表 + Repository（0005 迁移，SQLite/MySQL 双方言）
+- [x] Phase 2.5：0005 已在 MySQL 契约库验证通过，契约测试已补充新表 collation 断言
+- [ ] Phase 3：user_documents 独立 Chroma 集合 Repository
+- [ ] Phase 4：摄入编排 Service（状态机 + 三层去重 + 补偿删除）
+- [ ] Phase 5：API 路由 + 启动恢复
+- [ ] Phase 6：检索接入（feature flag + 多集合融合）
+- [ ] Phase 7：前端文档库面板
+
+完整任务书见 `docs/superpowers/plans/2026-08-25-knowledge-doc-import.md`。
 
 当前技术债：PDF 双栏版面、真实字号提取、扫描件 OCR、语义近重复去重尚未处理；
 `DVD` 等合法罗马数字词仍可能触发页码判定。
