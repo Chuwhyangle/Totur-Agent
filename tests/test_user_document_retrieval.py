@@ -149,3 +149,34 @@ def test_note_items_shape_is_unchanged():
         "title", "content", "source", "title_path", "similarity",
         "match_score", "raw_text_excerpt",
     }
+
+
+def test_search_tool_user_documents_scope_skips_learning_notes(monkeypatch):
+    notes = NoteRepository([note(content="private note")])
+    users = UserRepository([user(content="uploaded PDF evidence")])
+
+    class FakeEmbeddingClient:
+        def embed_texts(self, texts):
+            return [[1.0, 0.0] for _ in texts]
+
+    monkeypatch.setattr(search, "_get_repository", lambda: notes)
+    monkeypatch.setattr(search, "_get_user_document_repository", lambda: users)
+    monkeypatch.setattr(search, "_get_embedding_client", lambda: FakeEmbeddingClient())
+    monkeypatch.setattr(search, "ENABLE_USER_DOCUMENT_RETRIEVAL", True)
+    monkeypatch.setattr(search, "ENABLE_HYBRID_RETRIEVAL", False)
+    monkeypatch.setattr(search, "ENABLE_RERANKING", False)
+    monkeypatch.setattr(search, "SIMILARITY_THRESHOLD", 0.0)
+    monkeypatch.setattr(search.trace_db, "save_retrieval_event", lambda **_: None)
+
+    result = search.search_learning_notes(
+        "uploaded PDF",
+        user_id="alice",
+        scope="user_documents",
+    )
+
+    assert result["ok"] is True
+    assert result["found"] is True
+    assert result["items"][0]["doc_type"] == "user_upload"
+    assert result["items"][0]["source"] == "upload.md"
+    assert notes.search_calls == 0
+    assert users.search_calls == 1

@@ -864,6 +864,10 @@ class ReactOrchestrator:
         if spec is not None and not spec.supports_tools:
             return []
 
+        if rag_scope == "user_documents":
+            rag_enabled = True
+            web_search_enabled = False
+
         try:
             tools = self.tool_registry.get_tools_schema(
                 execution_context=execution_context,
