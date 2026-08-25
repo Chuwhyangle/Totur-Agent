@@ -1012,6 +1012,7 @@ function App() {
           requestBody: chatRequestBody,
           responseBody: {
             session_id: finalData?.session_id ?? activeSession.id,
+            tool_trace: finalData?.tool_trace ?? null,
             done: finalData ?? null,
           },
         }

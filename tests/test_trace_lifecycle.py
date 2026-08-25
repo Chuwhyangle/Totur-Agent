@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.schemas.chat import ChatRequest, ToolTrace, TutorReply
+from app.schemas.chat import ChatRequest, ToolCallTrace, ToolTrace, TutorReply
 from app.services import timings
 from app.services.agent.react_orchestrator import StreamEvent
 from app.services.tutor_agent_service import TutorAgentService
@@ -25,6 +25,12 @@ def make_service(monkeypatch, *, run=None, run_stream=None):
         subject="",
         title="Existing session",
         workspace_id=None,
+    )
+    service.persona_service = SimpleNamespace(
+        resolve=lambda **kwargs: SimpleNamespace(
+            persona_id="tutor",
+            system_prompt="",
+        )
     )
     service.memory_manager = SimpleNamespace(
         load_context=lambda **kwargs: SimpleNamespace(recent_history=["prior"]),
@@ -104,6 +110,37 @@ def test_chat_stream_success_finishes_as_ok_without_protocol_changes(monkeypatch
     assert [event["event"] for event in events] == ["token", "done"]
     assert [kind for kind, _ in calls] == ["start", "finish"]
     assert calls[1][1]["status"] == "OK"
+
+
+def test_chat_stream_done_includes_public_tool_trace(monkeypatch):
+    calls = capture_trace_calls(monkeypatch)
+    tool_trace = ToolTrace(
+        used=True,
+        calls=[ToolCallTrace(
+            round=1,
+            name="mcp_github_search_code",
+            arguments={
+                "owner": "Chuwhyangle",
+                "repo": "Totur-Agent",
+                "query": "ReactOrchestrator",
+            },
+            ok=True,
+        )],
+    )
+
+    def run_stream(*args, **kwargs):
+        if False:
+            yield None
+        return "answer", tool_trace
+
+    service = make_service(monkeypatch, run_stream=run_stream)
+    events = list(service.chat_stream(REQUEST))
+    done = events[-1]
+
+    assert done["event"] == "done"
+    assert done["data"]["tool_trace"]["used"] is True
+    assert done["data"]["tool_trace"]["calls"][0]["name"] == "mcp_github_search_code"
+    assert "ledger" not in done["data"]["tool_trace"]
 
 
 def test_chat_stream_model_exception_finishes_as_error(monkeypatch):

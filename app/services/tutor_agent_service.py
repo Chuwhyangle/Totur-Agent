@@ -445,6 +445,7 @@ class TutorAgentService:
                     "session_id": session.id,
                     "model_id": model_spec.model_id,
                     "sources": [s.model_dump() for s in reply.sources],
+                    "tool_trace": tool_trace.model_dump(),
                     "warnings": warnings,
                 },
             }

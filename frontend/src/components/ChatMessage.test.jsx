@@ -236,3 +236,41 @@ describe('reply contract', () => {
     expect(screen.queryByText('能解释路由')).toBeNull()
   })
 })
+
+describe('GitHub MCP tool traces', () => {
+  it('renders completed GitHub MCP tool traces after streaming', () => {
+    render(<ChatMessage
+      role="assistant"
+      reply={{ answer: '已完成代码分析。', sources: [] }}
+      debug={{
+        responseBody: {
+          tool_trace: {
+            used: true,
+            calls: [{
+              round: 1,
+              name: 'mcp_github_search_code',
+              arguments: {
+                owner: 'Chuwhyangle',
+                repo: 'Totur-Agent',
+                query: 'ReactOrchestrator',
+              },
+              ok: true,
+              returned_count: null,
+              top_titles: [],
+              result_preview: [],
+              error: null,
+              routing_forced: false,
+            }],
+          },
+        },
+      }}
+    />)
+
+    expect(screen.getByText('查看工具调用')).not.toBeNull()
+    expect(screen.getByText('第 1 轮')).not.toBeNull()
+    expect(screen.getByText('mcp_github_search_code')).not.toBeNull()
+    expect(screen.getByText('GitHub MCP · 只读')).not.toBeNull()
+    expect(screen.getByText('完成')).not.toBeNull()
+    expect(screen.queryByText('返回：0 条')).toBeNull()
+  })
+})
