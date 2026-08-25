@@ -1,4 +1,4 @@
-"""Temporary PDF attachment API routes."""
+"""Temporary conversation attachment API routes."""
 
 from typing import Annotated, NoReturn
 
@@ -39,9 +39,11 @@ from app.services.documents.temporary_document_service import (
     get_temporary_document_service,
 )
 from app.services.documents.temporary_file_storage import (
+    ArchiveAttachmentNotSupported,
     AttachmentStorageError,
     AttachmentTooLarge,
     InvalidAttachmentFilename,
+    LegacyOfficeAttachment,
     UnsupportedAttachmentType,
 )
 
@@ -53,6 +55,8 @@ _HANDLED_ATTACHMENT_ERRORS = (
     AttachmentLimitExceeded,
     AttachmentTooLarge,
     InvalidAttachmentFilename,
+    LegacyOfficeAttachment,
+    ArchiveAttachmentNotSupported,
     UnsupportedAttachmentType,
     AttachmentStorageError,
     AttachmentCreationError,
@@ -75,7 +79,7 @@ def upload_attachment(
         Depends(get_temporary_document_service),
     ],
 ) -> AttachmentItem:
-    """Upload one temporary PDF using the current user_id identity bridge."""
+    """Upload one temporary attachment using the current user_id identity bridge."""
 
     try:
         record = service.create_attachment(user_id, session_id, file)
@@ -205,6 +209,16 @@ def _raise_attachment_http_error(error: Exception) -> NoReturn:
         raise HTTPException(
             status_code=status.HTTP_413_CONTENT_TOO_LARGE,
             detail={"error": "attachment_too_large"},
+        ) from error
+    if isinstance(error, LegacyOfficeAttachment):
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail={"error": "attachment_legacy_office_format"},
+        ) from error
+    if isinstance(error, ArchiveAttachmentNotSupported):
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail={"error": "attachment_archive_not_supported"},
         ) from error
     if isinstance(
         error,

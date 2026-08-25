@@ -1,4 +1,4 @@
-"""Application service for temporary conversation PDF attachments."""
+"""Application service for temporary conversation attachments."""
 
 from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
@@ -91,7 +91,7 @@ class TemporaryDocumentService:
                 "The session attachment limit has been reached"
             )
 
-        stored = self.storage.store_pdf(
+        stored = self.storage.store_attachment(
             upload_file.file,
             upload_file.filename or "",
             self.settings.max_bytes,

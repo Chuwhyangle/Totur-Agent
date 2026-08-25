@@ -595,7 +595,7 @@ def test_storage_failure_api_returns_stable_500_without_path_details(
     def fail_store(*_args, **_kwargs):
         raise AttachmentStorageError(r"failed at C:\secret\attachment.pdf")
 
-    monkeypatch.setattr(service.storage, "store_pdf", fail_store)
+    monkeypatch.setattr(service.storage, "store_attachment", fail_store)
 
     with api_client_for(service) as client:
         response = client.post(
