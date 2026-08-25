@@ -25,8 +25,12 @@ def _execution_context(*, requested: bool) -> AgentExecutionContext:
 def test_progress_trigger_accepts_command_and_explicit_phrases_only():
     assert is_progress_update_request("/更新进度") is True
     assert is_progress_update_request("帮我去更新一下学习进度。") is True
+    assert is_progress_update_request("更新我们的学习进度") is True
+    assert is_progress_update_request("请根据最近的学习情况更新一下") is True
+    assert is_progress_update_request("帮我分析并更新 SQL 学习进度") is True
     assert is_progress_update_request("请解释一下 JOIN") is False
     assert is_progress_update_request("学习进度是什么") is False
+    assert is_progress_update_request("如何更新学习进度") is False
 
 
 def test_progress_tool_is_hidden_unless_explicitly_requested():
