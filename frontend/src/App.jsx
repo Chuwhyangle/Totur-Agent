@@ -56,7 +56,7 @@ import {
   getSendableAttachmentIds,
   isAttachmentPending,
   reconcileSelectedAttachmentIds,
-  validatePdfFile,
+  validateAttachmentFile,
 } from './utils/attachments.js'
 
 const DEFAULT_PERSONA_ID = 'tutor'
@@ -761,7 +761,7 @@ function App() {
 
   async function handleUploadAttachment(file) {
     if (isUploadingAttachment) return
-    const validationMessage = validatePdfFile(file)
+    const validationMessage = validateAttachmentFile(file)
     if (validationMessage) {
       setAttachmentError(validationMessage)
       return
@@ -800,7 +800,7 @@ function App() {
       setAttachmentError('')
     } catch (error) {
       if (error?.isAbortError || operationScopeKey !== attachmentScopeKeyRef.current) return
-      setAttachmentError(attachmentErrorMessage(error, 'PDF 上传失败，请稍后重试。'))
+      setAttachmentError(attachmentErrorMessage(error, '附件上传失败，请稍后重试。'))
     } finally {
       setIsUploadingAttachment(false)
     }

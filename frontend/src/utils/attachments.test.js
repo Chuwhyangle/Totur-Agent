@@ -8,7 +8,7 @@ import {
   getSendableAttachmentIds,
   reconcileSelectedAttachmentIds,
   shouldMarkApiOffline,
-  validatePdfFile,
+  validateAttachmentFile,
 } from './attachments.js'
 
 const attachment = (id, status) => ({ id, status })
@@ -77,13 +77,12 @@ describe('attachment state helpers', () => {
     ])
   })
 
-  it('deduplicates added ids, validates PDFs, and maps safe Chinese errors', () => {
+  it('deduplicates added ids, validates attachments, and maps safe Chinese errors', () => {
     expect(addSelectedAttachmentId(['a1'], 'a1')).toEqual(['a1'])
-    expect(validatePdfFile(new File(['x'], 'note.txt', { type: 'text/plain' }))).toBe(
-      '当前只支持 PDF 文件。',
-    )
+    expect(validateAttachmentFile(new File(['x'], 'note.txt', { type: 'text/plain' }))).toBe('')
+    expect(validateAttachmentFile(new File(['x'], 'note.exe', { type: 'application/octet-stream' }))).toContain('不支持')
     expect(attachmentErrorMessage({ detail: { error: 'attachment_too_large' } })).toBe(
-      'PDF 文件超过大小限制。',
+      '文件超过大小限制。',
     )
     expect(shouldMarkApiOffline({ status: 409, isNetworkError: false })).toBe(false)
     expect(shouldMarkApiOffline({ status: null, isNetworkError: true })).toBe(true)

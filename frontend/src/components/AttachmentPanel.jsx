@@ -1,7 +1,7 @@
 import { useRef } from 'react'
 
 import Icon from './Icon.jsx'
-import { attachmentStatusLabel, formatAttachmentSize } from '../utils/attachments.js'
+import { attachmentStatusLabel, formatAttachmentSize, getAttachmentIconName, SUPPORTED_ATTACHMENT_ACCEPT } from '../utils/attachments.js'
 
 function AttachmentList({
   attachments = [],
@@ -24,7 +24,7 @@ function AttachmentList({
           <li className="attachment-item" key={attachment.id}>
             <label className="attachment-select-control">
               <input type="checkbox" checked={isSelected} disabled={selectionDisabled || actionState === 'deleting'} onChange={() => onToggle?.(attachment.id)} aria-label={`选择附件 ${attachment.original_filename}`} />
-              <span className="attachment-file-icon"><Icon name="file" size={14} /></span>
+              <span className="attachment-file-icon"><Icon name={getAttachmentIconName(attachment.original_filename)} size={14} /></span>
               <span className="attachment-copy"><strong title={attachment.original_filename}>{attachment.original_filename}</strong><small>{formatAttachmentSize(attachment.size_bytes)}</small></span>
             </label>
             <span className={`attachment-status attachment-status-${String(displayStatus).toLowerCase()}`}><span className="attachment-status-dot" />{attachmentStatusLabel(displayStatus)}</span>
@@ -75,10 +75,10 @@ export function AttachmentPopover({
         {onClose ? <button className="icon-button" type="button" onClick={onClose} aria-label="关闭附件管理"><Icon name="close" size={14} /></button> : null}
       </div>
       <button className="attachment-upload-button" type="button" disabled={disabled} onClick={() => inputRef.current?.click()}><Icon name="plus" size={14} /><span>上传附件</span></button>
-      <input ref={inputRef} className="attachment-file-input" type="file" accept="application/pdf,.pdf" onChange={handleFileChange} />
+      <input ref={inputRef} className="attachment-file-input" type="file" accept={SUPPORTED_ATTACHMENT_ACCEPT} onChange={handleFileChange} />
       <span className="attachment-toolbar-summary">{status === 'loading' ? '正在读取附件…' : `已选 ${selectedAttachmentIds.length}/5`}</span>
       <AttachmentList attachments={attachments} selectedAttachmentIds={selectedAttachmentIds} actionErrors={actionErrors} actionStates={actionStates} onToggle={onToggle} onRetry={onRetry} onDelete={onDelete} />
-      {status === 'success' && attachments.length === 0 ? <p className="attachment-empty">可上传包含文本层的 PDF，仅在当前会话中使用。</p> : null}
+      {status === 'success' && attachments.length === 0 ? <p className="attachment-empty">可上传 PDF、Office、文本、Markdown、代码、CSV 或 JSON，仅在当前会话中使用。</p> : null}
       {error ? <p className="attachment-panel-error" role="alert">{error}</p> : null}
       {sendBlockReason ? <p className="attachment-send-block" role="status">{sendBlockReason}</p> : null}
     </section>
@@ -91,7 +91,7 @@ export function AttachmentChips({ attachments = [], onDelete }) {
     <div className="attachment-chips" aria-label="已选附件">
       {attachments.map((attachment) => {
         const status = String(attachment.status || '').toLowerCase()
-        return <span className="attachment-chip" key={attachment.id}><Icon name="file" size={13} /><span className="attachment-chip-name" title={attachment.original_filename}>{attachment.original_filename}</span><span className={`attachment-chip-dot attachment-chip-dot-${status}`} /><span className="attachment-chip-status">{attachmentStatusLabel(attachment.status)}</span><button type="button" aria-label={`删除附件 ${attachment.original_filename}`} title="移除附件" onClick={() => onDelete?.(attachment.id)}><Icon name="close" size={11} /></button></span>
+        return <span className="attachment-chip" key={attachment.id}><Icon name={getAttachmentIconName(attachment.original_filename)} size={13} /><span className="attachment-chip-name" title={attachment.original_filename}>{attachment.original_filename}</span><span className={`attachment-chip-dot attachment-chip-dot-${status}`} /><span className="attachment-chip-status">{attachmentStatusLabel(attachment.status)}</span><button type="button" aria-label={`删除附件 ${attachment.original_filename}`} title="移除附件" onClick={() => onDelete?.(attachment.id)}><Icon name="close" size={11} /></button></span>
       })}
     </div>
   )
