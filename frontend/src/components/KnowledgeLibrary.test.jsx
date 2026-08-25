@@ -56,6 +56,13 @@ describe('KnowledgeLibrary', () => {
     await waitFor(() => expect(screen.getByRole('status').textContent).toContain('请重启后端服务'))
   })
 
+  it('explains when the backend cannot be reached', async () => {
+    api.getKnowledgeDocuments.mockRejectedValue({ isNetworkError: true, message: 'fetch failed' })
+    render(<KnowledgeLibrary userId="alice" onClose={() => {}} />)
+
+    await waitFor(() => expect(screen.getByRole('status').textContent).toContain('无法连接后端服务'))
+  })
+
   it('rejects unsupported extensions locally', async () => {
     const { container } = render(<KnowledgeLibrary userId="alice" onClose={() => {}} />)
     fireEvent.change(container.querySelector('input[type="file"]'), { target: { files: [new File(['body'], 'notes.txt', { type: 'text/plain' })], value: '' } })

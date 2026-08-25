@@ -11,6 +11,12 @@ import {
 const ACCEPTED = ['.pdf', '.md', '.markdown']
 const TERMINAL = new Set(['READY', 'FAILED', 'DELETED'])
 
+function getKnowledgeErrorMessage(error, fallback) {
+  if (error?.isNetworkError) return '无法连接后端服务，请确认后端已启动。'
+  if (error?.status === 404) return '文档库接口未加载，请重启后端服务后再试。'
+  return error?.message || fallback
+}
+
 function formatSize(value) {
   if (value < 1024) return `${value} B`
   if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`
@@ -32,9 +38,7 @@ export default function KnowledgeLibrary({ userId, onClose }) {
       setDocuments(data?.items ?? [])
       setStatus('ready')
     } catch (error) {
-      setNotice(error.status === 404
-        ? '文档库接口未加载，请重启后端服务后再试。'
-        : error.message || '文档列表读取失败')
+      setNotice(getKnowledgeErrorMessage(error, '文档列表读取失败'))
       setStatus('error')
     }
   }, [userId])
@@ -70,9 +74,7 @@ export default function KnowledgeLibrary({ userId, onClose }) {
       setNotice(data?.duplicate ? '该文件已在文档库中' : '文档已加入处理队列')
       await refresh()
     } catch (error) {
-      setNotice(error.status === 404
-        ? '文档库接口未加载，请重启后端服务后再试。'
-        : error.message || '上传失败')
+      setNotice(getKnowledgeErrorMessage(error, '上传失败'))
       setStatus('error')
     } finally {
       setIsUploading(false)
