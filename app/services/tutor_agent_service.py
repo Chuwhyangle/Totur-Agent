@@ -49,6 +49,7 @@ from app.services.private_jd_context import format_private_jd_context
 from app.services.rag_seed_context import retrieve_seed_knowledge_context
 from app.services.rag_settings import ENABLE_RAG_SEED_CONTEXT
 from app.services.summary_service import SummaryService
+from app.services.learning_progress_trigger import is_progress_update_request
 from app.services import timings
 from app.services.workspaces.workspace_service import (
     WorkspaceArchivedError,
@@ -179,6 +180,10 @@ class TutorAgentService:
         try:
             user_id = request.user_id
             message = request.message
+            progress_update_requested = (
+                request.action == "update_progress"
+                or is_progress_update_request(message)
+            )
             session = self._resolve_session(
                 user_id=user_id,
                 session_id=request.session_id,
@@ -202,6 +207,11 @@ class TutorAgentService:
                 user_id=user_id,
                 session_id=session.id,
                 current_message=message,
+                learning_subject=(
+                    session.subject
+                    or ("sql" if session.workspace_id or progress_update_requested else None)
+                ),
+                progress_update_requested=progress_update_requested,
             )
             self._attach_workspace_instructions(context, user_id=user_id, session=session)
             if self.seed_context_enabled and rag_scope != "user_documents":
@@ -327,6 +337,10 @@ class TutorAgentService:
         persona_id = None
         user_id = request.user_id
         message = request.message
+        progress_update_requested = (
+            request.action == "update_progress"
+            or is_progress_update_request(message)
+        )
         execution_context: AgentExecutionContext | None = None
 
         trace_db.start_trace(
@@ -350,6 +364,7 @@ class TutorAgentService:
                 session=session,
                 trace_id=trace_id,
                 current_goal=message,
+                progress_update_requested=progress_update_requested,
             )
             persona = self.persona_service.resolve(
                 user_id=user_id,
@@ -360,6 +375,11 @@ class TutorAgentService:
                 user_id=user_id,
                 session_id=session.id,
                 current_message=message,
+                learning_subject=(
+                    session.subject
+                    or ("sql" if session.workspace_id or progress_update_requested else None)
+                ),
+                progress_update_requested=progress_update_requested,
             )
             self._attach_workspace_instructions(context, user_id=user_id, session=session)
             if self.seed_context_enabled and rag_scope != "user_documents":
@@ -576,6 +596,7 @@ class TutorAgentService:
         session,
         trace_id: str,
         current_goal: str,
+        progress_update_requested: bool = False,
     ) -> AgentExecutionContext:
         recorder = None
         if session.workspace_id is not None:
@@ -593,6 +614,7 @@ class TutorAgentService:
             trace_id=trace_id,
             current_goal=current_goal.strip()[:500],
             task_recorder=recorder,
+            progress_update_requested=progress_update_requested,
         )
 
     @staticmethod

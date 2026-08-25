@@ -12,6 +12,11 @@ from app.services.agent.tools.search_attachments import search_attachments
 from app.services.agent.tools.search_job_descriptions import search_job_descriptions
 from app.services.agent.tools.search_learning_notes import search_learning_notes
 from app.services.agent.tools.score_jd_skill_fit import score_jd_skill_fit
+from app.services.agent.tools.update_learning_progress import (
+    SCHEMA as UPDATE_LEARNING_PROGRESS_SCHEMA,
+    TOOL_NAME as UPDATE_LEARNING_PROGRESS_TOOL_NAME,
+    update_learning_progress,
+)
 from app.services.agent.tools.web_search import web_search
 from app.services.agent.tools.create_markdown_artifact import (
     SCHEMA as CREATE_MARKDOWN_ARTIFACT_SCHEMA,
@@ -345,6 +350,7 @@ class ToolRegistry:
             "search_job_descriptions": search_job_descriptions,
             "search_learning_notes": search_learning_notes,
             "score_jd_skill_fit": score_jd_skill_fit,
+            UPDATE_LEARNING_PROGRESS_TOOL_NAME: update_learning_progress,
             "web_search": web_search,
             "list_workspace_assets": list_workspace_assets,
             "read_workspace_asset": read_workspace_asset,
@@ -392,6 +398,11 @@ class ToolRegistry:
                 schemas.extend(self._mcp_client_adapter.get_tools_schema())
             except Exception:
                 pass
+        if (
+            execution_context is not None
+            and getattr(execution_context, "progress_update_requested", False)
+        ):
+            schemas.append(deepcopy(UPDATE_LEARNING_PROGRESS_SCHEMA))
         if execution_context is not None and self.workspace_context_error(execution_context) is None:
             schemas.extend(deepcopy(schema) for schema in WORKSPACE_TOOL_SCHEMAS.values())
         return schemas
@@ -417,11 +428,23 @@ class ToolRegistry:
         return name in WORKSPACE_TOOL_NAMES
 
     def requires_execution_context(self, name: str) -> bool:
-        return self.is_workspace_tool(name)
+        return self.is_workspace_tool(name) or name == UPDATE_LEARNING_PROGRESS_TOOL_NAME
 
-    def workspace_context_error(self, execution_context) -> str | None:
-        """Return a stable rejection code before a Workspace tool can run."""
+    def workspace_context_error(
+        self,
+        execution_context,
+        name: str | None = None,
+    ) -> str | None:
+        """Return a stable rejection code before a context-bound tool can run."""
 
+        if name == UPDATE_LEARNING_PROGRESS_TOOL_NAME:
+            if execution_context is None:
+                return "execution_context_required"
+            if not getattr(execution_context, "progress_update_requested", False):
+                return "progress_update_not_requested"
+            return None
+        if name is not None and not self.is_workspace_tool(name):
+            return None
         if execution_context is None or execution_context.workspace_id is None:
             return "workspace_context_required"
         from app.services.workspaces.settings import is_workspaces_enabled

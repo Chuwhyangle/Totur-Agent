@@ -187,7 +187,11 @@ class ToolExecutor:
             return None
         checker = getattr(self.registry, "workspace_context_error", None)
         if callable(checker):
-            return checker(execution_context)
+            try:
+                return checker(execution_context, name=name)
+            except TypeError:
+                # Keep lightweight test registries compatible with the old method.
+                return checker(execution_context)
         return "workspace_context_required" if execution_context is None else None
 
     def _record_tool_call(

@@ -225,6 +225,10 @@ function App() {
     && activeSessionStatus !== 'loading'
     && !attachmentSendBlockReason
     && activeSessionWorkspace?.status !== 'ARCHIVED'
+  const canRequestProgressUpdate = userId.trim().length > 0
+    && !isSending
+    && activeSessionStatus !== 'loading'
+    && activeSessionWorkspace?.status !== 'ARCHIVED'
 
   function activateAttachmentScope(
     nextSessionId,
@@ -897,7 +901,10 @@ function App() {
   async function handleSendMessage(event) {
     event.preventDefault()
 
-    const trimmedMessage = draftMessage.trim()
+    const draft = draftMessage.trim()
+    const submitterAction = event.nativeEvent?.submitter?.value
+    const progressUpdateRequested = submitterAction === 'update_progress' || draft === '/更新进度'
+    const trimmedMessage = submitterAction === 'update_progress' ? '/更新进度' : draft
     const trimmedUserId = userId.trim()
     if (!trimmedMessage) return
     if (!trimmedUserId) {
@@ -926,6 +933,7 @@ function App() {
       session_id: activeSessionId,
       persona_id: selectedPersonaId,
       message: trimmedMessage,
+      action: progressUpdateRequested ? 'update_progress' : 'chat',
       model_id: selectedModelId ?? undefined,
       ...WEB_SEARCH_MODE_REQUEST_FIELDS[webSearchModeForRequest],
       ...RAG_MODE_REQUEST_FIELDS[ragModeForRequest],
@@ -1361,6 +1369,7 @@ function App() {
             streamingEnabled={streamingEnabled}
             onStreamingEnabledChange={handleStreamingToggle}
             onStopStreaming={streamingEnabled ? handleStopStreaming : undefined}
+            progressUpdateDisabled={!canRequestProgressUpdate}
             attachmentProps={attachmentProps}
             notice={composerNotice}
           />

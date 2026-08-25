@@ -359,6 +359,19 @@ describe('App RAG three-state control', () => {
     expect(webSearchButton().getAttribute('aria-label')).toBe('联网搜索：自动判断')
   })
 
+  it('sends an explicit progress update action from the progress button', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+    await openSession(user)
+    await user.click(screen.getByRole('button', { name: '更新进度' }))
+
+    await waitFor(() => expect(api.postChat).toHaveBeenCalledTimes(1))
+    expect(api.postChat.mock.calls[0][0]).toMatchObject({
+      message: '/更新进度',
+      action: 'update_progress',
+    })
+  })
+
   it('cycles auto -> force -> off -> auto', async () => {
     const user = userEvent.setup()
     render(<App />)

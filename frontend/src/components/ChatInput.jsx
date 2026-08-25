@@ -31,6 +31,7 @@ function ChatInput({
   onMessageChange,
   onSubmit,
   disabled = false,
+  progressUpdateDisabled = false,
   isSending = false,
   webSearchMode = 'auto',
   onWebSearchModeChange,
@@ -101,6 +102,7 @@ function ChatInput({
       <AttachmentPopover {...attachmentProps} open={attachmentOpen} onClose={() => setAttachmentOpen(false)} />
       <form className="chat-input-form" aria-label="发送消息" onSubmit={onSubmit}>
         <textarea ref={textareaRef} className="chat-input" placeholder={placeholder} rows="1" value={message} onChange={(event) => onMessageChange(event.target.value)} onKeyDown={handleKeyDown} onPaste={handlePaste} />
+        <button className="progress-update-button" type="submit" name="action" value="update_progress" disabled={progressUpdateDisabled} title="根据最近的学习情况更新长期进度"><Icon name="check" size={14} /><span>更新进度</span></button>
         {isSending && onStopStreaming ? <button className="send-button" type="button" aria-label="停止生成" title="停止生成" onClick={onStopStreaming}>停止</button> : <button className="send-button" type="submit" disabled={disabled} aria-label="发送消息">{isSending ? <span className="send-loader" /> : <Icon name="send" size={17} strokeWidth={1.7} />}</button>}
       </form>
       <div className="composer-options">

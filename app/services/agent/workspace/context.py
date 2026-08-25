@@ -13,3 +13,4 @@ class AgentExecutionContext:
     trace_id: str
     current_goal: str
     task_recorder: WorkspaceTaskRecorder | None
+    progress_update_requested: bool = False

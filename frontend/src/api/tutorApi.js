@@ -14,7 +14,7 @@
 
 const configuredApiBaseUrl = import.meta.env.VITE_API_BASE_URL
 export const API_BASE_URL = configuredApiBaseUrl ?? (
-  import.meta.env.PROD ? '' : 'http://127.0.0.1:8001'
+  import.meta.env.PROD ? '' : 'http://127.0.0.1:8002'
 )
 const CHAT_URL = `${API_BASE_URL}/chat`
 const CHAT_STREAM_URL = `${API_BASE_URL}/chat/stream`

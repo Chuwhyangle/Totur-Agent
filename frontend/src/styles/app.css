@@ -1151,6 +1151,28 @@ button:disabled { cursor: not-allowed; opacity: 0.48; }
   background: transparent;
 }
 .chat-input::placeholder { color: var(--dim); }
+.progress-update-button {
+  flex: 0 0 auto;
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px;
+  color: var(--primary2);
+  border: 1px solid var(--pborder);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--primary) 7%, var(--solid));
+  transition: background 0.18s var(--ease), border-color 0.18s var(--ease);
+}
+.progress-update-button:hover:not(:disabled) {
+  border-color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 13%, var(--solid));
+}
+.progress-update-button:disabled {
+  color: var(--dim);
+  border-color: var(--line2);
+  background: var(--muted);
+}
 .send-button {
   flex: 0 0 40px;
   width: 40px;

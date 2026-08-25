@@ -11,6 +11,7 @@ class ChatRequest(BaseModel):
     user_id: str = Field(..., min_length=1)
     session_id: int | None = None
     message: str = Field(..., min_length=1)
+    action: Literal["chat", "update_progress"] = "chat"
     model_id: str | None = None
     persona_id: str | None = None
     web_search_enabled: bool = True

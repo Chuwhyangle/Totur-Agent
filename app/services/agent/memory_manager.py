@@ -4,6 +4,7 @@ from app.repositories.conversation_repository import (
     list_recent_conversations,
     save_conversation,
 )
+from app.repositories.learning_progress_repository import list_learning_progress
 from app.repositories.summary_repository import get_summary
 from app.schemas.chat import TutorReply
 from app.services.agent.context import AgentContext
@@ -27,6 +28,8 @@ class MemoryManager:
         user_id: str,
         session_id: int,
         current_message: str,
+        learning_subject: str | None = None,
+        progress_update_requested: bool = False,
     ) -> AgentContext:
         """读取当前会话摘要和最近历史，并组装 AgentContext。"""
 
@@ -37,6 +40,11 @@ class MemoryManager:
             limit=RECENT_HISTORY_LIMIT,
         )
         summary = get_summary(session_id)
+        learning_progress = (
+            list_learning_progress(user_id=user_id, subject=learning_subject, limit=50)
+            if learning_subject
+            else []
+        )
 
         return AgentContext(
             user_id=user_id,
@@ -44,6 +52,8 @@ class MemoryManager:
             current_message=current_message,
             summary_text=summary.summary_text if summary else None,
             recent_history=recent_history,
+            learning_progress=learning_progress,
+            progress_update_requested=progress_update_requested,
         )
 
     def save_turn_and_update_summary(

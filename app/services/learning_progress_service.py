@@ -8,6 +8,7 @@ from app.db.models import (
     LearningProgressStatus,
 )
 from app.repositories.learning_progress_repository import (
+    get_learning_progress,
     list_learning_progress,
     upsert_learning_progress,
 )
@@ -119,6 +120,19 @@ class LearningProgressService:
             raise InvalidLearningProgressError(
                 "status must be one of: not_started, learning, needs_practice, mastered"
             ) from exc
+
+        if source is LearningProgressSource.AGENT:
+            existing = get_learning_progress(
+                user_id=normalized_user_id,
+                subject=normalized_subject,
+                topic=normalized_topic,
+            )
+            if existing is not None and level < existing.level:
+                # One failed exercise should not erase a previously established
+                # level. Keep the level and mark the topic for practice instead.
+                level = existing.level
+                if normalized_status is not LearningProgressStatus.MASTERED:
+                    normalized_status = LearningProgressStatus.NEEDS_PRACTICE
 
         return upsert_learning_progress(
             user_id=normalized_user_id,

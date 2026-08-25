@@ -34,6 +34,7 @@ WEB_SEARCH_TOOL_NAME = "web_search"
 RAG_TOOL_NAME = "search_learning_notes"
 JD_TOOL_NAME = "search_job_descriptions"
 ATTACHMENT_TOOL_NAME = "search_attachments"
+PROGRESS_UPDATE_TOOL_NAME = "update_learning_progress"
 
 
 def _tool_schema_name(tool: Any) -> str:
@@ -89,6 +90,8 @@ class _RunState:
     attachment_ids: list[str] = field(default_factory=list)
     next_jd_number: int = 1
     jd_id_by_fingerprint: dict[str, str] = field(default_factory=dict)
+    progress_update_requested: bool = False
+    progress_update_round: int = 1
 
 
 @dataclass
@@ -177,6 +180,10 @@ class ReactOrchestrator:
             rag_scope=rag_scope,
             web_search_enabled=web_search_enabled,
             attachment_ids=list(attachment_ids or []),
+            progress_update_requested=(
+                bool(getattr(execution_context, "progress_update_requested", False))
+                and (model_spec is None or getattr(model_spec, "supports_tools", True))
+            ),
         )
         failure_count = 0
         first_model_round = 1
@@ -210,6 +217,7 @@ class ReactOrchestrator:
 
         # 工具调用前已经输出的正文也要保留：跨轮可见正文按 "\n\n" 分隔拼接，
         # 与流式路径的 token 拼接保持一致，避免标题与前文粘连。
+        run_state.progress_update_round = first_model_round
         visible_parts: list[str] = []
         for round_number in range(first_model_round, self.max_steps + 1):
             timings.bump("react_rounds")
@@ -346,6 +354,10 @@ class ReactOrchestrator:
             rag_scope=rag_scope,
             web_search_enabled=web_search_enabled,
             attachment_ids=list(attachment_ids or []),
+            progress_update_requested=(
+                bool(getattr(execution_context, "progress_update_requested", False))
+                and (model_spec is None or getattr(model_spec, "supports_tools", True))
+            ),
         )
         failure_count = 0
         first_model_round = 1
@@ -381,6 +393,7 @@ class ReactOrchestrator:
             first_model_round += 1
             yield StreamEvent(type="tool_result", data={"tool": WEB_SEARCH_TOOL_NAME, "result": {"ok": forced_trace.ok}})
 
+        run_state.progress_update_round = first_model_round
         visible_parts: list[str] = []
         for round_number in range(first_model_round, self.max_steps + 1):
             timings.bump("react_rounds")
@@ -888,10 +901,15 @@ class ReactOrchestrator:
                 if _tool_schema_name(tool) != WEB_SEARCH_TOOL_NAME
             ]
         if rag_scope == "user_documents":
+            allowed_tools = {RAG_TOOL_NAME}
+            if execution_context is not None and getattr(
+                execution_context, "progress_update_requested", False
+            ):
+                allowed_tools.add(PROGRESS_UPDATE_TOOL_NAME)
             tools = [
                 tool
                 for tool in tools
-                if _tool_schema_name(tool) == RAG_TOOL_NAME
+                if _tool_schema_name(tool) in allowed_tools
             ]
         # Conversation attachments are already injected as trusted, bounded
         # prompt context.  They are not a vector-search tool anymore.
@@ -1125,8 +1143,16 @@ class ReactOrchestrator:
         run_state: _RunState,
         round_number: int,
     ) -> str | dict:
-        """Attachments are prompt context; only ordinary tools route here."""
+        """Force one progress update tool call after an explicit request."""
 
+        if (
+            run_state.progress_update_requested
+            and round_number == run_state.progress_update_round
+        ):
+            return {
+                "type": "function",
+                "function": {"name": PROGRESS_UPDATE_TOOL_NAME},
+            }
         return "auto"
 
     def _prepare_attachment_result(
