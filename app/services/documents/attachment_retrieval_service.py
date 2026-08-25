@@ -69,6 +69,8 @@ class AttachmentEvidence:
     page_end: int
     text: str
     similarity: float
+    locator_unit: str = "page"
+    locator: str | None = None
 
 
 class AttachmentRetrievalService:
@@ -198,6 +200,8 @@ class AttachmentRetrievalService:
                 page_end=hit.page_end,
                 text=hit.text.strip(),
                 similarity=hit.similarity,
+                locator_unit=hit.locator_unit,
+                locator=hit.locator,
             )
             for index, hit in enumerate(eligible_hits, start=1)
         ]
@@ -257,7 +261,12 @@ def build_attachment_context(
     content = ATTACHMENT_CONTEXT_HEADER
     included: list[AttachmentEvidence] = []
     for index, item in enumerate(evidence, start=1):
-        page_label = _page_label(item.page_start, item.page_end)
+        page_label = _page_label(
+            item.page_start,
+            item.page_end,
+            locator_unit=item.locator_unit,
+            locator=item.locator,
+        )
         prefix = (
             "\n\n"
             "<attachment_excerpt "
@@ -288,7 +297,7 @@ def build_attachment_context(
 def attachment_source_title(evidence: AttachmentEvidence) -> str:
     """Build a public filename/page title without exposing storage metadata."""
 
-    return f"{evidence.original_filename} · {_page_label(evidence.page_start, evidence.page_end)}"
+    return f"{evidence.original_filename} · {_page_label(evidence.page_start, evidence.page_end, locator_unit=evidence.locator_unit, locator=evidence.locator)}"
 
 
 def _escape_attachment_excerpt_text(text: str) -> str:
@@ -299,7 +308,24 @@ def _escape_attachment_excerpt_text(text: str) -> str:
     )
 
 
-def _page_label(page_start: int, page_end: int) -> str:
+def _page_label(
+    page_start: int,
+    page_end: int,
+    *,
+    locator_unit: str = "page",
+    locator: str | None = None,
+) -> str:
+    if locator_unit == "sheet":
+        return f"工作表「{locator}」" if locator else f"第 {page_start} 个工作表"
+    labels = {
+        "page": "页",
+        "section": "节",
+        "line": "行",
+        "row": "行",
+        "slide": "张幻灯片",
+        "paragraph": "段",
+    }
+    unit = labels.get(locator_unit, "页")
     if page_start == page_end:
-        return f"第 {page_start} 页"
-    return f"第 {page_start}-{page_end} 页"
+        return f"第 {page_start} {unit}"
+    return f"第 {page_start}-{page_end} {unit}"

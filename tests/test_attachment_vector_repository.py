@@ -16,7 +16,7 @@ def make_repository():
     )
 
 
-def chunk(document_id, index, text, page):
+def chunk(document_id, index, text, page, *, locator_unit="page", locator=None):
     return AttachmentChunk(
         chunk_id=f"{document_id}:{index}",
         document_id=document_id,
@@ -25,13 +25,18 @@ def chunk(document_id, index, text, page):
         page_start=page,
         page_end=page,
         original_filename=f"{document_id}.pdf",
+        locator_unit=locator_unit,
+        locator=locator,
     )
 
 
 def test_upsert_search_and_metadata_are_session_scoped():
     repository = make_repository()
     repository.upsert_document_chunks(
-        [chunk("doc-a", 0, "alpha", 1), chunk("doc-a", 1, "beta", 2)],
+        [
+            chunk("doc-a", 0, "alpha", 1, locator_unit="sheet", locator="成本表"),
+            chunk("doc-a", 1, "beta", 2),
+        ],
         [[1.0, 0.0], [0.0, 1.0]],
         user_id="alice",
         session_id=10,
@@ -50,6 +55,8 @@ def test_upsert_search_and_metadata_are_session_scoped():
     assert [hit.document_id for hit in hits] == ["doc-a", "doc-a"]
     assert hits[0].text == "alpha"
     assert hits[0].page_start == 1
+    assert hits[0].locator_unit == "sheet"
+    assert hits[0].locator == "成本表"
     assert repository.search([1.0, 0.0], "bob", 10, ["doc-a"], 5) == []
     assert repository.search([1.0, 0.0], "alice", 20, ["doc-a"], 5) == []
     assert repository.search([1.0, 0.0], "alice", 10, ["doc-b"], 5) == []
@@ -60,6 +67,8 @@ def test_upsert_search_and_metadata_are_session_scoped():
     assert metadata["user_id"] == "alice"
     assert metadata["session_id"] == 10
     assert metadata["original_filename"] == "doc-a.pdf"
+    assert metadata["locator_unit"] == "sheet"
+    assert metadata["locator"] == "成本表"
     assert metadata["expires_at"] == "2030-01-01T00:00:00+00:00"
 
 

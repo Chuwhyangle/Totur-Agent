@@ -29,25 +29,35 @@ class ParsedTextBlock:
 
 @dataclass(frozen=True, slots=True)
 class ParsedPage:
-    """Ordered text blocks and dimensions for one 1-based PDF page."""
+    """Ordered text blocks for one physical or virtual 1-based page."""
 
     page_number: int
     width: float
     height: float
     blocks: tuple[ParsedTextBlock, ...]
+    locator_start: int | None = None
+    locator_end: int | None = None
+    locator: str | None = None
 
     def to_dict(self) -> dict[str, object]:
-        return {
+        payload: dict[str, object] = {
             "page_number": self.page_number,
             "width": float(self.width),
             "height": float(self.height),
             "blocks": [block.to_dict() for block in self.blocks],
         }
+        if self.locator_start is not None:
+            payload["locator_start"] = self.locator_start
+        if self.locator_end is not None:
+            payload["locator_end"] = self.locator_end
+        if self.locator is not None:
+            payload["locator"] = self.locator
+        return payload
 
 
 @dataclass(frozen=True, slots=True)
 class ParsedDocument:
-    """Stable, JSON-serializable representation of extracted PDF text."""
+    """Stable, JSON-serializable representation of extracted attachment text."""
 
     schema_version: int
     document_id: str
@@ -55,9 +65,11 @@ class ParsedDocument:
     page_count: int
     extracted_char_count: int
     pages: tuple[ParsedPage, ...]
+    content_kind: str = "pdf"
+    locator_unit: str = "page"
 
     def to_dict(self) -> dict[str, object]:
-        return {
+        payload: dict[str, object] = {
             "schema_version": self.schema_version,
             "document_id": self.document_id,
             "original_filename": self.original_filename,
@@ -65,20 +77,39 @@ class ParsedDocument:
             "extracted_char_count": self.extracted_char_count,
             "pages": [page.to_dict() for page in self.pages],
         }
+        if self.schema_version >= 2:
+            payload["content_kind"] = self.content_kind
+            payload["locator_unit"] = self.locator_unit
+        return payload
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> "ParsedDocument":
-        """Deserialize and strictly validate schema version 1 JSON."""
+        """Deserialize and strictly validate schema version 1 or 2 JSON."""
 
         if not isinstance(payload, Mapping):
             raise ParsedDocumentValidationError(
                 "Parsed document payload must be an object"
             )
         schema_version = _required_int(payload, "schema_version", minimum=1)
-        if schema_version != 1:
+        if schema_version not in {1, 2}:
             raise ParsedDocumentValidationError(
                 "Unsupported parsed document schema_version"
             )
+        content_kind = _optional_choice(
+            payload,
+            "content_kind",
+            default="pdf",
+            allowed={
+                "pdf", "text", "markdown", "csv", "json", "html", "docx",
+                "xlsx", "pptx", "code", "log",
+            },
+        )
+        locator_unit = _optional_choice(
+            payload,
+            "locator_unit",
+            default="page",
+            allowed={"page", "section", "line", "row", "sheet", "slide", "paragraph"},
+        )
         document_id = _required_text(payload, "document_id")
         original_filename = _required_text(payload, "original_filename")
         page_count = _required_int(payload, "page_count", minimum=0)
@@ -107,6 +138,17 @@ class ParsedDocument:
                 )
             width = _required_finite_number(raw_page, "width")
             height = _required_finite_number(raw_page, "height")
+            locator_start = _optional_int(raw_page, "locator_start", minimum=1)
+            locator_end = _optional_int(raw_page, "locator_end", minimum=1)
+            if (locator_start is None) != (locator_end is None):
+                raise ParsedDocumentValidationError(
+                    "locator_start and locator_end must be provided together"
+                )
+            if locator_start is not None and locator_end is not None and locator_end < locator_start:
+                raise ParsedDocumentValidationError(
+                    "locator_end must be greater than or equal to locator_start"
+                )
+            locator = _optional_text(raw_page, "locator")
             raw_blocks = raw_page.get("blocks")
             if not isinstance(raw_blocks, list):
                 raise ParsedDocumentValidationError("blocks must be an array")
@@ -156,6 +198,9 @@ class ParsedDocument:
                     width=width,
                     height=height,
                     blocks=tuple(blocks),
+                    locator_start=locator_start,
+                    locator_end=locator_end,
+                    locator=locator,
                 )
             )
 
@@ -171,6 +216,8 @@ class ParsedDocument:
             page_count=page_count,
             extracted_char_count=extracted_char_count,
             pages=tuple(pages),
+            content_kind=content_kind,
+            locator_unit=locator_unit,
         )
 
     def validate_identity(
@@ -214,6 +261,36 @@ def _required_int(
         raise ParsedDocumentValidationError(
             f"{key} must be an integer >= {minimum}"
         )
+    return value
+
+
+def _optional_int(
+    payload: Mapping[str, Any],
+    key: str,
+    *,
+    minimum: int,
+) -> int | None:
+    if key not in payload:
+        return None
+    return _required_int(payload, key, minimum=minimum)
+
+
+def _optional_text(payload: Mapping[str, Any], key: str) -> str | None:
+    if key not in payload:
+        return None
+    return _required_text(payload, key)
+
+
+def _optional_choice(
+    payload: Mapping[str, Any],
+    key: str,
+    *,
+    default: str,
+    allowed: set[str],
+) -> str:
+    value = payload.get(key, default)
+    if value not in allowed:
+        raise ParsedDocumentValidationError(f"{key} is not supported")
     return value
 
 

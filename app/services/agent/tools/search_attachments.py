@@ -123,6 +123,8 @@ def search_attachments(
             "original_filename": item.original_filename,
             "page_start": item.page_start,
             "page_end": item.page_end,
+            "locator_unit": item.locator_unit,
+            "locator": item.locator,
             "content": item.text,
             "similarity": round(item.similarity, 4),
             "match_score": round(item.similarity * 100),

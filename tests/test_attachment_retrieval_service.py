@@ -25,6 +25,7 @@ from app.services.documents.attachment_retrieval_service import (
     AttachmentProcessingFailedError,
     AttachmentRetrievalFailedError,
     AttachmentRetrievalService,
+    attachment_source_title,
     build_attachment_context,
 )
 from app.services.documents.settings import TemporaryDocumentSettings
@@ -367,3 +368,22 @@ def test_build_attachment_context_escapes_excerpt_boundary_tokens():
     assert context.count("<attachment_excerpt ") == 1
     assert context.count("</attachment_excerpt>") == 1
     assert [item.evidence_id for item in included] == ["attachment_1"]
+
+
+def test_attachment_locator_labels_use_the_document_unit():
+    item = AttachmentEvidence(
+        evidence_id="attachment_1",
+        document_id="doc",
+        original_filename="notes.txt",
+        page_start=120,
+        page_end=240,
+        text="line evidence",
+        similarity=0.9,
+        locator_unit="line",
+    )
+
+    context, included = build_attachment_context([item], max_chars=800)
+
+    assert 'locator="第 120-240 行"' in context
+    assert attachment_source_title(item) == "notes.txt · 第 120-240 行"
+    assert included == [item]
