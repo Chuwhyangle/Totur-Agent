@@ -218,6 +218,7 @@ class ChatSessionRecord:
     updated_at: str
     subject: str | None = None
     workspace_id: str | None = None
+    archived_at: str | None = None
 
 
 @dataclass

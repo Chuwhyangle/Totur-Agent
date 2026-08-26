@@ -108,6 +108,120 @@ def create_interview_jd(
         )
 
 
+def get_interview_jd(jd_id: int, user_id: str | None = None) -> InterviewJDRecord | None:
+    """按 id 获取单条 JD，可选按用户限制访问范围。"""
+
+    conditions = ["id = :id"]
+    params: dict[str, object] = {"id": jd_id}
+    if user_id is not None:
+        conditions.append("user_id = :user_id")
+        params["user_id"] = user_id
+
+    select_sql = f"""
+    SELECT
+        id,
+        user_id,
+        title,
+        role_family,
+        seniority,
+        target_graduation_years_json,
+        raw_text,
+        responsibilities_json,
+        must_have_json,
+        core_skills_json,
+        preferred_skills_json,
+        bonus_skills_json,
+        keywords_json,
+        interview_focus_json,
+        created_at,
+        updated_at
+    FROM {INTERVIEW_JDS_TABLE}
+    WHERE {' AND '.join(conditions)}
+    """
+
+    with get_engine().connect() as connection:
+        row = connection.execute(text(select_sql), params).mappings().fetchone()
+        return _record_from_row(row) if row is not None else None
+
+
+def update_interview_jd(
+    jd_id: int,
+    user_id: str,
+    title: str,
+    raw_text: str,
+    role_family: str | None = None,
+    seniority: str | None = None,
+    target_graduation_years: list[str] | None = None,
+    responsibilities: list[str] | None = None,
+    must_have: list[str] | None = None,
+    core_skills: list[str] | None = None,
+    preferred_skills: list[str] | None = None,
+    bonus_skills: list[str] | None = None,
+    keywords: list[str] | None = None,
+    interview_focus: list[str] | None = None,
+) -> InterviewJDRecord | None:
+    """更新属于指定用户的 JD，并返回更新后的记录。"""
+
+    now = datetime.now(timezone.utc).isoformat()
+    update_sql = f"""
+    UPDATE {INTERVIEW_JDS_TABLE}
+    SET
+        title = :title,
+        role_family = :role_family,
+        seniority = :seniority,
+        target_graduation_years_json = :target_graduation_years_json,
+        raw_text = :raw_text,
+        responsibilities_json = :responsibilities_json,
+        must_have_json = :must_have_json,
+        core_skills_json = :core_skills_json,
+        preferred_skills_json = :preferred_skills_json,
+        bonus_skills_json = :bonus_skills_json,
+        keywords_json = :keywords_json,
+        interview_focus_json = :interview_focus_json,
+        updated_at = :updated_at
+    WHERE id = :id AND user_id = :user_id
+    """
+    values = {
+        "id": jd_id,
+        "user_id": user_id,
+        "title": title,
+        "role_family": role_family,
+        "seniority": seniority,
+        "target_graduation_years_json": _dump_list(target_graduation_years),
+        "raw_text": raw_text,
+        "responsibilities_json": _dump_list(responsibilities),
+        "must_have_json": _dump_list(must_have),
+        "core_skills_json": _dump_list(core_skills),
+        "preferred_skills_json": _dump_list(preferred_skills),
+        "bonus_skills_json": _dump_list(bonus_skills),
+        "keywords_json": _dump_list(keywords),
+        "interview_focus_json": _dump_list(interview_focus),
+        "updated_at": now,
+    }
+
+    with get_engine().begin() as connection:
+        connection.execute(text(update_sql), values)
+
+    # 事务提交后再读回，保证返回值与数据库中的最终状态一致。
+    return get_interview_jd(jd_id=jd_id, user_id=user_id)
+
+
+def delete_interview_jd(jd_id: int, user_id: str) -> bool:
+    """删除属于指定用户的 JD，返回是否实际删除了记录。"""
+
+    delete_sql = f"""
+    DELETE FROM {INTERVIEW_JDS_TABLE}
+    WHERE id = :id AND user_id = :user_id
+    """
+
+    with get_engine().begin() as connection:
+        cursor = connection.execute(
+            text(delete_sql),
+            {"id": jd_id, "user_id": user_id},
+        )
+        return cursor.rowcount > 0
+
+
 def list_interview_jds(user_id: str, limit: int = 20) -> list[InterviewJDRecord]:
     """查询某个用户保存的最近 JD，最新的排在前面。"""
 

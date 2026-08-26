@@ -111,8 +111,9 @@ function buildConversationsUrl(userId, limit) {
   return `${API_BASE_URL}/conversations/${safeUserId}?${searchParams.toString()}`
 }
 
-function buildSessionsUrl(userId, limit) {
+function buildSessionsUrl(userId, limit, includeArchived = false) {
   const searchParams = new URLSearchParams({ user_id: userId, limit: String(limit) })
+  if (includeArchived) searchParams.set('include_archived', 'true')
   return `${SESSIONS_URL}?${searchParams.toString()}`
 }
 
@@ -210,13 +211,14 @@ export function postChat(requestBody, options = {}) {
  * @param {function} callbacks.onToken - Called for each token: (text) => void
  * @param {function} callbacks.onToolCall - Called when a tool starts: (tool, args) => void
  * @param {function} callbacks.onToolResult - Called when a tool finishes: (tool, result) => void
+ * @param {function} callbacks.onProgress - Called while server-side work is running: (data) => void
  * @param {function} callbacks.onDone - Called when complete: (data) => void
  * @param {function} callbacks.onError - Called on error: (message) => void
  * @param {Object} options - Options like signal
  * @returns {Promise<void>}
  */
 export async function postChatStream(requestBody, callbacks, options = {}) {
-  const { onThinking, onToken, onToolCall, onToolResult, onDone, onError } = callbacks
+  const { onThinking, onToken, onToolCall, onToolResult, onProgress, onDone, onError } = callbacks
   const { signal } = options
 
   let response
@@ -291,6 +293,8 @@ export async function postChatStream(requestBody, callbacks, options = {}) {
               onToolCall?.(data.tool, data.args)
             } else if (currentEvent === 'tool_result') {
               onToolResult?.(data.tool, data.result)
+            } else if (currentEvent === 'progress') {
+              onProgress?.(data)
             } else if (currentEvent === 'done') {
               terminalEventReceived = true
               onDone?.(data)
@@ -548,9 +552,59 @@ export function getInterviewJDs(userId, limit = 20, options = {}) {
   return requestJson(url, { signal: options.signal }, 'Interview JD list request failed')
 }
 
+export function getInterviewJD(jdId, userId, options = {}) {
+  const searchParams = new URLSearchParams({ user_id: userId })
+  return requestJson(`${INTERVIEW_JDS_URL}/${encodeURIComponent(jdId)}?${searchParams.toString()}`, {
+    signal: options.signal,
+  }, 'Interview JD detail request failed')
+}
+
+export function updateInterviewJD(jdId, requestBody, userId, options = {}) {
+  const searchParams = new URLSearchParams({ user_id: userId })
+  return requestJson(`${INTERVIEW_JDS_URL}/${encodeURIComponent(jdId)}?${searchParams.toString()}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(requestBody),
+    debugRequestBody: requestBody,
+    signal: options.signal,
+  }, 'Update interview JD failed')
+}
+
+export function deleteInterviewJD(jdId, userId, options = {}) {
+  const searchParams = new URLSearchParams({ user_id: userId })
+  return requestJson(`${INTERVIEW_JDS_URL}/${encodeURIComponent(jdId)}?${searchParams.toString()}`, {
+    method: 'DELETE',
+    signal: options.signal,
+  }, 'Delete interview JD failed')
+}
+
 export function getSessions(userId, limit = 50, options = {}) {
-  const url = buildSessionsUrl(userId, limit)
+  const url = buildSessionsUrl(userId, limit, options.includeArchived)
   return requestJson(url, { signal: options.signal }, 'Session list request failed')
+}
+
+export function archiveSession(sessionId, userId, options = {}) {
+  const searchParams = new URLSearchParams({ user_id: userId })
+  return requestJson(`${SESSIONS_URL}/${encodeURIComponent(sessionId)}/archive?${searchParams.toString()}`, {
+    method: 'POST',
+    signal: options.signal,
+  }, 'Archive session failed')
+}
+
+export function restoreSession(sessionId, userId, options = {}) {
+  const searchParams = new URLSearchParams({ user_id: userId })
+  return requestJson(`${SESSIONS_URL}/${encodeURIComponent(sessionId)}/restore?${searchParams.toString()}`, {
+    method: 'POST',
+    signal: options.signal,
+  }, 'Restore session failed')
+}
+
+export function deleteSession(sessionId, userId, options = {}) {
+  const searchParams = new URLSearchParams({ user_id: userId })
+  return requestJson(`${SESSIONS_URL}/${encodeURIComponent(sessionId)}?${searchParams.toString()}`, {
+    method: 'DELETE',
+    signal: options.signal,
+  }, 'Delete session failed')
 }
 
 export function getSessionConversations(sessionId, limit = 50, options = {}) {

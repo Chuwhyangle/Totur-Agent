@@ -7,13 +7,24 @@ from sqlalchemy import Connection, text
 from app.db.engine import get_engine
 from app.db.models import (
     CHAT_SESSIONS_TABLE,
+    CONVERSATIONS_TABLE,
     DEFAULT_SESSION_TITLE,
+    DOCUMENTS_TABLE,
+    TASKS_TABLE,
     ChatSessionRecord,
 )
 from app.services.agent.personas import DEFAULT_PERSONA_ID
 
 
 SESSION_TITLE_MAX_LENGTH = 30
+
+
+class SessionDeleteBlockedError(RuntimeError):
+    """A session still owns resources that must be cleaned up first."""
+
+    def __init__(self, reason: str):
+        self.reason = reason
+        super().__init__(f"Session deletion is blocked by {reason}")
 
 
 def make_title_from_message(message: str) -> str:
@@ -87,6 +98,7 @@ def create_session(
         updated_at=now,
         subject=subject,
         workspace_id=workspace_id,
+        archived_at=None,
     )
 
 
@@ -104,12 +116,13 @@ def get_or_create_default_session(
 
     select_sql = f"""
     SELECT id, user_id, title, persona_id, created_at, updated_at,
-           subject, workspace_id
+           subject, workspace_id, archived_at
     FROM {CHAT_SESSIONS_TABLE}
     WHERE user_id = :user_id
       AND title = :title
       AND persona_id = :persona_id
       AND workspace_id IS NULL
+      AND archived_at IS NULL
     ORDER BY id ASC
     LIMIT 1
     """
@@ -153,20 +166,26 @@ def get_or_create_default_session(
     )
 
 
-def get_session(session_id: int) -> ChatSessionRecord | None:
-    """根据 session_id 查询一个会话。"""
+def get_session(
+    session_id: int,
+    user_id: str | None = None,
+) -> ChatSessionRecord | None:
+    """根据 session_id 查询一个会话，可选按用户限制访问范围。"""
+
+    conditions = ["id = :id"]
+    params: dict[str, object] = {"id": session_id}
+    if user_id is not None:
+        conditions.append("user_id = :user_id")
+        params["user_id"] = user_id
 
     select_sql = f"""
     SELECT id, user_id, title, persona_id, created_at, updated_at,
-           subject, workspace_id
+           subject, workspace_id, archived_at
     FROM {CHAT_SESSIONS_TABLE}
-    WHERE id = :id
+    WHERE {' AND '.join(conditions)}
     """
     with get_engine().connect() as connection:
-        row = connection.execute(
-            text(select_sql),
-            {"id": session_id},
-        ).mappings().fetchone()
+        row = connection.execute(text(select_sql), params).mappings().fetchone()
     return _session_from_row(row) if row is not None else None
 
 
@@ -179,7 +198,7 @@ def get_session_for_update(
 
     select_sql = f"""
     SELECT id, user_id, title, persona_id, created_at, updated_at,
-           subject, workspace_id
+           subject, workspace_id, archived_at
     FROM {CHAT_SESSIONS_TABLE}
     WHERE id = :id
     """
@@ -193,14 +212,20 @@ def get_session_for_update(
     return _session_from_row(row) if row is not None else None
 
 
-def list_sessions(user_id: str, limit: int = 50) -> list[ChatSessionRecord]:
-    """查询某个用户最近的会话列表，最新的排在前面。"""
+def list_sessions(
+    user_id: str,
+    limit: int = 50,
+    *,
+    include_archived: bool = False,
+) -> list[ChatSessionRecord]:
+    """查询某个用户最近的会话，默认隐藏已回档会话。"""
 
+    archived_filter = "" if include_archived else " AND archived_at IS NULL"
     select_sql = f"""
     SELECT id, user_id, title, persona_id, created_at, updated_at,
-           subject, workspace_id
+           subject, workspace_id, archived_at
     FROM {CHAT_SESSIONS_TABLE}
-    WHERE user_id = :user_id
+    WHERE user_id = :user_id{archived_filter}
     ORDER BY updated_at DESC, id DESC
     LIMIT :limit
     """
@@ -212,6 +237,113 @@ def list_sessions(user_id: str, limit: int = 50) -> list[ChatSessionRecord]:
         ).mappings().fetchall()
 
         return [_session_from_row(row) for row in rows]
+
+
+def archive_session(session_id: int, user_id: str) -> ChatSessionRecord | None:
+    """将属于指定用户的会话回档，保留全部历史数据。"""
+
+    session = get_session(session_id=session_id, user_id=user_id)
+    if session is None or session.archived_at is not None:
+        return session
+
+    now = datetime.now(timezone.utc).isoformat()
+    update_sql = f"""
+    UPDATE {CHAT_SESSIONS_TABLE}
+    SET archived_at = :archived_at
+    WHERE id = :id AND user_id = :user_id AND archived_at IS NULL
+    """
+    with get_engine().begin() as connection:
+        connection.execute(
+            text(update_sql),
+            {"id": session_id, "user_id": user_id, "archived_at": now},
+        )
+    return get_session(session_id=session_id, user_id=user_id)
+
+
+def restore_session(session_id: int, user_id: str) -> ChatSessionRecord | None:
+    """恢复属于指定用户的已回档会话。"""
+
+    session = get_session(session_id=session_id, user_id=user_id)
+    if session is None or session.archived_at is None:
+        return session
+
+    update_sql = f"""
+    UPDATE {CHAT_SESSIONS_TABLE}
+    SET archived_at = NULL
+    WHERE id = :id AND user_id = :user_id AND archived_at IS NOT NULL
+    """
+    with get_engine().begin() as connection:
+        connection.execute(
+            text(update_sql),
+            {"id": session_id, "user_id": user_id},
+        )
+    return get_session(session_id=session_id, user_id=user_id)
+
+
+def delete_session(session_id: int, user_id: str) -> bool:
+    """永久删除会话及其聊天记录，返回是否实际删除。"""
+
+    with get_engine().begin() as connection:
+        session = connection.execute(
+            text(
+                f"SELECT id FROM {CHAT_SESSIONS_TABLE} "
+                "WHERE id = :id AND user_id = :user_id"
+            ),
+            {"id": session_id, "user_id": user_id},
+        ).mappings().fetchone()
+        if session is None:
+            return False
+
+        attachment_count = connection.execute(
+            text(
+                f"SELECT COUNT(*) AS total FROM {DOCUMENTS_TABLE} "
+                "WHERE session_id = :session_id "
+                "AND scope = 'ATTACHMENT' AND status <> 'DELETED'"
+            ),
+            {"session_id": session_id},
+        ).scalar_one()
+        if attachment_count:
+            raise SessionDeleteBlockedError("attachments")
+
+        task_count = connection.execute(
+            text(
+                f"SELECT COUNT(*) AS total FROM {TASKS_TABLE} "
+                "WHERE session_id = :session_id"
+            ),
+            {"session_id": session_id},
+        ).scalar_one()
+        if task_count:
+            raise SessionDeleteBlockedError("workspace tasks")
+
+        # DELETED attachment metadata has already completed file/vector cleanup.
+        connection.execute(
+            text(
+                f"DELETE FROM {DOCUMENTS_TABLE} "
+                "WHERE session_id = :session_id AND status = 'DELETED'"
+            ),
+            {"session_id": session_id},
+        )
+        connection.execute(
+            text(
+                "DELETE FROM session_summaries WHERE session_id = :session_id"
+            ),
+            {"session_id": session_id},
+        )
+        connection.execute(
+            text(
+                f"DELETE FROM {CONVERSATIONS_TABLE} "
+                "WHERE session_id = :session_id"
+            ),
+            {"session_id": session_id},
+        )
+        cursor = connection.execute(
+            text(
+                f"DELETE FROM {CHAT_SESSIONS_TABLE} "
+                "WHERE id = :id AND user_id = :user_id"
+            ),
+            {"id": session_id, "user_id": user_id},
+        )
+        return cursor.rowcount > 0
 
 
 def touch_session(
@@ -268,4 +400,5 @@ def _session_from_row(row) -> ChatSessionRecord:
         updated_at=row["updated_at"],
         subject=row["subject"],
         workspace_id=row["workspace_id"],
+        archived_at=row["archived_at"],
     )

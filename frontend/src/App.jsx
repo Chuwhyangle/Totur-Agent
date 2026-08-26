@@ -2,6 +2,9 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import {
   createInterviewJD,
+  archiveSession,
+  deleteInterviewJD,
+  deleteSession,
   createCustomPersona,
   createSession,
   createWorkspace,
@@ -10,14 +13,17 @@ import {
   getAttachments,
   getHealth,
   getGitHubMcpStatus,
+  getInterviewJD,
   getInterviewJDs,
   getLearningProgress,
   getModels,
   getPersonas,
   updateCustomPersona,
+  updateInterviewJD,
   disableCustomPersona,
   getSessionConversations,
   getSessions,
+  restoreSession,
   getWorkspaceArtifactContent,
   getWorkspaceArtifactDownloadUrl,
   getWorkspaceArtifacts,
@@ -166,6 +172,7 @@ function App() {
   const [sessions, setSessions] = useState([])
   const [sessionsStatus, setSessionsStatus] = useState('idle')
   const [sessionCreateError, setSessionCreateError] = useState('')
+  const [sessionActionId, setSessionActionId] = useState(null)
   const [activeSessionId, setActiveSessionId] = useState(null)
   const [activeSessionStatus, setActiveSessionStatus] = useState('idle')
   const [isCreatingSession, setIsCreatingSession] = useState(false)
@@ -237,11 +244,13 @@ function App() {
     && userId.trim().length > 0
     && !isSending
     && activeSessionStatus !== 'loading'
+    && !activeSession?.archived_at
     && !attachmentSendBlockReason
     && activeSessionWorkspace?.status !== 'ARCHIVED'
   const canRequestProgressUpdate = userId.trim().length > 0
     && !isSending
     && activeSessionStatus !== 'loading'
+    && !activeSession?.archived_at
     && activeSessionWorkspace?.status !== 'ARCHIVED'
 
   function activateAttachmentScope(
@@ -346,6 +355,7 @@ function App() {
     setSessionCreateError('')
     setActiveSessionId(null)
     setActiveSessionStatus('idle')
+    setSessionActionId(null)
     setInterviewJDs([])
     setInterviewJDsStatus('idle')
     setLearningProgress([])
@@ -388,7 +398,7 @@ function App() {
     }
 
     try {
-      const { data } = await getSessions(trimmedUserId)
+      const { data } = await getSessions(trimmedUserId, 50, { includeArchived: true })
       const nextSessions = Array.isArray(data?.items) ? data.items : []
       setSessions(nextSessions)
       setSessionsStatus('success')
@@ -603,13 +613,22 @@ function App() {
     }
   }, [userId])
 
-  async function handleSaveInterviewJD(requestBody) {
+  async function handleViewInterviewJD(item) {
+    const { data } = await getInterviewJD(item.id, userId.trim())
+    return data
+  }
+
+  async function handleSaveInterviewJD(requestBody, editingId = null) {
     if (isSavingInterviewJD) return null
     setIsSavingInterviewJD(true)
 
     try {
-      const { data } = await createInterviewJD(requestBody)
-      setInterviewJDs((currentJDs) => [data, ...currentJDs])
+      const { data } = editingId === null
+        ? await createInterviewJD(requestBody)
+        : await updateInterviewJD(editingId, requestBody, userId.trim())
+      setInterviewJDs((currentJDs) => editingId === null
+        ? [data, ...currentJDs]
+        : currentJDs.map((item) => item.id === editingId ? data : item))
       setInterviewJDsStatus('success')
       return data
     } catch {
@@ -618,6 +637,12 @@ function App() {
     } finally {
       setIsSavingInterviewJD(false)
     }
+  }
+
+  async function handleDeleteInterviewJD(item) {
+    await deleteInterviewJD(item.id, userId.trim())
+    setInterviewJDs((currentJDs) => currentJDs.filter((currentItem) => currentItem.id !== item.id))
+    setInterviewJDsStatus('success')
   }
 
   const loadLearningProgress = useCallback(async ({ silent = false } = {}) => {
@@ -714,7 +739,7 @@ function App() {
     }
   }
 
-  async function handleCreateSession(workspaceIdInput = null) {
+  async function handleCreateSession(workspaceIdInput = null, { preserveMessages = false } = {}) {
     const workspaceId = typeof workspaceIdInput === 'string' && workspaceIdInput.trim()
       ? workspaceIdInput
       : null
@@ -742,7 +767,7 @@ function App() {
       })
       setActiveSessionId(data.id)
       setActiveSessionStatus('success')
-      setMessages([])
+      if (!preserveMessages) setMessages([])
       setSelectedWorkspaceId(data.workspace_id ?? null)
       if (data.workspace_id) {
         void loadWorkspaceInstructions(data.workspace_id)
@@ -769,9 +794,77 @@ function App() {
     }
   }
 
+  function clearActiveSession() {
+    sessionMessageRequestIdRef.current += 1
+    activateAttachmentScope(null, userId, selectedPersonaId)
+    setActiveSessionId(null)
+    setActiveSessionStatus('idle')
+    setMessages([])
+    setSelectedWorkspaceId(null)
+    setWorkspaceAssets([])
+    setWorkspaceTasks([])
+    setWorkspaceArtifacts([])
+  }
+
+  async function handleSessionLifecycle(session, action) {
+    const trimmedUserId = userId.trim()
+    if (!trimmedUserId || sessionActionId !== null) return null
+
+    setSessionActionId(session.id)
+    try {
+      const actionRequest = action === 'archive' ? archiveSession : action === 'restore' ? restoreSession : deleteSession
+      const response = await actionRequest(session.id, trimmedUserId)
+      const nextSession = response.data
+
+      if (action === 'delete') {
+        const remainingSessions = sessions.filter((item) => item.id !== session.id)
+        setSessions(remainingSessions)
+        if (activeSessionId === session.id) {
+          const replacement = remainingSessions.find((item) => !item.archived_at)
+          if (replacement) void loadSessionMessages(replacement)
+          else clearActiveSession()
+        }
+      } else {
+        upsertSession(nextSession)
+        if (action === 'archive' && activeSessionId === session.id) {
+          const replacement = sessions.find((item) => item.id !== session.id && !item.archived_at)
+          if (replacement) void loadSessionMessages(replacement)
+          else clearActiveSession()
+        }
+      }
+      setSessionsStatus('success')
+      setSessionCreateError('')
+      return nextSession
+    } catch (error) {
+      setSessionsStatus('error')
+      setSessionCreateError(
+        error?.detail?.reason === 'attachments'
+          ? '请先删除会话中的附件，再永久删除该会话。'
+          : error?.detail?.reason === 'workspace tasks'
+            ? '该会话仍被 Workspace 任务引用，暂时无法删除。'
+            : getErrorDisplayMessage(error),
+      )
+      return null
+    } finally {
+      setSessionActionId(null)
+    }
+  }
+
+  async function handleArchiveSession(session) {
+    return handleSessionLifecycle(session, 'archive')
+  }
+
+  async function handleRestoreSession(session) {
+    return handleSessionLifecycle(session, 'restore')
+  }
+
+  async function handleDeleteSession(session) {
+    return handleSessionLifecycle(session, 'delete')
+  }
+
   async function ensureActiveSession() {
-    const currentSession = sessions.find((session) => session.id === activeSessionId)
-    return currentSession ?? handleCreateSession()
+    const currentSession = sessions.find((session) => session.id === activeSessionId && !session.archived_at)
+    return currentSession ?? handleCreateSession(null, { preserveMessages: true })
   }
 
   const refreshAttachments = useCallback(async ({ signal, initial = false } = {}) => {
@@ -1014,6 +1107,9 @@ function App() {
       ...RAG_MODE_REQUEST_FIELDS[ragModeForRequest],
       attachment_ids: attachmentIds,
     }
+    // Progress writes rely on the SSE tool trace; never route them through the
+    // legacy non-streaming fallback, even if an old preference disabled streaming.
+    const useStreaming = streamingEnabled || progressUpdateRequested
     if (ragModeForRequest === 'documents') {
       baseRequestBody.web_search_enabled = false
       baseRequestBody.force_web_search = false
@@ -1029,7 +1125,7 @@ function App() {
     setDraftMessage('')
     setIsSending(true)
     setStreamingMessage(null)
-    const streamAbortController = streamingEnabled ? new AbortController() : null
+    const streamAbortController = useStreaming ? new AbortController() : null
     streamAbortControllerRef.current = streamAbortController
 
     setStreamingTool(null)
@@ -1051,7 +1147,7 @@ function App() {
       if (ragModeForRequest === 'force' || ragModeForRequest === 'documents') setRagMode('auto')
       if (webSearchModeForRequest === 'force') setWebSearchMode('auto')
 
-      if (streamingEnabled) {
+      if (useStreaming) {
         // Streaming mode
         const messageId = `message-assistant-${Date.now()}`
         const requestStartedAt = monotonicNow()
@@ -1107,10 +1203,20 @@ function App() {
               })
             },
             onToolCall: (tool, args) => {
-              setStreamingTool({ tool, args, status: 'running' })
+              setStreamingTool({ tool, args, status: 'running', elapsedMs: 0 })
             },
             onToolResult: () => {
               setStreamingTool(null)
+            },
+            onProgress: ({ elapsed_ms: elapsedMs } = {}) => {
+              setStreamingTool((current) => ({
+                tool: current?.tool ?? 'model',
+                args: current?.args ?? {},
+                status: 'running',
+                elapsedMs: Number.isFinite(elapsedMs)
+                  ? elapsedMs
+                  : (current?.elapsedMs ?? 0),
+              }))
             },
             onDone: (data) => {
               finalData = data
@@ -1207,7 +1313,7 @@ function App() {
         role: 'assistant',
         reply: createErrorReply(error),
         debug: {
-          url: `${API_BASE_URL}/${streamingEnabled ? 'chat/stream' : 'chat'}`,
+          url: `${API_BASE_URL}/${useStreaming ? 'chat/stream' : 'chat'}`,
           method: 'POST',
           requestBody: baseRequestBody,
           ...error.debug,
@@ -1220,7 +1326,7 @@ function App() {
             ?? null,
         },
       }
-      const partialMessage = streamingEnabled && accumulatedText
+      const partialMessage = useStreaming && accumulatedText
         ? {
             id: `message-partial-${Date.now()}`,
             role: 'assistant',
@@ -1394,12 +1500,16 @@ function App() {
           activeSessionId={activeSessionId}
           status={sessionsStatus}
           sessionCreateError={sessionCreateError}
+          sessionActionId={sessionActionId}
           isCreating={isCreatingSession}
           isSidebarCollapsed={isSidebarCollapsed}
           isMobileOpen={isMobileSidebarOpen}
           onToggleCollapsed={() => setIsSidebarCollapsed((value) => !value)}
           onCreateSession={handleCreateSession}
           onRefreshSessions={loadSessions}
+          onArchiveSession={handleArchiveSession}
+          onRestoreSession={handleRestoreSession}
+          onDeleteSession={handleDeleteSession}
           onSelectSession={loadSessionMessages}
           onSelectWorkspace={selectWorkspace}
           onCreateWorkspace={() => setWorkspacePanelOpen(true)}
@@ -1488,7 +1598,9 @@ function App() {
         status={interviewJDsStatus}
         isSaving={isSavingInterviewJD}
         onRefresh={loadInterviewJDs}
+        onView={handleViewInterviewJD}
         onSave={handleSaveInterviewJD}
+        onDelete={handleDeleteInterviewJD}
         isOpen={isTargetPanelOpen}
         onClose={() => setIsTargetPanelOpen(false)}
       />

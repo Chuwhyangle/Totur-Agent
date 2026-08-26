@@ -90,7 +90,7 @@ def test_initialize_database_stamps_pre_alembic_database_then_upgrades(
         version = connection.execute(
             "SELECT version_num FROM alembic_version"
         ).fetchone()["version_num"]
-        assert version == "0005_knowledge_documents"
+        assert version == "0007_session_lifecycle"
     finally:
         connection.close()
 
@@ -144,6 +144,6 @@ def test_initialize_database_recovers_from_empty_alembic_version_table(
         ).fetchone()["reply_format"] == "json_v1"
         assert connection.execute(
             "SELECT version_num FROM alembic_version"
-        ).fetchone()["version_num"] == "0005_knowledge_documents"
+        ).fetchone()["version_num"] == "0007_session_lifecycle"
     finally:
         connection.close()

@@ -10,6 +10,8 @@ from typing import Any
 import pytest
 
 from app.services import memory_settings
+from app.services.agent import react_orchestrator as react_module
+from app.services.agent.model_registry import ModelSpec
 from app.services.agent.react_orchestrator import ReactOrchestrator, StreamEvent
 
 
@@ -125,7 +127,7 @@ def test_max_tool_rounds_lives_in_central_settings():
     """ReAct 最大工具轮次应放在统一配置文件里，避免散落硬编码。"""
 
     assert hasattr(memory_settings, "MAX_TOOL_ROUNDS")
-    assert memory_settings.MAX_TOOL_ROUNDS == 6
+    assert memory_settings.MAX_TOOL_ROUNDS == 12
 
 
 def test_tool_observation_max_chars_lives_in_central_settings():
@@ -1256,10 +1258,66 @@ def test_stream_round_emits_multiple_token_events_for_multiple_model_chunks():
     assert "stream_options" not in calls[0]
 
 
-def test_stream_round_logs_stream_failure_before_non_stream_fallback(caplog):
-    """流式失败后保留兜底时，必须留下可定位且不含正文的日志。"""
+def test_stream_round_preserves_model_runtime_params(monkeypatch):
+    """流式请求必须保留公共模型名和 provider 专用参数。"""
+
+    calls = []
+
+    class Chunks:
+        def __iter__(self):
+            return iter([
+                SimpleNamespace(
+                    choices=[
+                        SimpleNamespace(
+                            delta=SimpleNamespace(content="streamed")
+                        )
+                    ]
+                )
+            ])
 
     def create(**kwargs):
+        calls.append(kwargs)
+        return Chunks()
+
+    orchestrator = make_orchestrator()
+    orchestrator.client = SimpleNamespace(
+        chat=SimpleNamespace(
+            completions=SimpleNamespace(create=create),
+        ),
+    )
+    monkeypatch.setattr(
+        react_module,
+        "get_llm_client",
+        lambda _provider: orchestrator.client,
+    )
+    spec = ModelSpec(
+        model_id="public-model",
+        display_name="Public Model",
+        description="test",
+        provider="deepseek",
+        api_model="provider-model-name",
+        supports_tools=True,
+        supports_thinking=True,
+        top_level_params={"reasoning_effort": "high"},
+        extra_body={"thinking": {"type": "enabled"}},
+    )
+
+    events = list(orchestrator._stream_round([], model_spec=spec))
+
+    assert [event.data["text"] for event in events] == ["streamed"]
+    assert calls[0]["model"] == "provider-model-name"
+    assert calls[0]["stream"] is True
+    assert calls[0]["reasoning_effort"] == "high"
+    assert calls[0]["extra_body"] == {"thinking": {"type": "enabled"}}
+
+
+def test_stream_round_does_not_fake_stream_with_non_stream_fallback(caplog):
+    """流式失败必须显式失败，不能把完整非流式答案伪装成一个 token。"""
+
+    calls = []
+
+    def create(**kwargs):
+        calls.append(kwargs.get("stream"))
         if kwargs.get("stream") is True:
             raise RuntimeError("provider rejected stream")
         return SimpleNamespace(
@@ -1274,12 +1332,12 @@ def test_stream_round_logs_stream_failure_before_non_stream_fallback(caplog):
         ),
     )
 
-    with caplog.at_level("WARNING"):
-        events = list(orchestrator._stream_round([]))
+    with caplog.at_level("WARNING"), pytest.raises(RuntimeError, match="provider rejected stream"):
+        list(orchestrator._stream_round([]))
 
-    assert [event.data["text"] for event in events] == ["fallback reply"]
+    assert calls == [True]
     assert "llm_stream_failed" in caplog.text
-    assert "stream_fallback_to_non_stream" in caplog.text
+    assert "stream_fallback_to_non_stream" not in caplog.text
     assert "model=test-model" in caplog.text
     assert "provider=legacy" in caplog.text
     assert "error_type=RuntimeError" in caplog.text

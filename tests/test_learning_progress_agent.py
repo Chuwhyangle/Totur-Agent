@@ -1,9 +1,11 @@
 """显式学习进度触发、上下文注入和 Agent 工具测试。"""
 
+from types import SimpleNamespace
+
 from app.schemas.chat import ToolCallTrace, ToolTrace, TutorReply
 from app.services.agent.context import AgentContext
 from app.services.agent.prompt_builder import PromptBuilder
-from app.services.agent.react_orchestrator import ReactOrchestrator, _RunState
+from app.services.agent.react_orchestrator import ReactOrchestrator, StreamEvent, _RunState
 from app.services.agent.response_parser import ResponseParser
 from app.services.agent.tools.executor import ToolExecutor
 from app.services.agent.tools.registry import ToolRegistry
@@ -26,7 +28,7 @@ def _execution_context(*, requested: bool) -> AgentExecutionContext:
     )
 
 
-def test_progress_trigger_accepts_command_and_explicit_phrases_only():
+def test_progress_trigger_accepts_commands_and_natural_language_requests():
     assert is_progress_update_request("/更新进度") is True
     assert is_progress_update_request("帮我去更新一下学习进度。") is True
     assert is_progress_update_request("更新我们的学习进度") is True
@@ -34,10 +36,10 @@ def test_progress_trigger_accepts_command_and_explicit_phrases_only():
     assert is_progress_update_request("帮我分析并更新 SQL 学习进度") is True
     assert is_progress_update_request("请解释一下 JOIN") is False
     assert is_progress_update_request("学习进度是什么") is False
-    assert is_progress_update_request("如何更新学习进度") is False
+    assert is_progress_update_request("如何学习 JOIN") is False
 
 
-def test_progress_tool_is_hidden_unless_explicitly_requested():
+def test_progress_tool_is_always_available_to_the_model():
     registry = ToolRegistry(mcp_client_adapter=object())
 
     ordinary_names = {
@@ -54,16 +56,16 @@ def test_progress_tool_is_hidden_unless_explicitly_requested():
         )
     }
 
-    assert "update_learning_progress" not in ordinary_names
+    assert "update_learning_progress" in ordinary_names
     assert "update_learning_progress" in update_names
-    assert active_names == {"update_learning_progress"}
+    assert "update_learning_progress" in active_names
 
     rejected = ToolExecutor(registry).execute(
         "update_learning_progress",
         {"updates": []},
         execution_context=_execution_context(requested=False),
     )
-    assert rejected["error"] == "progress_update_not_requested"
+    assert rejected["error"] == "invalid_arguments"
 
 
 def test_progress_tool_schema_explains_parameters_and_example():
@@ -136,6 +138,38 @@ def test_progress_tool_updates_shared_records_and_preserves_higher_agent_level()
     assert result["updated"][0]["previous_level"] == 3
     assert result["updated"][0]["current_level"] == 3
     assert result["updated"][0]["status"] == "needs_practice"
+
+
+def test_stream_progress_request_forces_update_tool_choice_on_first_round():
+    orchestrator = ReactOrchestrator(
+        config=SimpleNamespace(model="test-model"),
+        client=SimpleNamespace(),
+        tool_registry=ToolRegistry(mcp_client_adapter=None),
+    )
+    observed = []
+
+    def fake_stream_round(messages, **kwargs):
+        observed.append(kwargs["tool_choice"])
+        yield StreamEvent(type="token", data={"text": "done"})
+        return SimpleNamespace(content="done", reasoning="", tool_calls=[])
+
+    orchestrator._stream_round = fake_stream_round
+    stream = orchestrator.run_stream(
+        [{"role": "user", "content": "/更新进度"}],
+        execution_context=_execution_context(requested=True),
+    )
+    next(stream)
+    try:
+        next(stream)
+    except StopIteration as stop:
+        raw_reply, trace = stop.value
+
+    assert raw_reply == "done"
+    assert trace.used is False
+    assert observed == [{
+        "type": "function",
+        "function": {"name": "update_learning_progress"},
+    }]
 
 
 def test_progress_update_reply_is_guarded_when_tool_did_not_succeed():

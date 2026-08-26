@@ -181,7 +181,7 @@ class TutorAgentService:
             user_id = request.user_id
             message = request.message
             progress_update_requested = (
-                request.action == "update_progress"
+                getattr(request, "action", None) == "update_progress"
                 or is_progress_update_request(message)
             )
             session = self._resolve_session(
@@ -196,6 +196,7 @@ class TutorAgentService:
                 session=session,
                 trace_id=trace_id,
                 current_goal=message,
+                progress_update_requested=progress_update_requested,
             )
             persona = self.persona_service.resolve(
                 user_id=user_id,
@@ -343,7 +344,7 @@ class TutorAgentService:
         user_id = request.user_id
         message = request.message
         progress_update_requested = (
-            request.action == "update_progress"
+            getattr(request, "action", None) == "update_progress"
             or is_progress_update_request(message)
         )
         execution_context: AgentExecutionContext | None = None

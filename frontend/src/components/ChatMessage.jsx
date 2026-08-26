@@ -167,7 +167,14 @@ function ChatMessage({ role, text, reply, debug, thinking, metrics, isStreaming,
             {streamingTool ? (
               <div className="streaming-tool-status">
                 <span className="streaming-tool-spinner" />
-                <span>正在调用 {streamingTool.tool}...</span>
+                <span>
+                  {streamingTool.tool === 'model'
+                    ? '正在生成回答'
+                    : `正在调用 ${streamingTool.tool}...`}
+                  {Number.isFinite(streamingTool.elapsedMs)
+                    ? ` · ${(streamingTool.elapsedMs / 1000).toFixed(1)}s`
+                    : ''}
+                </span>
               </div>
             ) : null}
             <div className="answer-text streaming-text">

@@ -92,12 +92,6 @@ def update_learning_progress(
 ) -> dict[str, Any]:
     """Persist explicit, evidence-based SQL progress updates."""
 
-    if not execution_context.progress_update_requested:
-        return {
-            "ok": False,
-            "error": "progress_update_not_requested",
-            "message": "Progress updates require an explicit user request.",
-        }
     if not isinstance(updates, list) or not 1 <= len(updates) <= 5:
         return {
             "ok": False,

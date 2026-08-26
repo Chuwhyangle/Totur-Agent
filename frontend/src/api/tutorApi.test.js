@@ -3,7 +3,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   API_BASE_URL,
   TutorApiError,
+  archiveSession,
   deleteAttachment,
+  deleteSession,
   getAttachments,
   getWorkspaceArtifactContent,
   getWorkspaceAssetDownloadUrl,
@@ -11,8 +13,10 @@ import {
   getWorkspaceTasks,
   getWorkspaces,
   getLearningProgress,
+  getSessions,
   getGitHubMcpStatus,
   saveLearningProgress,
+  restoreSession,
   deleteLearningProgress,
   createWorkspace,
   uploadWorkspaceAsset,
@@ -143,6 +147,44 @@ describe('tutorApi attachment API', () => {
     const [, options] = fetch.mock.calls[0]
     expect(options.headers).toEqual({ 'Content-Type': 'application/json' })
     expect(JSON.parse(options.body)).toEqual(requestBody)
+  })
+})
+
+describe('tutorApi session lifecycle API', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('uses active/all session listing and lifecycle routes', async () => {
+    fetch
+      .mockResolvedValueOnce(jsonResponse({ items: [] }))
+      .mockResolvedValueOnce(jsonResponse({ id: 7, archived_at: '2026-08-25T00:00:00Z' }))
+      .mockResolvedValueOnce(jsonResponse({ id: 7, archived_at: null }))
+      .mockResolvedValueOnce({ ok: true, status: 204, json: vi.fn() })
+
+    await getSessions('user one', 50, { includeArchived: true })
+    await archiveSession(7, 'user one')
+    await restoreSession(7, 'user one')
+    await deleteSession(7, 'user one')
+
+    expect(fetch.mock.calls[0][0]).toBe(
+      `${API_BASE_URL}/sessions?user_id=user+one&limit=50&include_archived=true`,
+    )
+    expect(fetch.mock.calls[1][0]).toBe(
+      `${API_BASE_URL}/sessions/7/archive?user_id=user+one`,
+    )
+    expect(fetch.mock.calls[1][1].method).toBe('POST')
+    expect(fetch.mock.calls[2][0]).toBe(
+      `${API_BASE_URL}/sessions/7/restore?user_id=user+one`,
+    )
+    expect(fetch.mock.calls[3][0]).toBe(
+      `${API_BASE_URL}/sessions/7?user_id=user+one`,
+    )
+    expect(fetch.mock.calls[3][1].method).toBe('DELETE')
   })
 })
 
@@ -299,6 +341,7 @@ describe('tutorApi SSE API', () => {
       + 'event: token\ndata: {"text":"Hello "}\n\n'
       + 'event: tool_call\ndata: {"tool":"search","args":{"q":"SSE"}}\n\n'
       + 'event: tool_result\ndata: {"tool":"search","result":{"ok":true}}\n\n'
+      + 'event: progress\ndata: {"stage":"working","elapsed_ms":1000}\n\n'
       + 'event: token\ndata: {"text":"world"}\n\n'
       + 'event: done\ndata: {"session_id":"session-1","reply":{"answer":"Hello world"}}\n\n',
     ]))
@@ -307,6 +350,7 @@ describe('tutorApi SSE API', () => {
       onToken: vi.fn(),
       onToolCall: vi.fn(),
       onToolResult: vi.fn(),
+      onProgress: vi.fn(),
       onDone: vi.fn(),
       onError: vi.fn(),
     }
@@ -323,6 +367,7 @@ describe('tutorApi SSE API', () => {
     expect(callbacks.onToken.mock.calls).toEqual([['Hello '], ['world']])
     expect(callbacks.onToolCall).toHaveBeenCalledWith('search', { q: 'SSE' })
     expect(callbacks.onToolResult).toHaveBeenCalledWith('search', { ok: true })
+    expect(callbacks.onProgress).toHaveBeenCalledWith({ stage: 'working', elapsed_ms: 1000 })
     expect(callbacks.onDone).toHaveBeenCalledWith({
       session_id: 'session-1',
       reply: { answer: 'Hello world' },

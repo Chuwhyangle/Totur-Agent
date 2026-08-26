@@ -6,9 +6,13 @@ from app.db.engine import get_engine
 from app.db.models import ChatSessionRecord, ConversationRecord
 from app.repositories.conversation_repository import list_recent_conversations
 from app.repositories.session_repository import (
+    SessionDeleteBlockedError,
+    archive_session,
     create_session,
+    delete_session,
     get_session,
     list_sessions,
+    restore_session,
 )
 from app.schemas.conversations import ConversationItem
 from app.schemas.sessions import (
@@ -108,15 +112,85 @@ def create_chat_session(request: CreateSessionRequest) -> SessionItem:
 def get_sessions(
     user_id: str = Query(..., min_length=1),
     limit: int = Query(default=50, ge=1, le=100),
+    include_archived: bool = Query(default=False),
 ) -> SessionListResponse:
     """查询某个用户最近的会话列表。"""
 
-    sessions = list_sessions(user_id=user_id, limit=limit)
+    sessions = list_sessions(
+        user_id=user_id,
+        limit=limit,
+        include_archived=include_archived,
+    )
 
     return SessionListResponse(
         user_id=user_id,
         items=[_session_item_from_record(session) for session in sessions],
     )
+
+
+@router.post(
+    "/sessions/{session_id}/archive",
+    response_model=SessionItem,
+)
+def archive_chat_session(
+    session_id: int,
+    user_id: str = Query(..., min_length=1),
+) -> SessionItem:
+    """将会话回档并从默认列表隐藏，保留其历史数据。"""
+
+    session = archive_session(session_id=session_id, user_id=user_id)
+    if session is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Session not found",
+        )
+    return _session_item_from_record(session)
+
+
+@router.post(
+    "/sessions/{session_id}/restore",
+    response_model=SessionItem,
+)
+def restore_chat_session(
+    session_id: int,
+    user_id: str = Query(..., min_length=1),
+) -> SessionItem:
+    """恢复属于指定用户的已回档会话。"""
+
+    session = restore_session(session_id=session_id, user_id=user_id)
+    if session is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Session not found",
+        )
+    return _session_item_from_record(session)
+
+
+@router.delete(
+    "/sessions/{session_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def delete_chat_session(
+    session_id: int,
+    user_id: str = Query(..., min_length=1),
+) -> None:
+    """永久删除属于指定用户的会话及聊天记录。"""
+
+    try:
+        deleted = delete_session(session_id=session_id, user_id=user_id)
+    except SessionDeleteBlockedError as error:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "error": "session_delete_blocked",
+                "reason": error.reason,
+            },
+        ) from error
+    if not deleted:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Session not found",
+        )
 
 
 @router.get(
@@ -165,6 +239,7 @@ def _session_item_from_record(record: ChatSessionRecord) -> SessionItem:
         updated_at=record.updated_at,
         subject=record.subject,
         workspace_id=record.workspace_id,
+        archived_at=record.archived_at,
     )
 
 

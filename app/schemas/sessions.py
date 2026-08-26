@@ -26,6 +26,7 @@ class SessionItem(BaseModel):
     updated_at: str
     subject: str | None = None
     workspace_id: str | None = None
+    archived_at: str | None = None
 
 
 class SessionListResponse(BaseModel):

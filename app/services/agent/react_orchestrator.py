@@ -540,15 +540,12 @@ class ReactOrchestrator:
             rag_scope=rag_scope,
         )
         active_tool_choice = tool_choice or "auto"
-        request_params = dict(runtime.request_params)
-        request_params.update(
-            {
-                "model": runtime.api_model,
-                "messages": messages,
-                "tools": tools,
-                "tool_choice": active_tool_choice,
-                "stream": True,
-            }
+        request_params = self._build_model_request(
+            runtime,
+            messages=messages,
+            tools=tools,
+            tool_choice=active_tool_choice,
+            stream=True,
         )
 
         timings.bump("llm_calls")
@@ -651,47 +648,10 @@ class ReactOrchestrator:
                 runtime.provider,
                 type(stream_error).__name__,
             )
-            logger.warning(
-                "stream_fallback_to_non_stream model=%s provider=%s",
-                runtime.trace_model,
-                runtime.provider,
-            )
-            timings.bump("llm_calls")
-            fallback_started_at = time.perf_counter()
-            with timings.track("llm"):
-                completion = runtime.client.chat.completions.create(
-                    model=runtime.api_model,
-                    messages=messages,
-                    tools=tools,
-                    tool_choice=active_tool_choice,
-                    **runtime.request_params,
-                )
-            self._record_llm_call(
-                completion=completion,
-                call_type="with_tools",
-                cost_ms=int((time.perf_counter() - fallback_started_at) * 1000),
-                trace_model=runtime.trace_model,
-            )
-            fallback_result = self._round_result_from_message(
-                completion.choices[0].message
-            )
-            if fallback_result.reasoning:
-                yield StreamEvent(
-                    type="thinking",
-                    data={"text": fallback_result.reasoning},
-                )
-            if fallback_result.content:
-                if content_prefix and not content_parts:
-                    content_parts.append(content_prefix)
-                    yield StreamEvent(
-                        type="token",
-                        data={"text": content_prefix},
-                    )
-                yield StreamEvent(
-                    type="token",
-                    data={"text": fallback_result.content},
-                )
-            return fallback_result
+            # A streaming endpoint must never substitute a complete
+            # non-streaming response and emit it as one fake token. Surface the
+            # provider error so the client can retry or choose a compatible model.
+            raise stream_error
 
         tool_calls = [
             {
@@ -891,6 +851,38 @@ class ReactOrchestrator:
             request_params={},
         )
 
+    @staticmethod
+    def _build_model_request(
+        runtime: _ModelRuntime,
+        *,
+        messages: list[ChatCompletionMessageParam],
+        tools: list[dict[str, Any]] | None = None,
+        tool_choice: str | dict | None = None,
+        stream: bool = False,
+    ) -> dict[str, Any]:
+        """Build one OpenAI-compatible request without dropping runtime params.
+
+        Model-specific parameters (for example ``reasoning_effort`` and
+        ``extra_body``) are resolved once and then shared by streaming and
+        non-streaming callers.  ``stream`` is opt-in so a normal request can
+        never accidentally inherit a streaming flag from another round.
+        """
+
+        request_params = dict(runtime.request_params)
+        request_params.update(
+            {
+                "model": runtime.api_model,
+                "messages": messages,
+            }
+        )
+        if tools is not None:
+            request_params["tools"] = tools
+        if tool_choice is not None:
+            request_params["tool_choice"] = tool_choice
+        if stream:
+            request_params["stream"] = True
+        return request_params
+
     def _active_tools(
         self,
         *,
@@ -917,14 +909,6 @@ class ReactOrchestrator:
         except TypeError:
             # Keep lightweight test registries and old integrations compatible.
             tools = self.tool_registry.get_tools_schema()
-        if getattr(execution_context, "progress_update_requested", False):
-            # This is a write-only maintenance mode. Do not let the model
-            # choose a journal, web search, RAG, or Workspace tool instead.
-            return [
-                tool
-                for tool in tools
-                if _tool_schema_name(tool) == PROGRESS_UPDATE_TOOL_NAME
-            ]
         if not rag_enabled:
             tools = [
                 tool
@@ -1038,11 +1022,12 @@ class ReactOrchestrator:
         call_started_at = time.perf_counter()
         with timings.track("llm"):
             completion = runtime.client.chat.completions.create(
-                model=runtime.api_model,
-                messages=messages,
-                tools=tools,
-                tool_choice=active_tool_choice,
-                **runtime.request_params,
+                **self._build_model_request(
+                    runtime,
+                    messages=messages,
+                    tools=tools,
+                    tool_choice=active_tool_choice,
+                )
             )
         self._record_llm_call(
             completion=completion,
@@ -1199,10 +1184,13 @@ class ReactOrchestrator:
     ) -> str | dict:
         """Force or retry the progress tool after an explicit request."""
 
-        if run_state.progress_update_requested and run_state.progress_update_succeeded:
+        if (
+            getattr(run_state, "progress_update_requested", False)
+            and getattr(run_state, "progress_update_succeeded", False)
+        ):
             return "none"
         if (
-            run_state.progress_update_requested
+            getattr(run_state, "progress_update_requested", False)
             and (
                 round_number == run_state.progress_update_round
                 or run_state.progress_update_retry_requested
@@ -1221,7 +1209,7 @@ class ReactOrchestrator:
     ) -> None:
         """Retry progress mode until its dedicated tool succeeds."""
 
-        if not run_state.progress_update_requested:
+        if not getattr(run_state, "progress_update_requested", False):
             return
         progress_traces = [
             trace
@@ -1922,9 +1910,7 @@ class ReactOrchestrator:
         call_started_at = time.perf_counter()
         with timings.track("llm"):
             completion = runtime.client.chat.completions.create(
-                model=runtime.api_model,
-                messages=messages,
-                **runtime.request_params,
+                **self._build_model_request(runtime, messages=messages)
             )
         self._record_llm_call(
             completion=completion,

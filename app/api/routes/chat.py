@@ -2,6 +2,9 @@
 
 import json
 import logging
+import queue
+import threading
+import time
 
 from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import StreamingResponse
@@ -33,6 +36,7 @@ router = APIRouter(tags=["chat"])
 
 tutor_agent_service = TutorAgentService()
 logger = logging.getLogger(__name__)
+_STREAM_PROGRESS_INTERVAL_SECONDS = 1.0
 
 
 def _format_sse_event(event_type: str, data: dict) -> str:
@@ -63,6 +67,7 @@ def chat_stream(request: ChatRequest) -> StreamingResponse:
         - token: partial reply text
         - tool_call: tool invocation started
         - tool_result: tool invocation completed
+        - progress: server-side work heartbeat while a model/tool is running
         - done: full response with sources
         - error: error message
     """
@@ -109,8 +114,41 @@ def chat_stream(request: ChatRequest) -> StreamingResponse:
 
     def event_generator():
         terminal_event_sent = False
+        event_queue: queue.Queue[tuple[str, object]] = queue.Queue()
+
+        def pump_events() -> None:
+            try:
+                for event in tutor_agent_service.chat_stream(request):
+                    event_queue.put(("event", event))
+            except Exception as exc:  # surface worker failures to the response
+                event_queue.put(("exception", exc))
+            finally:
+                event_queue.put(("complete", None))
+
+        threading.Thread(target=pump_events, name="chat-stream-pump", daemon=True).start()
+        started_at = time.monotonic()
         try:
-            for event in tutor_agent_service.chat_stream(request):
+            while True:
+                try:
+                    kind, payload = event_queue.get(
+                        timeout=_STREAM_PROGRESS_INTERVAL_SECONDS
+                    )
+                except queue.Empty:
+                    yield _format_sse_event(
+                        "progress",
+                        {
+                            "stage": "working",
+                            "elapsed_ms": int((time.monotonic() - started_at) * 1000),
+                        },
+                    )
+                    continue
+
+                if kind == "exception":
+                    raise payload
+                if kind == "complete":
+                    break
+
+                event = payload
                 event_type = event.get("event", "token")
                 data = event.get("data", {})
                 yield _format_sse_event(event_type, data)

@@ -11,9 +11,11 @@ AI 学习辅导 Agent 练习项目。后端使用 FastAPI，前端使用 React +
 - 会话会绑定 `persona_id`；切换历史会话时，前端会恢复该会话的人设。
 - ReAct 工具循环：模型可以连续多轮请求工具；`tool_trace.calls[]` 会记录工具名、参数、结果摘要和 `round`。
 - RAG 学习笔记检索：`search_learning_notes` 会从本地 `docs/**/*.md` 的 Chroma 索引中检索，并要求回答标注来源。
-- `GET /sessions`、`POST /sessions`、`GET /sessions/{session_id}/conversations`：多会话窗口。
+- `GET /sessions`、`POST /sessions`、`GET /sessions/{session_id}/conversations`：多会话窗口；`GET /sessions?include_archived=true` 可包含已回档会话。
+- `POST /sessions/{session_id}/archive`、`POST /sessions/{session_id}/restore`、`DELETE /sessions/{session_id}`：回档（隐藏/恢复）和永久删除会话。
 - `GET /conversations/{user_id}`：查询某个用户的最近对话历史。
 - `GET /interview-jds`、`POST /interview-jds`：保存和读取面试 JD，用于工具检索。
+- `GET /interview-jds/{id}`、`PUT /interview-jds/{id}`、`DELETE /interview-jds/{id}`：查看、编辑和删除指定用户的目标岗位。
 - SQLite 持久化对话、会话、摘要和面试 JD；本地开发数据库位于 `DATA_DIR` 指定的数据根目录，不放在仓库内。
 - Chroma 持久化学习笔记、JD 和附件向量；它不保存业务主表。
 - MySQL 当前只保存 Agent 可观测性：`agent_traces`、检索、LLM 和工具事件；`conversations`、`sessions`、`documents` 等业务表尚未迁移，业务 API 仍使用 SQLite。

@@ -82,6 +82,36 @@ def test_chat_success_finishes_one_trace_as_ok(monkeypatch):
     assert calls[1][1]["status"] == "OK"
 
 
+def test_chat_propagates_explicit_progress_update_to_execution_context(monkeypatch):
+    calls = capture_trace_calls(monkeypatch)
+    service = make_service(monkeypatch)
+    captured_contexts = []
+
+    def create_context(**kwargs):
+        captured_contexts.append(kwargs)
+        return SimpleNamespace(
+            user_id=kwargs["user_id"],
+            session_id=kwargs["session"].id,
+            workspace_id=None,
+            trace_id=kwargs["trace_id"],
+            current_goal=kwargs["current_goal"],
+            task_recorder=None,
+            progress_update_requested=kwargs["progress_update_requested"],
+        )
+
+    service._create_execution_context = create_context
+    request = ChatRequest(
+        user_id="trace-user",
+        message="/更新进度",
+        action="update_progress",
+    )
+
+    service.chat(request)
+
+    assert captured_contexts[0]["progress_update_requested"] is True
+    assert [kind for kind, _ in calls] == ["start", "finish"]
+
+
 def test_chat_failure_finishes_one_trace_as_error(monkeypatch):
     calls = capture_trace_calls(monkeypatch)
 

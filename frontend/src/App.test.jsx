@@ -4,16 +4,21 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const api = vi.hoisted(() => ({
   API_BASE_URL: 'http://127.0.0.1:8001',
+  archiveSession: vi.fn(),
   createInterviewJD: vi.fn(),
+  deleteInterviewJD: vi.fn(),
+  deleteSession: vi.fn(),
   createSession: vi.fn(),
   deleteAttachment: vi.fn(),
   getAttachments: vi.fn(),
   getHealth: vi.fn(),
+  getInterviewJD: vi.fn(),
   getInterviewJDs: vi.fn(),
   getLearningProgress: vi.fn(),
   getPersonas: vi.fn(),
   getSessionConversations: vi.fn(),
   getSessions: vi.fn(),
+  restoreSession: vi.fn(),
   getWorkspaces: vi.fn(),
   getWorkspaceAssets: vi.fn(),
   getWorkspaceTasks: vi.fn(),
@@ -21,6 +26,7 @@ const api = vi.hoisted(() => ({
   postChat: vi.fn(),
   postChatStream: vi.fn(),
   saveLearningProgress: vi.fn(),
+  updateInterviewJD: vi.fn(),
   deleteLearningProgress: vi.fn(),
   retryAttachment: vi.fn(),
   uploadAttachment: vi.fn(),
@@ -365,15 +371,22 @@ describe('App RAG three-state control', () => {
 
   it('sends an explicit progress update action from the progress button', async () => {
     const user = userEvent.setup()
+    api.postChatStream.mockImplementation(async (_request, callbacks) => {
+      callbacks.onDone({
+        session_id: 'session-1',
+        reply: { answer: '进度已更新', sources: [] },
+      })
+    })
     render(<App />)
     await openSession(user)
     await user.click(screen.getByRole('button', { name: '更新进度' }))
 
-    await waitFor(() => expect(api.postChat).toHaveBeenCalledTimes(1))
-    expect(api.postChat.mock.calls[0][0]).toMatchObject({
+    await waitFor(() => expect(api.postChatStream).toHaveBeenCalledTimes(1))
+    expect(api.postChatStream.mock.calls[0][0]).toMatchObject({
       message: '/更新进度',
       action: 'update_progress',
     })
+    expect(api.postChat).not.toHaveBeenCalled()
   })
 
   it('cycles auto -> force -> off -> auto', async () => {
@@ -599,6 +612,31 @@ describe('App SSE sending', () => {
     expect(api.postChatStream).toHaveBeenCalledTimes(1)
     expect(api.postChat).not.toHaveBeenCalled()
     await waitFor(() => expect(screen.getByRole('button', { name: '流式' }).disabled).toBe(false))
+  })
+
+  it('keeps the first message when sending creates the initial session', async () => {
+    const user = userEvent.setup()
+    api.getSessions.mockResolvedValue({ data: { items: [] } })
+    api.postChatStream.mockImplementation(async (_request, callbacks) => {
+      callbacks.onToken('首条回复')
+      callbacks.onDone({
+        session_id: 'session-1',
+        reply: { answer: '首条回复', sources: [] },
+      })
+    })
+
+    render(<App />)
+    await user.type(
+      screen.getByPlaceholderText('写下你的问题，或让导师帮你拆解下一步…'),
+      '首条问题',
+    )
+    await user.click(screen.getByRole('button', { name: '发送消息' }))
+
+    expect(await screen.findByText('首条问题')).not.toBeNull()
+    expect(await screen.findByText('首条回复')).not.toBeNull()
+    expect(api.createSession).toHaveBeenCalledTimes(1)
+    expect(api.postChatStream).toHaveBeenCalledTimes(1)
+    expect(api.postChat).not.toHaveBeenCalled()
   })
 
   it('shows the tool status even when a tool call arrives before the first token', async () => {

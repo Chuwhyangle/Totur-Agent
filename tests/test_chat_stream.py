@@ -1,6 +1,7 @@
 """SSE chat route contract tests."""
 
 import json
+import time
 from contextvars import copy_context
 from types import SimpleNamespace
 
@@ -56,6 +57,27 @@ def test_stream_preserves_token_tool_and_done_event_order(monkeypatch):
     assert events[-1][1]["reply"] == final_reply
 
 
+def test_stream_emits_progress_heartbeats_while_service_is_busy(monkeypatch):
+    monkeypatch.setattr(chat_route, "_STREAM_PROGRESS_INTERVAL_SECONDS", 0.01)
+
+    def slow_stream(_request):
+        yield {"event": "token", "data": {"text": "开始"}}
+        time.sleep(0.05)
+        yield {
+            "event": "done",
+            "data": {"full_response": "开始完成", "reply": {"answer": "开始完成"}},
+        }
+
+    monkeypatch.setattr(chat_route.tutor_agent_service, "chat_stream", slow_stream)
+
+    response = client.post("/chat/stream", json=REQUEST)
+
+    assert response.status_code == 200
+    events = _parse_events(response.text)
+    assert any(event_type == "progress" for event_type, _ in events)
+    assert events[-1][0] == "done"
+
+
 def test_stream_serializes_multiple_model_chunks_as_multiple_sse_token_events(monkeypatch):
     """多个模型 chunk 应经服务事件转换为多个 SSE token 事件。"""
 
@@ -94,7 +116,9 @@ def test_stream_serializes_multiple_model_chunks_as_multiple_sse_token_events(mo
 
     assert response.status_code == 200
     events = _parse_events(response.text)
-    assert [event_type for event_type, _ in events] == ["token", "token", "done"]
+    assert [event_type for event_type, _ in events if event_type != "progress"] == [
+        "token", "token", "done"
+    ]
     assert [data["text"] for kind, data in events if kind == "token"] == [
         "第一",
         "部分",

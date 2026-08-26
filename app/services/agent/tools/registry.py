@@ -380,14 +380,6 @@ class ToolRegistry:
     def get_tools_schema(self, execution_context=None) -> list[dict[str, Any]]:
         """Return tools allowed for the current request mode."""
 
-        if (
-            execution_context is not None
-            and getattr(execution_context, "progress_update_requested", False)
-        ):
-            # Progress mode is deliberately isolated: the model must not turn
-            # a structured progress update into a journal entry or retrieval.
-            return [deepcopy(UPDATE_LEARNING_PROGRESS_SCHEMA)]
-
         learning_notes_schema = deepcopy(SEARCH_LEARNING_NOTES_SCHEMA)
         if not rag_settings.ENABLE_SUBJECT_SHARDING:
             # Preserve the legacy tool contract while the feature flag is off.
@@ -401,6 +393,7 @@ class ToolRegistry:
             deepcopy(SEARCH_ATTACHMENTS_SCHEMA),
             deepcopy(SCORE_JD_SKILL_FIT_SCHEMA),
             deepcopy(SAVE_JOURNAL_ENTRY_SCHEMA),
+            deepcopy(UPDATE_LEARNING_PROGRESS_SCHEMA),
             deepcopy(WEB_SEARCH_SCHEMA),
         ]
         if self._mcp_client_adapter is not None:
@@ -445,8 +438,6 @@ class ToolRegistry:
         if name == UPDATE_LEARNING_PROGRESS_TOOL_NAME:
             if execution_context is None:
                 return "execution_context_required"
-            if not getattr(execution_context, "progress_update_requested", False):
-                return "progress_update_not_requested"
             return None
         if name is not None and not self.is_workspace_tool(name):
             return None

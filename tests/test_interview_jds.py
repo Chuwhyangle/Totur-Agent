@@ -1,7 +1,6 @@
 """Interview JD storage tests.
 
-These tests describe the first foundation for target-job storage. Tool search
-will come later; this layer only saves and lists user-provided JD records.
+These tests cover target-job storage CRUD and user-scoped access.
 """
 
 import sqlite3
@@ -124,6 +123,69 @@ def test_get_interview_jds_returns_current_user_records(monkeypatch, tmp_path):
         "后端 AI 应用岗位",
         "AI Agent / LLM 应用开发岗位",
     ]
+
+
+def test_get_interview_jd_returns_detail_and_enforces_user_scope(monkeypatch, tmp_path):
+    use_temp_database(monkeypatch, tmp_path)
+
+    created = create_interview_jd(**sample_jd_payload("alice"))
+
+    response = client.get(f"/interview-jds/{created.id}?user_id=alice")
+    assert response.status_code == 200
+    assert response.json()["raw_text"] == created.raw_text
+    assert response.json()["core_skills"] == created.core_skills
+
+    other_user_response = client.get(f"/interview-jds/{created.id}?user_id=bob")
+    assert other_user_response.status_code == 404
+
+
+def test_put_interview_jd_updates_all_editable_fields(monkeypatch, tmp_path):
+    use_temp_database(monkeypatch, tmp_path)
+
+    created = create_interview_jd(**sample_jd_payload("alice"))
+    updated_payload = {
+        **sample_jd_payload("alice"),
+        "title": "后端 AI 应用工程师",
+        "raw_text": "负责后端服务、Agent 和 RAG 系统。",
+        "core_skills": ["Python", "FastAPI"],
+        "keywords": ["Backend", "Agent"],
+    }
+
+    response = client.put(
+        f"/interview-jds/{created.id}?user_id=alice",
+        json=updated_payload,
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["id"] == created.id
+    assert body["title"] == "后端 AI 应用工程师"
+    assert body["raw_text"] == "负责后端服务、Agent 和 RAG 系统。"
+    assert body["core_skills"] == ["Python", "FastAPI"]
+    assert body["keywords"] == ["Backend", "Agent"]
+
+    wrong_user_response = client.put(
+        f"/interview-jds/{created.id}?user_id=bob",
+        json=updated_payload,
+    )
+    assert wrong_user_response.status_code == 404
+
+
+def test_delete_interview_jd_removes_record_and_enforces_user_scope(monkeypatch, tmp_path):
+    use_temp_database(monkeypatch, tmp_path)
+
+    created = create_interview_jd(**sample_jd_payload("alice"))
+
+    wrong_user_response = client.delete(f"/interview-jds/{created.id}?user_id=bob")
+    assert wrong_user_response.status_code == 404
+    assert list_interview_jds("alice")[0].id == created.id
+
+    response = client.delete(f"/interview-jds/{created.id}?user_id=alice")
+    assert response.status_code == 204
+    assert list_interview_jds("alice") == []
+
+    missing_response = client.delete(f"/interview-jds/{created.id}?user_id=alice")
+    assert missing_response.status_code == 404
 
 
 def test_interview_jds_reject_empty_raw_text():
